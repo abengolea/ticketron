@@ -1,3 +1,56 @@
+"use client";
+
+import { useState } from "react";
+import { TicketForm } from "@/components/ticket-form";
+import { TicketPreview } from "@/components/ticket-preview";
+import type { GenerationResult } from "@/lib/types";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Loader2 } from "lucide-react";
+
 export default function Home() {
-  return <></>;
+  const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  const handleGeneration = (result: GenerationResult | null, error: string | null) => {
+    setGenerationResult(result);
+    setError(error);
+  };
+
+  if (generationResult) {
+    return <TicketPreview result={generationResult} />;
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="text-center mb-8">
+        <h1 className="text-4xl font-headline text-primary">Ticket Generator</h1>
+        <p className="text-muted-foreground mt-2">
+          Configure your event details below and generate your printable tickets.
+        </p>
+      </div>
+
+      {isLoading && (
+        <div className="flex justify-center items-center my-8">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 animate-spin text-primary" />
+            <p className="text-muted-foreground">
+              AI is verifying parameters and generating tickets...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {error && !isLoading && (
+        <Alert variant="destructive" className="mb-8">
+          <AlertTitle>Generation Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className={isLoading ? "hidden" : ""}>
+        <TicketForm onGenerate={handleGeneration} setIsLoading={setIsLoading} />
+      </div>
+    </div>
+  );
 }
