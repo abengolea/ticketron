@@ -1,16 +1,16 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createHmac } from 'crypto';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card';
 import { Label } from './ui/label';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle, Camera } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
 
 type ValidationResult = {
   status: 'valid' | 'invalid' | 'redeemed';
@@ -22,10 +22,11 @@ export function TicketValidator() {
   const [qrPayload, setQrPayload] = useState('');
   const [redeemedTickets, setRedeemedTickets] = useState<Set<string>>(new Set());
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    // Load redeemed tickets from local storage on mount
     try {
       const storedRedeemed = localStorage.getItem('redeemedTickets');
       if (storedRedeemed) {
@@ -36,9 +37,9 @@ export function TicketValidator() {
         localStorage.removeItem('redeemedTickets');
     }
   }, []);
-  
-  const handleValidate = () => {
-    if (!secretKey.trim() || !qrPayload.trim()) {
+
+  const handleValidate = (payload: string) => {
+    if (!secretKey.trim() || !payload.trim()) {
       toast({
         variant: "destructive",
         title: "Missing Information",
@@ -48,7 +49,7 @@ export function TicketValidator() {
     }
 
     try {
-      const data = JSON.parse(qrPayload);
+      const data = JSON.parse(payload);
       const { v, eid, tid, sig } = data;
 
       if (!v || !eid || !tid || !sig) {
@@ -81,6 +82,54 @@ export function TicketValidator() {
     setQrPayload('');
   };
 
+  const startScanner = async () => {
+    setIsScanning(true);
+    setValidationResult(null);
+
+    try {
+        await Html5Qrcode.getCameras();
+        const scanner = new Html5Qrcode('qr-reader');
+        scannerRef.current = scanner;
+        
+        scanner.start(
+            { facingMode: "environment" },
+            {
+                fps: 10,
+                qrbox: { width: 250, height: 250 }
+            },
+            (decodedText) => {
+                setQrPayload(decodedText);
+                handleValidate(decodedText);
+                stopScanner();
+            },
+            (errorMessage) => {
+                // ignore errors
+            }
+        ).catch(err => {
+            toast({ variant: 'destructive', title: 'Scanner Error', description: err.message });
+            setIsScanning(false);
+        });
+    } catch (err: any) {
+        toast({ variant: 'destructive', title: 'Camera Error', description: "Could not get camera permissions. Please allow camera access." });
+        setIsScanning(false);
+    }
+  };
+
+  const stopScanner = () => {
+    if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch(err => console.error("Failed to stop scanner", err));
+    }
+    setIsScanning(false);
+  }
+
+  useEffect(() => {
+    return () => {
+        if(scannerRef.current && scannerRef.current.isScanning) {
+            stopScanner();
+        }
+    }
+  }, []);
+
   return (
     <Card className="max-w-2xl mx-auto">
       <CardHeader>
@@ -101,19 +150,28 @@ export function TicketValidator() {
                 className="font-mono text-sm"
             />
         </div>
-        <div className="space-y-2">
-            <Label htmlFor="qr-payload" className='flex items-center gap-2'>
-                <ScanLine className='w-4 h-4' />
-                QR Code Payload
-            </Label>
-            <Textarea
-                id="qr-payload"
-                placeholder="Paste data from the scanned QR code here"
-                value={qrPayload}
-                onChange={(e) => setQrPayload(e.target.value)}
-                className="font-mono text-sm"
-            />
-        </div>
+
+        {isScanning ? (
+            <div className="space-y-2">
+                <div id="qr-reader" className="w-full rounded-md border aspect-video"></div>
+                <Button variant="outline" onClick={stopScanner} className="w-full">Cancel Scan</Button>
+            </div>
+        ) : (
+            <div className="space-y-2">
+                <Label htmlFor="qr-payload" className='flex items-center gap-2'>
+                    <ScanLine className='w-4 h-4' />
+                    QR Code Payload
+                </Label>
+                <Textarea
+                    id="qr-payload"
+                    placeholder="Paste data from the scanned QR code here"
+                    value={qrPayload}
+                    onChange={(e) => setQrPayload(e.target.value)}
+                    className="font-mono text-sm"
+                />
+            </div>
+        )}
+
         {validationResult && (
           <Alert variant={validationResult.status === 'invalid' ? 'destructive' : 'default'} className={cn({
             'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300': validationResult.status === 'valid',
@@ -128,7 +186,10 @@ export function TicketValidator() {
         )}
       </CardContent>
       <CardFooter className='flex-col items-stretch gap-4'>
-        <Button onClick={handleValidate} className='w-full'>Validate Ticket</Button>
+        <div className="flex gap-2">
+          {!isScanning && <Button onClick={startScanner} variant="secondary" className="w-full"><Camera /> Scan QR</Button>}
+          <Button onClick={() => handleValidate(qrPayload)} className='w-full' disabled={isScanning}>Validate Ticket</Button>
+        </div>
         <div className="text-xs text-muted-foreground flex items-center gap-4 bg-muted p-3 rounded-lg">
             <p>Redeemed tickets: <span className="font-bold">{redeemedTickets.size}</span></p>
             <Button variant="outline" size="sm" className="ml-auto" onClick={() => {
