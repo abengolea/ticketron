@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle, Camera } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 
 type ValidationResult = {
   status: 'valid' | 'invalid' | 'redeemed';
@@ -133,8 +133,8 @@ export function TicketValidator() {
   return (
     <Card className="max-w-2xl mx-auto">
       <CardHeader>
-        <CardTitle>Validate Ticket</CardTitle>
-        <CardDescription>Enter the secret key and scan a QR code to validate a ticket.</CardDescription>
+        <CardTitle>Offline Validator</CardTitle>
+        <CardDescription>Enter the secret key and scan a QR code to validate a ticket. This method does not require internet.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">

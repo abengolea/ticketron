@@ -1,4 +1,4 @@
-import { TicketValidator } from "@/components/ticket-validator";
+import { TicketValidatorOnline } from "@/components/ticket-validator-online";
 
 export default function ValidatePage() {
   return (
@@ -6,10 +6,10 @@ export default function ValidatePage() {
       <div className="text-center mb-8">
         <h1 className="text-4xl font-headline text-primary">Ticket Validator</h1>
         <p className="text-muted-foreground mt-2">
-          Verify tickets offline by providing your secret key and the QR code payload.
+          Scan a ticket's QR code to validate it against the online database.
         </p>
       </div>
-      <TicketValidator />
+      <TicketValidatorOnline />
     </div>
   );
 }

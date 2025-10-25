@@ -4,17 +4,19 @@ import type { GenerationResult } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
 import { downloadFile } from "@/lib/utils";
-import { Download, Printer, ArrowLeft } from "lucide-react";
+import { Download, Printer, ArrowLeft, Loader2, CheckCircle } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useFirestore } from "@/firebase";
+import { collection, writeBatch, doc } from "firebase/firestore";
+import { useEffect, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 
-type TicketPreviewProps = {
-  result: GenerationResult;
-};
 
 // Helper to chunk array
 const chunk = <T,>(arr: T[], size: number): T[][] =>
@@ -24,6 +26,65 @@ const chunk = <T,>(arr: T[], size: number): T[][] =>
 
 export function TicketPreview({ result }: TicketPreviewProps) {
   const { tickets, secretKey, eventParams } = result;
+  const firestore = useFirestore();
+  const { toast } = useToast();
+
+  const [isSaving, setIsSaving] = useState(true);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaved, setIsSaved] = useState(false);
+
+  useEffect(() => {
+    const saveTicketsToFirestore = async () => {
+      if (!firestore) {
+        setSaveError("Firestore is not available. Tickets cannot be saved online.");
+        setIsSaving(false);
+        return;
+      }
+      if(isSaved || tickets.length === 0) {
+        setIsSaving(false);
+        return;
+      };
+
+      try {
+        const batch = writeBatch(firestore);
+        const eventId = eventParams.event_id;
+        const eventDocRef = doc(firestore, 'events', eventId);
+
+        // Set event details
+        batch.set(eventDocRef, { 
+            eventName: eventParams.event_name,
+            dateTime: eventParams.date_time,
+            venue: eventParams.venue,
+            createdAt: new Date(),
+        }, { merge: true });
+
+        tickets.forEach((ticket) => {
+          const ticketDocRef = doc(firestore, `events/${eventId}/tickets`, ticket.ticketId);
+          batch.set(ticketDocRef, {
+            ticketNumber: ticket.ticketNumber,
+            shortCode: ticket.shortCode,
+            redeemed: false,
+            redeemedAt: null,
+          });
+        });
+
+        await batch.commit();
+        setIsSaved(true);
+        toast({
+          title: "Tickets saved online",
+          description: `${tickets.length} tickets have been synced with the database.`,
+        });
+      } catch (error: any) {
+        console.error("Error saving tickets to Firestore:", error);
+        setSaveError(`Failed to save tickets online. Please check your Firestore security rules and internet connection. Error: ${error.message}`);
+      } finally {
+        setIsSaving(false);
+      }
+    };
+
+    saveTicketsToFirestore();
+  }, [firestore, tickets, eventParams, toast, isSaved]);
+
 
   const handleDownloadSecret = () => {
     downloadFile("secret_key.txt", secretKey, "text/plain");
@@ -59,29 +120,31 @@ export function TicketPreview({ result }: TicketPreviewProps) {
     const readmeContent = `
 # Ticket Validation Instructions
 
-## 1. Important: Secure your Secret Key
+## 1. Online Validation (Recommended)
 
-The file \`secret_key.txt\` is critical for validating tickets. **DO NOT SHARE IT PUBLICLY.** Keep it safe. You will need it for the validation process.
+Use the "Validator" page in this application. It requires an internet connection.
 
-## 2. Offline Validation Method (Recommended)
+1. Go to the "Validator" page.
+2. Click "Scan QR" and use your device's camera to scan the ticket's QR code.
+3. The tool will check the ticket against the online database and show if it's VALID, INVALID, or has ALREADY BEEN REDEEMED.
 
-Use the web validator tool provided with this application.
+## 2. Offline Validation (Backup Method)
 
-1. Go to the "Validator" page in the application.
-2. Copy the content of \`secret_key.txt\` and paste it into the "Secret Key" field on the validator page.
-3. Use a QR code scanner (like your phone's camera app or a USB scanner) to scan the ticket's QR code.
-4. Copy the text from the QR code and paste it into the "QR Code Payload" field.
-5. Click "Validate Ticket". The tool will tell you if the ticket is VALID, INVALID, or has ALREADY BEEN REDEEMED.
-6. The validator will keep track of redeemed tickets in your browser's local storage for the duration of your session.
+If you don't have internet at the venue, you can use the offline validator. This requires sharing the secret key with the validation staff.
 
-## 3. Manual Validation (Backup Method)
+1.  Download the validation assets using the Download button. You will get a \`secret_key.txt\` file.
+2.  **DO NOT SHARE THE SECRET KEY PUBLICLY.**
+3.  On the "Validator" page, paste the content of \`secret_key.txt\` into the "Secret Key" field.
+4.  Scan a QR code or paste its content. The tool will cryptographically verify the ticket.
+5.  Note: The offline validator keeps a list of redeemed tickets ONLY on that specific device. It does not sync with other devices.
 
-If the scanner or validator tool fails, you can use the \`tickets.csv\` file for manual lookup.
+## 3. Manual Validation (Last Resort)
 
-1. Open \`tickets.csv\` in a spreadsheet program (like Excel, Google Sheets, or Numbers).
-2. Ask the guest for their ticket number (e.g., #0042) or the 7-character verification code.
-3. Use the spreadsheet's search or filter function to find the corresponding row.
-4. Manually mark the ticket as redeemed in your spreadsheet. This method does not have cryptographic verification, so it should only be used as a last resort.
+Use the \`tickets.csv\` file for manual lookup if all else fails.
+
+1. Open \`tickets.csv\` in a spreadsheet program.
+2. Find the ticket by its number or verification code.
+3. Manually mark it as redeemed. This method has no security verification.
     `;
     downloadFile("README_VALIDACION.md", readmeContent.trim(), "text/markdown");
   };
@@ -124,6 +187,32 @@ If the scanner or validator tool fails, you can use the \`tickets.csv\` file for
 
         </div>
       </div>
+
+        {isSaving && (
+            <Alert className="mb-4">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <AlertTitle>Saving tickets...</AlertTitle>
+                <AlertDescription>
+                    Syncing generated tickets to the online database. Please wait.
+                </AlertDescription>
+            </Alert>
+        )}
+        {isSaved && (
+             <Alert variant="default" className="mb-4 bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300">
+                <CheckCircle className="h-4 w-4" />
+                <AlertTitle>Sync Complete</AlertTitle>
+                <AlertDescription>
+                    All tickets have been saved to the online database.
+                </AlertDescription>
+            </Alert>
+        )}
+        {saveError && (
+            <Alert variant="destructive" className="mb-4">
+                <AlertTitle>Online Sync Failed</AlertTitle>
+                <AlertDescription>{saveError}</AlertDescription>
+            </Alert>
+        )}
+
 
       <div className="printable-area space-y-4">
         {ticketPages.map((page, pageIndex) => (
