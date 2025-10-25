@@ -1,17 +1,9 @@
-// @ts-nocheck
-// TODO: Replace with your Firebase project's configuration object
-// See: https://firebase.google.com/docs/web/learn-more#config-object
+// Your web app's Firebase configuration
 export const firebaseConfig = {
-  apiKey: "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-  authDomain: "your-project-id.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project-id.appspot.com",
-  messagingSenderId: "123456789012",
-  appId: "1:123456789012:web:1234567890abcdef"
+  apiKey: "AIzaSyDm1C-IgdbKPKOA831B1zkF0Z00TOmRgn4",
+  authDomain: "studio-9893505602-68edc.firebaseapp.com",
+  projectId: "studio-9893505602-68edc",
+  storageBucket: "studio-9893505602-68edc.firebasestorage.app",
+  messagingSenderId: "978726699068",
+  appId: "1:978726699068:web:aa858650256f3628594339"
 };
-
-// This is a temporary guard to prevent the app from crashing.
-// You should replace the placeholder config above.
-if (firebaseConfig.apiKey.startsWith("AIzaSyXXX")) {
-    console.warn("Firebase config is not set. Please update src/firebase/config.ts");
-}
