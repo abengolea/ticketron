@@ -167,11 +167,10 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     setShowGenerateMoreDialog(false);
     toast({ title: "Generando más tickets..." });
     
-    try {
-        const eventId = eventParams.event_id;
-        const secretRef = doc(firestore, 'event_secrets', eventId);
-        const secretDoc = await getDoc(secretRef);
-
+    const eventId = eventParams.event_id;
+    const secretRef = doc(firestore, 'event_secrets', eventId);
+    
+    getDoc(secretRef).then(secretDoc => {
         if (!secretDoc.exists()) {
             throw new Error("No se encontró la clave secreta para este evento. No se pueden generar más tickets.");
         }
@@ -205,6 +204,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         const ticketChunks = chunk(newTickets, 499);
         for (const ticketChunk of ticketChunks) {
             const batch = writeBatch(firestore);
+            const batchData: Record<string, any> = {};
             ticketChunk.forEach((ticket) => {
                 const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
                 const ticketData = {
@@ -214,14 +214,18 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                     redeemedAt: null,
                 };
                 batch.set(ticketDocRef, ticketData);
+                batchData[ticket.ticketId] = ticketData;
             });
             batch.commit().catch(async (serverError) => {
                 const permissionError = new FirestorePermissionError({
                   path: ticketsCollectionRef.path,
                   operation: 'create',
+                  requestResourceData: batchData,
                   message: serverError.message,
                 });
                 errorEmitter.emit('permission-error', permissionError);
+                // Re-throw so it's caught by the outer catch
+                throw serverError;
             });
         }
         
@@ -234,6 +238,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                 message: serverError.message,
             });
             errorEmitter.emit('permission-error', permissionError);
+            // Re-throw so it's caught by the outer catch
+            throw serverError;
         });
 
 
@@ -244,7 +250,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         
         setTimeout(() => window.location.reload(), 2500);
 
-    } catch(e: any) {
+    }).catch((e: any) => {
         console.error("Failed to generate more tickets", e);
         toast({
             variant: "destructive",
@@ -252,7 +258,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             description: e.message,
         });
         setIsGeneratingMore(false);
-    }
+    });
   };
 
   const handleEditEvent = async () => {
