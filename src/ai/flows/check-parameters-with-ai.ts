@@ -1,38 +1,36 @@
+
 'use server';
 
 /**
  * @fileOverview A flow that uses AI to validate event parameters.
  *
  * - checkParametersWithAI - A function that validates event parameters using AI.
- * - CheckParametersInput - The input type for the checkParametersWithAI function.
- * - CheckParametersOutput - The return type for the checkParametersWithAI function.
+ * - CheckParametersInputSchema - The Zod schema for the input.
+ * - CheckParametersOutputSchema - The Zod schema for the output.
  */
 
 import { getAi } from '@/ai/genkit';
 import { z } from 'genkit';
 
-const CheckParametersInputSchema = z.object({
+// Renamed for clarity, this is the Zod schema
+export const CheckParametersInputSchema = z.object({
   event_name: z.string().describe('El nombre del evento.'),
   event_id: z.string().describe('Un ID corto para el evento.'),
   date_time: z.string().describe('La fecha y hora del evento.'),
   venue: z.string().describe('El lugar del evento.'),
-  quantity: z.number().describe('La cantidad de tickets a generar.'),
-  tickets_per_page: z.number().describe('El número de tickets por página.'),
+  quantity: z.coerce.number().describe('La cantidad de tickets a generar.'),
+  tickets_per_page: z.coerce.number().describe('El número de tickets por página.'),
   page_size: z.string().describe('El tamaño de página (ej. A4, Letter).'),
 });
 export type CheckParametersInput = z.infer<typeof CheckParametersInputSchema>;
 
-const CheckParametersOutputSchema = z.object({
+export const CheckParametersOutputSchema = z.object({
   valid: z.boolean().describe('Indica si los parámetros son válidos y consistentes.'),
   feedback: z.string().describe('Comentarios de la IA sobre los parámetros, en español.'),
 });
 export type CheckParametersOutput = z.infer<typeof CheckParametersOutputSchema>;
 
-export async function checkParametersWithAI(input: CheckParametersInput): Promise<CheckParametersOutput> {
-  return checkParametersFlow(input);
-}
-
-const prompt = getAi().definePrompt({
+const checkParametersPrompt = getAi().definePrompt({
   name: 'checkParametersPrompt',
   input: { schema: CheckParametersInputSchema },
   output: { schema: CheckParametersOutputSchema },
@@ -60,14 +58,14 @@ const prompt = getAi().definePrompt({
 `,
 });
 
-const checkParametersFlow = getAi().defineFlow(
+export const checkParametersFlow = getAi().defineFlow(
   {
     name: 'checkParametersFlow',
     inputSchema: CheckParametersInputSchema,
     outputSchema: CheckParametersOutputSchema,
   },
   async input => {
-    const { output } = await prompt(input);
+    const { output } = await checkParametersPrompt(input);
     return output!;
   }
 );

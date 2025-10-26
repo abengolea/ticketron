@@ -6,6 +6,8 @@ import { initializeApp, getApps, App } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import type { EventParameters, TicketData, GenerationResult } from "./types";
 import { base32Encode } from "./utils";
+import { CheckParametersOutput } from "@/ai/flows/check-parameters-with-ai";
+
 
 // --- Firebase Admin Initialization ---
 let adminApp: App;
@@ -36,6 +38,11 @@ async function getSecretKeyForEvent(eventId: string): Promise<string> {
     await secretRef.set({ secretKey: newSecretKey });
     return newSecretKey;
 }
+
+const chunk = <T,>(arr: T[], size: number): T[][] =>
+  Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
+    arr.slice(i * size, i * size + size)
+  );
 
 /**
  * This function ONLY deals with Firestore. It has no contact with Genkit.
@@ -90,10 +97,6 @@ async function addTicketsToEvent(
     };
 }
 
-const chunk = <T,>(arr: T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
-    arr.slice(i * size, i * size + size)
-  );
 
 export async function generateTicketsAction(
   params: EventParameters & { starting_ticket_number?: number }
@@ -103,25 +106,28 @@ export async function generateTicketsAction(
 
     // --- ROUTE 1: ADDING TICKETS TO EXISTING EVENT (NO AI) ---
     if (isAddingTickets) {
-      console.log(`Ruta de acción: Agregando ${params.quantity} tickets al evento ${params.event_id}. No se utiliza IA.`);
       const data = await addTicketsToEvent(params as EventParameters & { starting_ticket_number: number });
       return { success: true, data };
     }
 
-    // --- ROUTE 2: CREATING A NEW EVENT (WITH DYNAMIC AI VALIDATION) ---
-    console.log(`Ruta de acción: Creando nuevo evento ${params.event_id}.`);
-    
-    // Step 1: Dynamically import and validate parameters with AI
-    console.log("Importando dinámicamente el módulo de IA para validación...");
-    const { checkParametersWithAI } = await import("@/ai/flows/check-parameters-with-ai");
-    console.log("Módulo de IA cargado. Validando parámetros...");
-    const aiCheckResult = await checkParametersWithAI(params);
+    // --- ROUTE 2: CREATING A NEW EVENT (WITH DYNAMIC AI VALIDATION VIA API ROUTE) ---
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    const validationResponse = await fetch(`${baseUrl}/api/validate-event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+
+    if (!validationResponse.ok) {
+      const errorBody = await validationResponse.json();
+      throw new Error(errorBody.error || `La validación de IA falló con estado ${validationResponse.status}`);
+    }
+
+    const aiCheckResult: CheckParametersOutput = await validationResponse.json();
     
     if (!aiCheckResult.valid) {
-      console.error("La validación de IA falló:", aiCheckResult.feedback);
       return { success: false, error: aiCheckResult.feedback };
     }
-    console.log("Validación de IA exitosa.");
     
     // Step 2: Get or create the secret key
     const secretKey = await getSecretKeyForEvent(params.event_id);
@@ -185,7 +191,6 @@ export async function generateTicketsAction(
       },
     };
   } catch (e: any) {
-    console.error("Error en generateTicketsAction:", e);
     return { success: false, error: e.message || "Un error desconocido ocurrió durante la generación de tickets." };
   }
 }
