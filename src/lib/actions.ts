@@ -2,7 +2,7 @@
 "use server";
 
 import { createHmac, randomBytes, randomUUID } from "crypto";
-import { initializeApp, getApps, cert, App } from 'firebase-admin/app';
+import { initializeApp, getApps, App } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { checkParametersWithAI } from "@/ai/flows/check-parameters-with-ai";
 import type { EventParameters, TicketData, GenerationResult } from "./types";
@@ -12,11 +12,9 @@ import { base32Encode } from "./utils";
 let adminApp: App;
 if (!getApps().length) {
   try {
-    // This works in App Hosting by using the runtime service account
     adminApp = initializeApp();
   } catch (e) {
     console.error("Failed to initialize Firebase Admin SDK automatically", e);
-    // Fallback for local dev if GOOGLE_APPLICATION_CREDENTIALS is set
     adminApp = initializeApp();
   }
 } else {
@@ -40,11 +38,53 @@ async function getSecretKeyForEvent(eventId: string): Promise<string> {
           return data.secretKey;
         }
     }
-    // If not, create, store, and return a new one
     const newSecretKey = randomBytes(32).toString('base64');
     await secretRef.set({ secretKey: newSecretKey });
     return newSecretKey;
 }
+
+async function addTicketsToEvent(
+    params: EventParameters & { starting_ticket_number: number }
+): Promise<GenerationResult> {
+    const secretKey = await getSecretKeyForEvent(params.event_id);
+    const tickets: TicketData[] = [];
+    const startingTicketNumber = params.starting_ticket_number;
+
+    for (let i = 0; i < params.quantity; i++) {
+        const ticketNumber = startingTicketNumber + i;
+        const ticketId = randomUUID();
+        const version = 1;
+        const payloadToSign = `${params.event_id}|${ticketId}|${version}`;
+        const sig = createSignature(payloadToSign, secretKey);
+        const qrPayload = JSON.stringify({ v: version, eid: params.event_id, tid: ticketId, sig: sig });
+        const shortCodeSource = Buffer.from(ticketId.substring(0, 8) + sig.substring(0, 4));
+        const shortCode = base32Encode(shortCodeSource).substring(0, 7);
+        tickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
+    }
+
+    const eventRef = db.collection('events').doc(params.event_id);
+    const ticketsCollectionRef = eventRef.collection('tickets');
+
+    const batch = db.batch();
+    for (const ticket of tickets) {
+        const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
+        batch.set(ticketRef, {
+            ticketNumber: ticket.ticketNumber,
+            shortCode: ticket.shortCode,
+            redeemed: false,
+            redeemedAt: null,
+        });
+    }
+    batch.update(eventRef, { ticketCount: FieldValue.increment(params.quantity) });
+    await batch.commit();
+
+    return {
+        tickets,
+        secretKey: "", // Don't expose secret key on regeneration
+        eventParams: params,
+    };
+}
+
 
 export async function generateTicketsAction(
   params: EventParameters & { starting_ticket_number?: number }
@@ -52,18 +92,21 @@ export async function generateTicketsAction(
   try {
     const isAddingTickets = !!params.starting_ticket_number && params.starting_ticket_number > 1;
 
-    // We only run the AI check for brand new events, not when adding more tickets.
-    if (!isAddingTickets) {
-        const aiCheckResult = await checkParametersWithAI(params);
-        if (!aiCheckResult.valid) {
-          return { success: false, error: aiCheckResult.feedback };
-        }
+    if (isAddingTickets) {
+      const data = await addTicketsToEvent(params as EventParameters & { starting_ticket_number: number });
+      return { success: true, data };
+    }
+
+    // This path is for brand new events
+    const aiCheckResult = await checkParametersWithAI(params);
+    if (!aiCheckResult.valid) {
+      return { success: false, error: aiCheckResult.feedback };
     }
     
     const secretKey = await getSecretKeyForEvent(params.event_id);
         
     const tickets: TicketData[] = [];
-    const startingTicketNumber = params.starting_ticket_number || 1;
+    const startingTicketNumber = 1;
 
     for (let i = 0; i < params.quantity; i++) {
       const ticketNumber = startingTicketNumber + i;
@@ -91,66 +134,44 @@ export async function generateTicketsAction(
       });
     }
 
-    // --- Database Transaction ---
     const eventRef = db.collection('events').doc(params.event_id);
     const ticketsCollectionRef = eventRef.collection('tickets');
 
     await db.runTransaction(async (transaction) => {
         const eventDoc = await transaction.get(eventRef);
-
-        if (!isAddingTickets) {
-            // This is a new event
-            if (eventDoc.exists) {
-                throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
-            }
-            transaction.set(eventRef, {
-                eventName: params.event_name,
-                dateTime: params.date_time,
-                venue: params.venue,
-                ticketCount: params.quantity,
-                createdAt: FieldValue.serverTimestamp()
-            });
-        } else {
-            // This is an existing event, we are adding more tickets
-             if (!eventDoc.exists) {
-                throw new Error("No se encontró el evento para agregarle tickets. Verifica el ID del evento.");
-            }
-            transaction.update(eventRef, {
-                ticketCount: FieldValue.increment(params.quantity)
-            });
+        if (eventDoc.exists) {
+            throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
         }
-
-        // Add the new tickets to the subcollection in a single batch within the transaction
-        const batch = db.batch();
-        for (const ticket of tickets) {
-            const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
-            batch.set(ticketRef, {
-                ticketNumber: ticket.ticketNumber,
-                shortCode: ticket.shortCode,
-                redeemed: false,
-                redeemedAt: null,
-            });
-        }
-        // This batch will be committed as part of the transaction
+        transaction.set(eventRef, {
+            eventName: params.event_name,
+            dateTime: params.date_time,
+            venue: params.venue,
+            ticketCount: params.quantity,
+            createdAt: FieldValue.serverTimestamp()
+        });
+        
+        // This transaction just creates the event doc, tickets are batched next
     });
-    // --- End Transaction ---
 
-    const eventParamsResult: EventParameters = {
-        event_name: params.event_name,
-        event_id: params.event_id,
-        date_time: params.date_time,
-        venue: params.venue,
-        quantity: params.quantity,
-        tickets_per_page: params.tickets_per_page,
-        page_size: params.page_size,
-    };
+    // Batch write tickets outside the transaction for performance
+    const batch = db.batch();
+    for (const ticket of tickets) {
+        const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
+        batch.set(ticketRef, {
+            ticketNumber: ticket.ticketNumber,
+            shortCode: ticket.shortCode,
+            redeemed: false,
+            redeemedAt: null,
+        });
+    }
+    await batch.commit();
 
     return {
       success: true,
       data: {
         tickets,
-        secretKey: isAddingTickets ? "" : secretKey,
-        eventParams: eventParamsResult,
+        secretKey: secretKey,
+        eventParams: params,
       },
     };
   } catch (e: any) {
