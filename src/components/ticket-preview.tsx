@@ -6,7 +6,18 @@ import type { GenerationResult } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
 import { downloadFile } from "@/lib/utils";
-import { Download, Printer, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown } from "lucide-react";
+import { Download, Printer, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown, PlusCircle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Tooltip,
   TooltipContent,
@@ -14,12 +25,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useFirestore } from "@/firebase";
-import { collection, writeBatch, doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, writeBatch, doc, serverTimestamp, setDoc, runTransaction } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { generateTicketsAction } from "@/lib/actions";
 
 
 // Helper to chunk array
@@ -42,6 +54,10 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(isRegeneration);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [isGeneratingMore, setIsGeneratingMore] = useState(false);
+  const [moreQuantity, setMoreQuantity] = useState(10);
+  const [showGenerateMoreDialog, setShowGenerateMoreDialog] = useState(false);
+
 
   useEffect(() => {
     if (isRegeneration) return;
@@ -64,35 +80,53 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
             const eventId = eventParams.event_id;
             const eventDocRef = doc(firestore, 'events', eventId);
             
-            await setDoc(eventDocRef, { 
-                eventName: eventParams.event_name,
-                dateTime: eventParams.date_time,
-                venue: eventParams.venue,
-                ticketCount: tickets.length,
-                createdAt: serverTimestamp(),
-            }, { merge: true });
+            await runTransaction(firestore, async (transaction) => {
+              const eventDoc = await transaction.get(eventDocRef);
+              let newTicketCount = tickets.length;
+              
+              if (eventDoc.exists()) {
+                const currentCount = eventDoc.data().ticketCount || 0;
+                newTicketCount += currentCount;
+              }
 
-            const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
-            const ticketChunks = chunk(tickets, 499);
-            
-            for (const ticketChunk of ticketChunks) {
-                const ticketBatch = writeBatch(firestore);
-                ticketChunk.forEach((ticket) => {
-                const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
-                ticketBatch.set(ticketDocRef, {
-                    ticketNumber: ticket.ticketNumber,
-                    shortCode: ticket.shortCode,
-                    redeemed: false,
-                    redeemedAt: null,
+              const eventData = { 
+                  eventName: eventParams.event_name,
+                  dateTime: eventParams.date_time,
+                  venue: eventParams.venue,
+                  ticketCount: newTicketCount,
+                  createdAt: serverTimestamp(),
+              };
+
+              if (eventDoc.exists()) {
+                transaction.update(eventDocRef, {
+                  ticketCount: newTicketCount
                 });
-                });
-                await ticketBatch.commit();
-            }
+              } else {
+                transaction.set(eventDocRef, eventData);
+              }
+
+              const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
+              const ticketChunks = chunk(tickets, 499);
+              
+              for (const ticketChunk of ticketChunks) {
+                  const batch = writeBatch(firestore);
+                  ticketChunk.forEach((ticket) => {
+                      const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
+                      batch.set(ticketDocRef, {
+                          ticketNumber: ticket.ticketNumber,
+                          shortCode: ticket.shortCode,
+                          redeemed: false,
+                          redeemedAt: null,
+                      });
+                  });
+                  await batch.commit();
+              }
+            });
 
             setIsSaved(true);
             toast({
                 title: "Tickets saved online",
-                description: `${tickets.length} tickets have been synced with the database.`,
+                description: `${tickets.length} new tickets have been synced with the database.`,
             });
         } catch (error: any) {
             console.error("Error saving tickets to Firestore:", error);
@@ -139,7 +173,7 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
         const page = pageElements[i] as HTMLElement;
         
         // Temporarily make the element visible for capturing
-        page.style.display = 'grid';
+        page.classList.remove('no-print-pdf-hide');
 
         const canvas = await html2canvas(page, {
             scale: 2, // Higher scale for better quality
@@ -150,7 +184,7 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
         });
 
         // Hide it back
-        page.style.display = '';
+        page.classList.add('no-print-pdf-hide');
 
         const imgData = canvas.toDataURL('image/png');
         
@@ -167,6 +201,41 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
         title: "PDF Generated",
         description: "Your ticket PDF has been downloaded.",
     });
+  };
+
+  const handleGenerateMore = async () => {
+    if (!moreQuantity || moreQuantity <= 0) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Quantity",
+        description: "Please enter a positive number of tickets to generate.",
+      });
+      return;
+    }
+
+    setIsGeneratingMore(true);
+    toast({ title: "Generating more tickets..." });
+
+    const result = await generateTicketsAction({
+      ...eventParams,
+      quantity: moreQuantity,
+    });
+    
+    if (result.success) {
+        toast({
+            title: "Generation Complete",
+            description: `${moreQuantity} new tickets have been generated. The page will now reload.`
+        });
+        // We reload the page to fetch the new tickets from the server
+        window.location.reload();
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Generation Failed",
+            description: result.error,
+        });
+        setIsGeneratingMore(false);
+    }
   };
 
   const handleDownloadSecret = () => {
@@ -250,6 +319,46 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
             <Button variant="outline" onClick={() => window.location.href = isRegeneration ? '/history' : '/'}>
                 <ArrowLeft className="mr-2 h-4 w-4" /> {isRegeneration ? 'Back to History' : 'Start Over'}
             </Button>
+             
+            {isRegeneration && (
+                <Dialog open={showGenerateMoreDialog} onOpenChange={setShowGenerateMoreDialog}>
+                <DialogTrigger asChild>
+                    <Button>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Generate More
+                    </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                    <DialogTitle>Generate More Tickets</DialogTitle>
+                    <DialogDescription>
+                        How many additional tickets would you like to generate for "{eventParams.event_name}"?
+                    </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="quantity" className="text-right">
+                        Quantity
+                        </Label>
+                        <Input
+                        id="quantity"
+                        type="number"
+                        value={moreQuantity}
+                        onChange={(e) => setMoreQuantity(Number(e.target.value))}
+                        className="col-span-3"
+                        />
+                    </div>
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" variant="secondary" onClick={() => setShowGenerateMoreDialog(false)} disabled={isGeneratingMore}>Cancel</Button>
+                        <Button type="submit" onClick={handleGenerateMore} disabled={isGeneratingMore}>
+                            {isGeneratingMore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Generate
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+                </Dialog>
+            )}
+
             <Button onClick={handleGeneratePdf} disabled={isPrinting}>
                 {isPrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
                 {isPrinting ? 'Generating...' : 'Download PDF'}

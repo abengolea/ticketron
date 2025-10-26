@@ -1,9 +1,22 @@
+
 "use server";
 
 import { createHmac, randomBytes, randomUUID } from "crypto";
 import { checkParametersWithAI } from "@/ai/flows/check-parameters-with-ai";
 import type { EventParameters, TicketData, GenerationResult } from "./types";
 import { base32Encode } from "./utils";
+import { getFirestore } from "firebase-admin/firestore";
+import { initializeApp, getApps, App } from "firebase-admin/app";
+
+// Initialize Firebase Admin SDK
+let app: App;
+if (!getApps().length) {
+    app = initializeApp();
+} else {
+    app = getApps()[0];
+}
+const firestore = getFirestore(app);
+
 
 function createSignature(payload: string, secretKey: string): string {
   const hmac = createHmac("sha256", Buffer.from(secretKey, "base64"));
@@ -23,9 +36,22 @@ export async function generateTicketsAction(
 
     const secretKey = randomBytes(32).toString("base64");
     const tickets: TicketData[] = [];
+    
+    // Check for existing event to get the last ticket number
+    const eventRef = firestore.collection('events').doc(params.event_id);
+    const eventSnap = await eventRef.get();
+    
+    let startingTicketNumber = 1;
+    if (eventSnap.exists) {
+        const eventData = eventSnap.data();
+        if (eventData && eventData.ticketCount) {
+            startingTicketNumber = eventData.ticketCount + 1;
+        }
+    }
+
 
     for (let i = 0; i < params.quantity; i++) {
-      const ticketNumber = i + 1;
+      const ticketNumber = startingTicketNumber + i;
       const ticketId = randomUUID();
       const version = 1;
 
