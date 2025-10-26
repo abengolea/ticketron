@@ -66,7 +66,7 @@ async function addTicketsToEvent(
     // Use a transaction to ensure atomicity when updating ticket count and adding tickets
     await db.runTransaction(async (transaction) => {
         const eventDoc = await transaction.get(eventRef);
-        if (!eventDoc.exists) {
+        if (!eventDoc.exists()) {
             throw new Error("El evento no existe. No se pueden agregar más tickets.");
         }
         
