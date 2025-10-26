@@ -9,12 +9,15 @@ import { getFirestore } from "firebase-admin/firestore";
 import { initializeApp, getApps, App } from "firebase-admin/app";
 
 // Initialize Firebase Admin SDK
-let app: App;
-if (!getApps().length) {
-    app = initializeApp();
-} else {
-    app = getApps()[0];
+function getFirebaseAdminApp(): App {
+    const apps = getApps();
+    if (apps.length > 0) {
+        return apps[0];
+    }
+    return initializeApp();
 }
+
+const app = getFirebaseAdminApp();
 const firestore = getFirestore(app);
 
 
