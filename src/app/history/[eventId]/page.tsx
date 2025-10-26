@@ -1,7 +1,7 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from 'next/navigation'
 import { useFirestore } from "@/firebase";
 import { doc, getDoc, collection, getDocs } from "firebase/firestore";
 import { TicketPreview } from "@/components/ticket-preview";
@@ -25,9 +25,9 @@ type TicketDoc = {
     redeemedAt: any;
 }
 
-
-export default function EventDetailPage({ params }: { params: { eventId: string } }) {
-  const eventId = params.eventId;
+export default function EventDetailPage() {
+  const params = useParams();
+  const eventId = params.eventId as string;
   const firestore = useFirestore();
   const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
   const [loading, setLoading] = useState(true);
