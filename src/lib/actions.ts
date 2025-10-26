@@ -10,12 +10,7 @@ import { base32Encode } from "./utils";
 // --- Firebase Admin Initialization ---
 let adminApp: App;
 if (!getApps().length) {
-  try {
-    adminApp = initializeApp();
-  } catch (e) {
-    console.error("Failed to initialize Firebase Admin SDK automatically", e);
-    adminApp = initializeApp();
-  }
+  adminApp = initializeApp();
 } else {
   adminApp = getApps()[0];
 }
