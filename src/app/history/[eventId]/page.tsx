@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -26,7 +27,7 @@ type TicketDoc = {
 
 
 export default function EventDetailPage({ params }: { params: { eventId: string } }) {
-  const { eventId } = params;
+  const eventId = params.eventId;
   const firestore = useFirestore();
   const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
   const [loading, setLoading] = useState(true);
