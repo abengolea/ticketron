@@ -56,7 +56,7 @@ export function TicketValidatorOnline() {
         const ticketDoc = await transaction.get(ticketRef);
 
         if (!ticketDoc.exists()) {
-          throw new Error(`Ticket not found in the database. ID: ${ticketId}`);
+          throw new Error(`Ticket not found in the database. ID: ${ticketId.substring(0,8)}...`);
         }
 
         const ticketData = ticketDoc.data();
@@ -73,7 +73,7 @@ export function TicketValidatorOnline() {
     } catch (error: any) {
       let detailedError = `An unknown validation error occurred.`;
        if (error.code === 'permission-denied') {
-            const customData = (error as { customData?: { _operation?: string; _path?: { segments: string[] } } }).customData;
+            const customData = (error as { customData?: { _data?: { _operation?: string; _path?: { segments: string[] } } } }).customData?._data;
             const operation = customData?._operation || "unknown";
             const path = customData?._path?.segments.join('/') || "unknown";
             detailedError = `Firestore Security Rules do not allow this operation. [OPERATION: ${operation}, PATH: ${path}]`;
