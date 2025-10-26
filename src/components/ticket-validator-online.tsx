@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -74,7 +75,7 @@ export function TicketValidatorOnline() {
     } catch (error: any) {
       let detailedError = `An unknown validation error occurred.`;
        if (error.code === 'permission-denied') {
-            detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${JSON.stringify(error)}`;
+            detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${error.message}`;
         } else {
             detailedError = error.message;
         }
