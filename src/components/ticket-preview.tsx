@@ -100,7 +100,7 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
         console.error("Error saving tickets to Firestore:", error);
         let detailedError = `Failed to save tickets online. Please check your Firestore security rules and internet connection.`;
         if (error.code === 'permission-denied') {
-             detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${JSON.stringify({code: error.code, name: error.name})}`;
+             detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
         } else {
             detailedError += ` Error: ${error.message}`;
         }
@@ -257,7 +257,7 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
             <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-gray-300 border-r border-dashed"></div>
 
             {page.map((ticket) => (
-              <div key={ticket.ticketNumber} className="flex items-center justify-center">
+              <div key={ticket.ticketId} className="flex items-center justify-center">
                 <TicketCard
                   eventName={eventParams.event_name}
                   dateTime={eventParams.date_time}
@@ -270,7 +270,7 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
             ))}
              {/* Fill empty slots on the last page */}
             {Array.from({ length: 4 - page.length }).map((_, i) => (
-              <div key={`empty-${i}`}></div>
+              <div key={`empty-${pageIndex}-${i}`}></div>
             ))}
           </div>
         ))}
