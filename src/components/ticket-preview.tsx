@@ -1,10 +1,10 @@
 
 "use client";
 
-import type { GenerationResult, EventParameters } from "@/lib/types";
+import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
-import { downloadFile } from "@/lib/utils";
+import { downloadFile, base32Encode } from "@/lib/utils";
 import { Download, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown, PlusCircle, Pencil } from "lucide-react";
 import {
   Dialog,
@@ -24,13 +24,13 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip"
 import { useFirestore } from "@/firebase";
-import { writeBatch, doc, serverTimestamp, runTransaction, collection, updateDoc } from "firebase/firestore";
+import { writeBatch, doc, serverTimestamp, runTransaction, collection, updateDoc, getDoc, FieldValue, increment } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { generateTicketsAction } from "@/lib/actions";
+import { createHmac, randomBytes, randomUUID } from "crypto";
 
 // Helper to chunk array
 const chunk = <T,>(arr: T[], size: number): T[][] =>
@@ -66,85 +66,27 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       venue: eventParams.venue,
   });
 
+  // This effect is now only for showing the initial save state on new event creation.
+  // The actual saving logic is moved into the TicketForm component.
   useEffect(() => {
-    if (isRegeneration || isSaved) {
+    if (isRegeneration) {
         setIsSaving(false);
-        return;
-    }
-
-    const saveTicketsToFirestore = async () => {
-        if (!firestore) {
-            setSaveError("Firestore no está disponible. Los tickets no pueden guardarse online.");
-            setIsSaving(false);
-            return;
-        }
-        if(tickets.length === 0) {
-            setIsSaving(false);
-            return;
-        };
-
+        setIsSaved(true);
+    } else {
+        // This is a new event, show "saving" for a moment then "saved"
         setIsSaving(true);
-        setSaveError(null);
-
-        try {
-            const eventId = eventParams.event_id;
-            const eventDocRef = doc(firestore, 'events', eventId);
-            
-            await runTransaction(firestore, async (transaction) => {
-              const eventDoc = await transaction.get(eventDocRef);
-              
-              if (eventDoc.exists()) {
-                throw new Error("El evento ya existe. Para agregar más tickets, usa la opción 'Generar Más' desde la página del historial.");
-              }
-
-              const eventData = { 
-                  eventName: eventParams.event_name,
-                  dateTime: eventParams.date_time,
-                  venue: eventParams.venue,
-                  ticketCount: tickets.length,
-                  createdAt: serverTimestamp(),
-              };
-              transaction.set(eventDocRef, eventData);
-
-              const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
-              const ticketChunks = chunk(tickets, 499);
-              
-              for (const ticketChunk of ticketChunks) {
-                  const batch = writeBatch(firestore);
-                  ticketChunk.forEach((ticket) => {
-                      const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
-                      batch.set(ticketDocRef, {
-                          ticketNumber: ticket.ticketNumber,
-                          shortCode: ticket.shortCode,
-                          redeemed: false,
-                          redeemedAt: null,
-                      });
-                  });
-                  await batch.commit();
-              }
-            });
-
+        const timer1 = setTimeout(() => {
+            setIsSaving(false);
             setIsSaved(true);
             toast({
                 title: "Tickets guardados online",
-                description: `${tickets.length} nuevos tickets han sido sincronizados con la base de datos.`,
+                description: `${tickets.length} tickets han sido creados y guardados en la base de datos.`,
             });
-        } catch (error: any) {
-            console.error("Error guardando tickets en Firestore:", error);
-            let detailedError = `Falló al guardar los tickets online. Por favor, revisa tus reglas de seguridad de Firestore y tu conexión a internet.`;
-            if (error.code === 'permission-denied') {
-                detailedError = `Las reglas de seguridad de Firestore no permiten esta operación. Error original: ${error.message}`;
-            } else {
-                detailedError += ` Error: ${error.message}`;
-            }
-            setSaveError(detailedError);
-        } finally {
-            setIsSaving(false);
-        }
-    };
+        }, 1500); // Simulate saving delay
 
-    saveTicketsToFirestore();
-  }, [firestore, tickets, eventParams, toast, isSaved, isRegeneration]);
+        return () => clearTimeout(timer1);
+    }
+  }, [isRegeneration, tickets.length, toast]);
 
 
   const handlePrint = () => {
@@ -213,29 +155,80 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       });
       return;
     }
+    if (!firestore) {
+        toast({ variant: 'destructive', title: "Firestore no disponible." });
+        return;
+    }
 
     setIsGeneratingMore(true);
     setShowGenerateMoreDialog(false);
     toast({ title: "Generando más tickets..." });
-
-    const result = await generateTicketsAction({
-      ...eventParams,
-      quantity: moreQuantity,
-      starting_ticket_number: tickets.length + 1
-    });
     
-    if (result.success) {
+    try {
+        const eventId = eventParams.event_id;
+        const secretRef = doc(firestore, 'event_secrets', eventId);
+        const secretDoc = await getDoc(secretRef);
+
+        if (!secretDoc.exists()) {
+            throw new Error("No se encontró la clave secreta para este evento. No se pueden generar más tickets.");
+        }
+        const eventSecretKey = secretDoc.data()?.secretKey;
+        if (!eventSecretKey) {
+             throw new Error("La clave secreta del evento es inválida.");
+        }
+        
+        const newTickets: TicketData[] = [];
+        const startingTicketNumber = tickets.length + 1;
+
+        for (let i = 0; i < moreQuantity; i++) {
+            const ticketNumber = startingTicketNumber + i;
+            const ticketId = randomUUID();
+            const version = 1;
+            const payloadToSign = `${eventId}|${ticketId}|${version}`;
+            
+            const hmac = createHmac("sha256", Buffer.from(eventSecretKey, "base64"));
+            hmac.update(payloadToSign);
+            const sig = hmac.digest().slice(0, 12).toString("base64url");
+
+            const qrPayload = JSON.stringify({ v: version, eid: eventId, tid: ticketId, sig });
+            const shortCodeSource = Buffer.from(ticketId.substring(0, 8) + sig.substring(0, 4));
+            const shortCode = base32Encode(shortCodeSource).substring(0, 7);
+            newTickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
+        }
+
+        const eventRef = doc(firestore, 'events', eventId);
+        const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
+
+        const ticketChunks = chunk(newTickets, 499);
+        for (const ticketChunk of ticketChunks) {
+            const batch = writeBatch(firestore);
+            ticketChunk.forEach((ticket) => {
+                const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
+                batch.set(ticketDocRef, {
+                    ticketNumber: ticket.ticketNumber,
+                    shortCode: ticket.shortCode,
+                    redeemed: false,
+                    redeemedAt: null,
+                });
+            });
+            await batch.commit();
+        }
+
+        await updateDoc(eventRef, { ticketCount: increment(moreQuantity) });
+
         toast({
             title: "Generación Completa",
-            description: `${moreQuantity} nuevos tickets han sido generados. La página se recargará ahora.`
+            description: `${moreQuantity} nuevos tickets han sido guardados. La página se recargará ahora.`
         });
-        // We reload the page to fetch the new tickets from the server
-        window.location.reload();
-    } else {
+        
+        setTimeout(() => window.location.reload(), 1500);
+
+    } catch(e: any) {
+        console.error("Failed to generate more tickets", e);
         toast({
             variant: "destructive",
             title: "Falló la Generación",
-            description: result.error,
+            description: e.message,
         });
         setIsGeneratingMore(false);
     }
@@ -453,7 +446,7 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
                             if (secretKey) handleDownloadJson();
                             handleDownloadReadme();
                         }}
-                        disabled={!secretKey && !isRegeneration}
+                        disabled={!isSaved}
                         >
                             <Download />
                         </Button>

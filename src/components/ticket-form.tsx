@@ -16,8 +16,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { generateTicketsAction } from "@/lib/actions";
-import type { GenerationResult } from "@/lib/types";
+import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
+import { useFirestore } from "@/firebase";
+import { useToast } from "@/hooks/use-toast";
+import { createHmac, randomBytes, randomUUID } from "crypto";
+import { base32Encode, downloadFile } from "@/lib/utils";
+import { doc, runTransaction, collection, writeBatch, serverTimestamp } from "firebase/firestore";
+
 
 const formSchema = z.object({
   event_name: z.string().min(3, "El nombre del evento debe tener al menos 3 caracteres."),
@@ -34,6 +39,13 @@ type TicketFormProps = {
   setIsLoading: (isLoading: boolean) => void;
 };
 
+// Helper to chunk array
+const chunk = <T,>(arr: T[], size: number): T[][] =>
+  Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
+    arr.slice(i * size, i * size + size)
+  );
+
+
 export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -48,39 +60,104 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     },
   });
 
-  async function onSubmit(values: z.infer<typeof formSchema>) {
+  const firestore = useFirestore();
+  const { toast } = useToast();
+
+  const handleTicketGeneration = async (values: z.infer<typeof formSchema>) => {
     setIsLoading(true);
     onGenerate(null, null);
-    const result = await generateTicketsAction(values);
-    if (result.success) {
-      onGenerate(result.data, null);
-    } else {
-      onGenerate(null, result.error);
+
+    if (!firestore) {
+      onGenerate(null, "Firestore no está disponible.");
+      setIsLoading(false);
+      return;
     }
+
+    try {
+        const secretKey = randomBytes(32).toString('base64');
+        const tickets: TicketData[] = [];
+        
+        for (let i = 0; i < values.quantity; i++) {
+            const ticketNumber = i + 1;
+            const ticketId = randomUUID();
+            const version = 1;
+            const payloadToSign = `${values.event_id}|${ticketId}|${version}`;
+            
+            const hmac = createHmac("sha256", Buffer.from(secretKey, "base64"));
+            hmac.update(payloadToSign);
+            const sig = hmac.digest().slice(0, 12).toString("base64url");
+
+            const qrPayload = JSON.stringify({ v: version, eid: values.event_id, tid: ticketId, sig });
+            const shortCodeSource = Buffer.from(ticketId.substring(0, 8) + sig.substring(0, 4));
+            const shortCode = base32Encode(shortCodeSource).substring(0, 7);
+            tickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
+        }
+        
+        // Save event secrets in a separate, restricted collection
+        const secretRef = doc(firestore, 'event_secrets', values.event_id);
+        const eventRef = doc(firestore, 'events', values.event_id);
+
+        await runTransaction(firestore, async (transaction) => {
+          const eventDoc = await transaction.get(eventRef);
+          if (eventDoc.exists()) {
+            throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
+          }
+
+          // Save secret
+          transaction.set(secretRef, { secretKey });
+          
+          // Save event details
+          transaction.set(eventRef, {
+            eventName: values.event_name,
+            dateTime: values.date_time,
+            venue: values.venue,
+            ticketCount: values.quantity,
+            createdAt: serverTimestamp()
+          });
+
+          // Save tickets in batches
+          const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
+          const ticketChunks = chunk(tickets, 499);
+          for (const ticketChunk of ticketChunks) {
+            const batch = writeBatch(firestore);
+            ticketChunk.forEach((ticket) => {
+                const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
+                batch.set(ticketDocRef, {
+                    ticketNumber: ticket.ticketNumber,
+                    shortCode: ticket.shortCode,
+                    redeemed: false,
+                    redeemedAt: null,
+                });
+            });
+            await batch.commit();
+          }
+        });
+        
+        onGenerate({ tickets, secretKey, eventParams: values }, null);
+
+    } catch (e: any) {
+        console.error("Error in ticket generation:", e);
+        onGenerate(null, e.message || "Un error desconocido ocurrió durante la generación de tickets.");
+    }
+
     setIsLoading(false);
+  }
+
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    await handleTicketGeneration(values);
   }
 
   async function onTestSubmit() {
     const values = form.getValues();
     const testValues = { ...values, quantity: 10 };
     
-    // Quick validation before submitting
     const validation = formSchema.safeParse(testValues);
     if (!validation.success) {
-      // Trigger validation to show errors
       form.trigger();
       return;
     }
     
-    setIsLoading(true);
-    onGenerate(null, null);
-    const result = await generateTicketsAction(testValues);
-    if (result.success) {
-      onGenerate(result.data, null);
-    } else {
-      onGenerate(null, result.error);
-    }
-    setIsLoading(false);
+    await handleTicketGeneration(testValues);
   }
 
   return (
