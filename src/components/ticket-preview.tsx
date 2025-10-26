@@ -90,7 +90,10 @@ export function TicketPreview({ result }: { result: GenerationResult }) {
         console.error("Error saving tickets to Firestore:", error);
         let detailedError = `Failed to save tickets online. Please check your Firestore security rules and internet connection.`;
         if (error.code === 'permission-denied') {
-            detailedError = `Firestore Security Rules do not allow this operation. [OPERATION: ${error.customData?._operationType}, PATH: ${error.customData?._path}]`;
+            const customData = (error as { customData?: { _operation?: string; _path?: { segments: string[] } } }).customData;
+            const operation = customData?._operation || "unknown";
+            const path = customData?._path?.segments.join('/') || "unknown";
+            detailedError = `Firestore Security Rules do not allow this operation. [OPERATION: ${operation}, PATH: ${path}]`;
         } else {
             detailedError += ` Error: ${error.message}`;
         }

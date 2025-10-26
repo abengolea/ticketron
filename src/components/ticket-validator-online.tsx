@@ -73,7 +73,10 @@ export function TicketValidatorOnline() {
     } catch (error: any) {
       let detailedError = `An unknown validation error occurred.`;
        if (error.code === 'permission-denied') {
-            detailedError = `Firestore Security Rules do not allow this operation.`;
+            const customData = (error as { customData?: { _operation?: string; _path?: { segments: string[] } } }).customData;
+            const operation = customData?._operation || "unknown";
+            const path = customData?._path?.segments.join('/') || "unknown";
+            detailedError = `Firestore Security Rules do not allow this operation. [OPERATION: ${operation}, PATH: ${path}]`;
         } else {
             detailedError = error.message;
         }
