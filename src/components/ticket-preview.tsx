@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { GenerationResult, EventParameters } from "@/lib/types";
@@ -20,6 +21,7 @@ import {
   Tooltip,
   TooltipProvider,
   TooltipTrigger,
+  TooltipContent,
 } from "@/components/ui/tooltip"
 import { useFirestore } from "@/firebase";
 import { collection, writeBatch, doc, serverTimestamp, setDoc, runTransaction, updateDoc } from "firebase/firestore";
