@@ -21,7 +21,7 @@ import type { GenerationResult, EventParameters, TicketData } from "@/lib/types"
 import { useFirestore } from "@/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { createHmac, randomBytes, randomUUID } from "crypto";
-import { base32Encode, downloadFile } from "@/lib/utils";
+import { base32Encode } from "@/lib/utils";
 import { doc, runTransaction, collection, writeBatch, serverTimestamp } from "firebase/firestore";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
@@ -98,37 +98,25 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     const secretRef = doc(firestore, 'event_secrets', values.event_id);
     const eventRef = doc(firestore, 'events', values.event_id);
 
-    try {
-        const transactionPromise = runTransaction(firestore, async (transaction) => {
-            const eventDoc = await transaction.get(eventRef);
-            if (eventDoc.exists()) {
-                throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
-            }
+    runTransaction(firestore, async (transaction) => {
+        const eventDoc = await transaction.get(eventRef);
+        if (eventDoc.exists()) {
+            throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
+        }
 
-            const secretData = { secretKey };
-            transaction.set(secretRef, secretData);
-            
-            const eventData = {
-                eventName: values.event_name,
-                dateTime: values.date_time,
-                venue: values.venue,
-                ticketCount: values.quantity,
-                createdAt: serverTimestamp()
-            };
-            transaction.set(eventRef, eventData);
-        });
-
-        await transactionPromise.catch(async (serverError) => {
-            const permissionError = new FirestorePermissionError({
-                path: eventRef.path,
-                operation: 'create', // or 'update' depending on the logic inside
-                requestResourceData: { event_name: values.event_name },
-                message: serverError.message
-            });
-            errorEmitter.emit('permission-error', permissionError);
-            throw serverError;
-        });
-
+        const secretData = { secretKey };
+        transaction.set(secretRef, secretData);
+        
+        const eventData = {
+            eventName: values.event_name,
+            dateTime: values.date_time,
+            venue: values.venue,
+            ticketCount: values.quantity,
+            createdAt: serverTimestamp()
+        };
+        transaction.set(eventRef, eventData);
+    })
+    .then(async () => {
         const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
         const ticketChunks = chunk(tickets, 499);
 
@@ -155,14 +143,15 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                   message: serverError.message,
                 });
                 errorEmitter.emit('permission-error', permissionError);
-                throw serverError;
+                throw serverError; // Propagate to be caught by the final catch
             });
         }
       
         onGenerate({ tickets, secretKey, eventParams: values }, null);
-
-    } catch (e: any) {
-        // This will now only catch non-permission errors, like the "event already exists" error.
+    })
+    .catch((e: any) => {
+        // This will catch both permission errors propagated from the batch commit,
+        // and other transaction errors like "event already exists".
         if (e.name !== 'FirestorePermissionError' && !e.message.includes('permission-denied')) {
             onGenerate(null, `Un error ocurrió: ${e.message}`);
             toast({
@@ -170,10 +159,20 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 title: "Error en la Generación",
                 description: e.message,
             });
+        } else if (!e.name.includes('FirestorePermissionError')) {
+            // This is a permission error from the transaction itself.
+            const permissionError = new FirestorePermissionError({
+                path: eventRef.path,
+                operation: 'create',
+                requestResourceData: { event_name: values.event_name }, // simplified data
+                message: e.message
+            });
+            errorEmitter.emit('permission-error', permissionError);
         }
-    } finally {
+    })
+    .finally(() => {
         setIsLoading(false);
-    }
+    });
   };
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -321,5 +320,3 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     </Card>
   );
 }
-
-    

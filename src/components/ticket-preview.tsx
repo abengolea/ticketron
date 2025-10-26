@@ -70,7 +70,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   });
 
   // This effect is now only for showing the initial save state on new event creation.
-  // The actual saving logic is moved into the TicketForm component.
   useEffect(() => {
     if (isRegeneration) {
         setIsSaving(false);
@@ -170,7 +169,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     const eventId = eventParams.event_id;
     const secretRef = doc(firestore, 'event_secrets', eventId);
     
-    getDoc(secretRef).then(secretDoc => {
+    getDoc(secretRef).then(async (secretDoc) => {
         if (!secretDoc.exists()) {
             throw new Error("No se encontró la clave secreta para este evento. No se pueden generar más tickets.");
         }
@@ -202,6 +201,9 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
 
         const ticketChunks = chunk(newTickets, 499);
+        // Using Promise.all to wait for all batches and the event update
+        const allPromises = [];
+
         for (const ticketChunk of ticketChunks) {
             const batch = writeBatch(firestore);
             const batchData: Record<string, any> = {};
@@ -216,7 +218,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                 batch.set(ticketDocRef, ticketData);
                 batchData[ticket.ticketId] = ticketData;
             });
-            batch.commit().catch(async (serverError) => {
+            const batchPromise = batch.commit().catch(async (serverError) => {
                 const permissionError = new FirestorePermissionError({
                   path: ticketsCollectionRef.path,
                   operation: 'create',
@@ -224,13 +226,13 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                   message: serverError.message,
                 });
                 errorEmitter.emit('permission-error', permissionError);
-                // Re-throw so it's caught by the outer catch
-                throw serverError;
+                throw serverError; // Propagate error
             });
+            allPromises.push(batchPromise);
         }
         
         const updateData = { ticketCount: increment(moreQuantity) };
-        updateDoc(eventRef, updateData).catch(async (serverError) => {
+        const updatePromise = updateDoc(eventRef, updateData).catch(async (serverError) => {
             const permissionError = new FirestorePermissionError({
                 path: eventRef.path,
                 operation: 'update',
@@ -238,10 +240,12 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                 message: serverError.message,
             });
             errorEmitter.emit('permission-error', permissionError);
-            // Re-throw so it's caught by the outer catch
-            throw serverError;
+            throw serverError; // Propagate error
         });
+        allPromises.push(updatePromise);
 
+        // This will now correctly handle errors from any of the promises
+        await Promise.all(allPromises);
 
         toast({
             title: "Generación en Progreso",
@@ -251,12 +255,15 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         setTimeout(() => window.location.reload(), 2500);
 
     }).catch((e: any) => {
-        console.error("Failed to generate more tickets", e);
-        toast({
-            variant: "destructive",
-            title: "Falló la Generación",
-            description: e.message,
-        });
+        // This catch block will now only be triggered for genuine errors (like secret not found)
+        // or for permission errors that have already been emitted. We only show a toast for non-permission errors.
+        if (e.name !== 'FirestorePermissionError' && !e.message.includes('permission-denied')) {
+             toast({
+                variant: "destructive",
+                title: "Falló la Generación",
+                description: e.message,
+            });
+        }
         setIsGeneratingMore(false);
     });
   };
@@ -296,7 +303,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
           message: serverError.message,
         });
         errorEmitter.emit('permission-error', permissionError);
-        toast({ variant: 'destructive', title: "Falló la Actualización", description: serverError.message });
+        // The listener will show the toast
         setIsEditing(false);
       });
   };
@@ -550,5 +557,3 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
     </div>
   );
 }
-
-    
