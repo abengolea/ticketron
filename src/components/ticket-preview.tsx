@@ -24,7 +24,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip"
 import { useFirestore } from "@/firebase";
-import { writeBatch, doc, serverTimestamp, runTransaction, updateDoc } from "firebase/firestore";
+import { writeBatch, doc, serverTimestamp, runTransaction, collection, updateDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
@@ -67,7 +67,10 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   });
 
   useEffect(() => {
-    if (isRegeneration) return;
+    if (isRegeneration || isSaved) {
+        setIsSaving(false);
+        return;
+    }
 
     const saveTicketsToFirestore = async () => {
         if (!firestore) {
@@ -75,7 +78,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             setIsSaving(false);
             return;
         }
-        if(isSaved || tickets.length === 0) {
+        if(tickets.length === 0) {
             setIsSaving(false);
             return;
         };
@@ -89,34 +92,19 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             
             await runTransaction(firestore, async (transaction) => {
               const eventDoc = await transaction.get(eventDocRef);
-              let newTicketCount = tickets.length;
-              let startingTicketNumber = 1;
               
               if (eventDoc.exists()) {
-                const currentCount = eventDoc.data().ticketCount || 0;
-                newTicketCount += currentCount;
-                startingTicketNumber = currentCount + 1;
+                throw new Error("El evento ya existe. Para agregar más tickets, usa la opción 'Generar Más' desde la página del historial.");
               }
 
               const eventData = { 
                   eventName: eventParams.event_name,
                   dateTime: eventParams.date_time,
                   venue: eventParams.venue,
-                  ticketCount: newTicketCount,
+                  ticketCount: tickets.length,
                   createdAt: serverTimestamp(),
               };
-
-              if (eventDoc.exists()) {
-                transaction.update(eventDocRef, {
-                  ticketCount: newTicketCount,
-                  // Also update other details in case they were changed
-                  eventName: eventParams.event_name,
-                  dateTime: eventParams.date_time,
-                  venue: eventParams.venue,
-                });
-              } else {
-                transaction.set(eventDocRef, eventData);
-              }
+              transaction.set(eventDocRef, eventData);
 
               const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
               const ticketChunks = chunk(tickets, 499);
@@ -534,3 +522,5 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
     </div>
   );
 }
+
+    
