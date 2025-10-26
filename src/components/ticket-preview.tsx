@@ -18,7 +18,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Tooltip,
-  TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
@@ -138,7 +137,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             console.error("Error guardando tickets en Firestore:", error);
             let detailedError = `Falló al guardar los tickets online. Por favor, revisa tus reglas de seguridad de Firestore y tu conexión a internet.`;
             if (error.code === 'permission-denied') {
-                detailedError = `Las reglas de seguridad de Firestore no permiten esta operación. Error original: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
+                detailedError = `Las reglas de seguridad de Firestore no permiten esta operación. Raw Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
             } else {
                 detailedError += ` Error: ${error.message}`;
             }
@@ -225,6 +224,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     const result = await generateTicketsAction({
       ...eventParams,
       quantity: moreQuantity,
+      starting_ticket_number: tickets.length + 1
     });
     
     if (result.success) {

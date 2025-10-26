@@ -5,21 +5,6 @@ import { createHmac, randomBytes, randomUUID } from "crypto";
 import { checkParametersWithAI } from "@/ai/flows/check-parameters-with-ai";
 import type { EventParameters, TicketData, GenerationResult } from "./types";
 import { base32Encode } from "./utils";
-import { getFirestore } from "firebase-admin/firestore";
-import { initializeApp, getApps, App } from "firebase-admin/app";
-
-// Initialize Firebase Admin SDK
-function getFirebaseAdminApp(): App {
-    const apps = getApps();
-    if (apps.length > 0) {
-        return apps[0];
-    }
-    return initializeApp();
-}
-
-const app = getFirebaseAdminApp();
-const firestore = getFirestore(app);
-
 
 function createSignature(payload: string, secretKey: string): string {
   const hmac = createHmac("sha256", Buffer.from(secretKey, "base64"));
@@ -28,7 +13,7 @@ function createSignature(payload: string, secretKey: string): string {
 }
 
 export async function generateTicketsAction(
-  params: EventParameters
+  params: EventParameters & { starting_ticket_number?: number }
 ): Promise<{ success: true; data: GenerationResult } | { success: false; error: string }> {
   try {
     const aiCheckResult = await checkParametersWithAI(params);
@@ -40,18 +25,7 @@ export async function generateTicketsAction(
     const secretKey = randomBytes(32).toString("base64");
     const tickets: TicketData[] = [];
     
-    // Check for existing event to get the last ticket number
-    const eventRef = firestore.collection('events').doc(params.event_id);
-    const eventSnap = await eventRef.get();
-    
-    let startingTicketNumber = 1;
-    if (eventSnap.exists) {
-        const eventData = eventSnap.data();
-        if (eventData && eventData.ticketCount) {
-            startingTicketNumber = eventData.ticketCount + 1;
-        }
-    }
-
+    const startingTicketNumber = params.starting_ticket_number || 1;
 
     for (let i = 0; i < params.quantity; i++) {
       const ticketNumber = startingTicketNumber + i;
@@ -79,12 +53,23 @@ export async function generateTicketsAction(
       });
     }
 
+    // Create a new object for the result to avoid passing the starting_ticket_number
+    const eventParamsResult: EventParameters = {
+        event_name: params.event_name,
+        event_id: params.event_id,
+        date_time: params.date_time,
+        venue: params.venue,
+        quantity: params.quantity,
+        tickets_per_page: params.tickets_per_page,
+        page_size: params.page_size,
+    };
+
     return {
       success: true,
       data: {
         tickets,
         secretKey,
-        eventParams: params,
+        eventParams: eventParamsResult,
       },
     };
   } catch (e: any) {
