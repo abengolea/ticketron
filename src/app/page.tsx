@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -35,7 +36,7 @@ export default function Home() {
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 animate-spin text-primary" />
             <p className="text-muted-foreground">
-              La IA está verificando los parámetros y generando los tickets...
+              Generando los tickets...
             </p>
           </div>
         </div>
