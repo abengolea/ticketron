@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -56,7 +57,7 @@ export function TicketValidatorOnline() {
         const ticketDoc = await transaction.get(ticketRef);
 
         if (!ticketDoc.exists()) {
-          throw new Error(`Ticket not found in the database. ID: ${ticketId.substring(0,8)}...`);
+          throw new Error(`Ticket not found in the database. ID: ${ticketId}`);
         }
 
         const ticketData = ticketDoc.data();
@@ -73,10 +74,7 @@ export function TicketValidatorOnline() {
     } catch (error: any) {
       let detailedError = `An unknown validation error occurred.`;
        if (error.code === 'permission-denied') {
-            const customData = (error as { customData?: { _data?: { _operation?: string; _path?: { segments: string[] } } } }).customData?._data;
-            const operation = customData?._operation || "unknown";
-            const path = customData?._path?.segments.join('/') || "unknown";
-            detailedError = `Firestore Security Rules do not allow this operation. [OPERATION: ${operation}, PATH: ${path}]`;
+            detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${JSON.stringify(error)}`;
         } else {
             detailedError = error.message;
         }
@@ -162,7 +160,7 @@ export function TicketValidatorOnline() {
                      {validationResult && (
                         <Alert variant={validationResult.status === 'invalid' ? 'destructive' : 'default'} className={cn({
                             'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300': validationResult.status === 'valid',
-                            'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300': validationResult.status === 'redeemed',
+                            'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/ ৫০ dark:border-yellow-700 dark:text-yellow-300': validationResult.status === 'redeemed',
                         })}>
                             {validationResult.status === 'valid' && <CheckCircle2 className="h-4 w-4" />}
                             {validationResult.status === 'redeemed' && <AlertTriangle className="h-4 w-4" />}
@@ -180,5 +178,7 @@ export function TicketValidatorOnline() {
     </Tabs>
   );
 }
+
+    
 
     

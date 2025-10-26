@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { GenerationResult } from "@/lib/types";
@@ -90,10 +91,7 @@ export function TicketPreview({ result }: { result: GenerationResult }) {
         console.error("Error saving tickets to Firestore:", error);
         let detailedError = `Failed to save tickets online. Please check your Firestore security rules and internet connection.`;
         if (error.code === 'permission-denied') {
-            const customData = (error as { customData?: { _data?: { _operation?: string; _path?: { segments: string[] } } } }).customData?._data;
-            const operation = customData?._operation || "unknown";
-            const path = customData?._path?.segments.join('/') || "unknown";
-            detailedError = `Firestore Security Rules do not allow this operation. [OPERATION: ${operation}, PATH: ${path}]`;
+            detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${JSON.stringify(error)}`;
         } else {
             detailedError += ` Error: ${error.message}`;
         }
@@ -265,5 +263,7 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
     </div>
   );
 }
+
+    
 
     
