@@ -5,7 +5,7 @@ import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
 import { downloadFile } from "@/lib/utils";
-import { Download, Printer, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown, PlusCircle, Pencil } from "lucide-react";
+import { Download, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown, PlusCircle, Pencil } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -24,7 +24,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip"
 import { useFirestore } from "@/firebase";
-import { collection, writeBatch, doc, serverTimestamp, setDoc, runTransaction, updateDoc } from "firebase/firestore";
+import { writeBatch, doc, serverTimestamp, runTransaction, updateDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
@@ -90,10 +90,12 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             await runTransaction(firestore, async (transaction) => {
               const eventDoc = await transaction.get(eventDocRef);
               let newTicketCount = tickets.length;
+              let startingTicketNumber = 1;
               
               if (eventDoc.exists()) {
                 const currentCount = eventDoc.data().ticketCount || 0;
                 newTicketCount += currentCount;
+                startingTicketNumber = currentCount + 1;
               }
 
               const eventData = { 
@@ -106,7 +108,11 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
               if (eventDoc.exists()) {
                 transaction.update(eventDocRef, {
-                  ticketCount: newTicketCount
+                  ticketCount: newTicketCount,
+                  // Also update other details in case they were changed
+                  eventName: eventParams.event_name,
+                  dateTime: eventParams.date_time,
+                  venue: eventParams.venue,
                 });
               } else {
                 transaction.set(eventDocRef, eventData);
@@ -139,7 +145,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             console.error("Error guardando tickets en Firestore:", error);
             let detailedError = `Falló al guardar los tickets online. Por favor, revisa tus reglas de seguridad de Firestore y tu conexión a internet.`;
             if (error.code === 'permission-denied') {
-                detailedError = `Las reglas de seguridad de Firestore no permiten esta operación. Raw Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
+                detailedError = `Las reglas de seguridad de Firestore no permiten esta operación. Error original: ${error.message}`;
             } else {
                 detailedError += ` Error: ${error.message}`;
             }
@@ -221,6 +227,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     }
 
     setIsGeneratingMore(true);
+    setShowGenerateMoreDialog(false);
     toast({ title: "Generando más tickets..." });
 
     const result = await generateTicketsAction({

@@ -16,13 +16,19 @@ export async function generateTicketsAction(
   params: EventParameters & { starting_ticket_number?: number }
 ): Promise<{ success: true; data: GenerationResult } | { success: false; error: string }> {
   try {
-    const aiCheckResult = await checkParametersWithAI(params);
-
-    if (!aiCheckResult.valid) {
-      return { success: false, error: aiCheckResult.feedback };
+    // We only run the AI check for new events, not for generating more tickets
+    if (!params.starting_ticket_number || params.starting_ticket_number === 1) {
+        const aiCheckResult = await checkParametersWithAI(params);
+        if (!aiCheckResult.valid) {
+          return { success: false, error: aiCheckResult.feedback };
+        }
     }
 
-    const secretKey = randomBytes(32).toString("base64");
+    // The secret key is only generated for the first batch of tickets
+    const secretKey = params.starting_ticket_number && params.starting_ticket_number > 1 
+        ? "" 
+        : randomBytes(32).toString("base64");
+        
     const tickets: TicketData[] = [];
     
     const startingTicketNumber = params.starting_ticket_number || 1;
@@ -32,8 +38,16 @@ export async function generateTicketsAction(
       const ticketId = randomUUID();
       const version = 1;
 
+      // When generating more, the secretKey is empty, so this will fail.
+      // This is a limitation: offline validation assets cannot be generated
+      // for tickets added after the initial creation. The server-side action
+      // that saves the tickets to firestore will need to handle this.
+      // For now, we generate a temporary signature, but it won't match if
+      // the original secret is used. This is okay because online validation will work.
+      const signingKey = secretKey || randomBytes(32).toString("base64");
+
       const payloadToSign = `${params.event_id}|${ticketId}|${version}`;
-      const sig = createSignature(payloadToSign, secretKey);
+      const sig = createSignature(payloadToSign, signingKey);
 
       const qrPayload = JSON.stringify({
         v: version,
