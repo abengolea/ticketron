@@ -5,10 +5,10 @@ import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, XCircle, AlertTriangle, Camera, Loader2, KeyRound } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, Camera, Loader2, KeyRound, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Html5Qrcode } from 'html5-qrcode';
-import { useFirestore, useDoc } from '@/firebase';
+import { useFirestore } from '@/firebase';
 import { doc, runTransaction } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TicketValidator } from './ticket-validator';
@@ -46,16 +46,17 @@ export function TicketValidatorOnline() {
 
       if (!eventId || !ticketId) {
         setValidationResult({ status: 'invalid', message: 'Invalid QR payload. Missing event or ticket ID.' });
+        setIsLoading(false);
         return;
       }
       
       const ticketRef = doc(firestore, 'events', eventId, 'tickets', ticketId);
 
-      await runTransaction(firestore, async (transaction) => {
+      const resultMessage = await runTransaction(firestore, async (transaction) => {
         const ticketDoc = await transaction.get(ticketRef);
 
         if (!ticketDoc.exists()) {
-          throw new Error(`Ticket not found in the database. ID: ${ticketId.substring(0,8)}...`);
+          throw new Error(`Ticket not found in the database. ID: ${ticketId}`);
         }
 
         const ticketData = ticketDoc.data();
@@ -64,13 +65,19 @@ export function TicketValidatorOnline() {
         }
 
         transaction.update(ticketRef, { redeemed: true, redeemedAt: new Date() });
-        return `Ticket ${ticketId.substring(0,8)}... is valid and has been redeemed.`;
+        return `Ticket ${ticketId.substring(0,8)}... is valid and has been redeemed successfully.`;
       });
 
-      setValidationResult({ status: 'valid', message: `Ticket ${ticketId.substring(0,8)}... is valid and has been redeemed.` });
+      setValidationResult({ status: 'valid', message: resultMessage });
 
     } catch (error: any) {
-      setValidationResult({ status: 'invalid', message: error.message || 'An unknown validation error occurred.' });
+      let detailedError = `An unknown validation error occurred.`;
+       if (error.code === 'permission-denied') {
+            detailedError = `Firestore Security Rules do not allow this operation.`;
+        } else {
+            detailedError = error.message;
+        }
+      setValidationResult({ status: 'invalid', message: detailedError });
     } finally {
         setIsLoading(false);
         setQrPayload('');
@@ -156,7 +163,7 @@ export function TicketValidatorOnline() {
                         })}>
                             {validationResult.status === 'valid' && <CheckCircle2 className="h-4 w-4" />}
                             {validationResult.status === 'redeemed' && <AlertTriangle className="h-4 w-4" />}
-                            {validationResult.status === 'invalid' && <XCircle className="h-4 w-4" />}
+                            {validationResult.status === 'invalid' && <AlertCircle className="h-4 w-4" />}
                             <AlertTitle className='capitalize'>{validationResult.status}</AlertTitle>
                             <AlertDescription>{validationResult.message}</AlertDescription>
                         </Alert>
@@ -170,3 +177,5 @@ export function TicketValidatorOnline() {
     </Tabs>
   );
 }
+
+    

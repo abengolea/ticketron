@@ -4,7 +4,7 @@ import type { GenerationResult } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
 import { downloadFile } from "@/lib/utils";
-import { Download, Printer, ArrowLeft, Loader2, CheckCircle } from "lucide-react";
+import { Download, Printer, ArrowLeft, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -24,7 +24,7 @@ const chunk = <T,>(arr: T[], size: number): T[][] =>
     arr.slice(i * size, i * size + size)
   );
 
-export function TicketPreview({ result }: TicketPreviewProps) {
+export function TicketPreview({ result }: { result: GenerationResult }) {
   const { tickets, secretKey, eventParams } = result;
   const firestore = useFirestore();
   const { toast } = useToast();
@@ -45,30 +45,42 @@ export function TicketPreview({ result }: TicketPreviewProps) {
         return;
       };
 
+      setIsSaving(true);
+      setSaveError(null);
+
       try {
-        const batch = writeBatch(firestore);
         const eventId = eventParams.event_id;
         const eventDocRef = doc(firestore, 'events', eventId);
+        const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
 
-        // Set event details
-        batch.set(eventDocRef, { 
+        // Firestore limits batches to 500 operations.
+        const ticketChunks = chunk(tickets, 499);
+
+        // First, set the event details in a separate operation or its own batch
+        const eventBatch = writeBatch(firestore);
+        eventBatch.set(eventDocRef, { 
             eventName: eventParams.event_name,
             dateTime: eventParams.date_time,
             venue: eventParams.venue,
             createdAt: new Date(),
         }, { merge: true });
+        await eventBatch.commit();
 
-        tickets.forEach((ticket) => {
-          const ticketDocRef = doc(firestore, `events/${eventId}/tickets`, ticket.ticketId);
-          batch.set(ticketDocRef, {
-            ticketNumber: ticket.ticketNumber,
-            shortCode: ticket.shortCode,
-            redeemed: false,
-            redeemedAt: null,
-          });
-        });
+        // Then, process tickets in batches
+        for (const ticketChunk of ticketChunks) {
+            const ticketBatch = writeBatch(firestore);
+            ticketChunk.forEach((ticket) => {
+              const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
+              ticketBatch.set(ticketDocRef, {
+                ticketNumber: ticket.ticketNumber,
+                shortCode: ticket.shortCode,
+                redeemed: false,
+                redeemedAt: null,
+              });
+            });
+            await ticketBatch.commit();
+        }
 
-        await batch.commit();
         setIsSaved(true);
         toast({
           title: "Tickets saved online",
@@ -76,7 +88,13 @@ export function TicketPreview({ result }: TicketPreviewProps) {
         });
       } catch (error: any) {
         console.error("Error saving tickets to Firestore:", error);
-        setSaveError(`Failed to save tickets online. Please check your Firestore security rules and internet connection. Error: ${error.message}`);
+        let detailedError = `Failed to save tickets online. Please check your Firestore security rules and internet connection.`;
+        if (error.code === 'permission-denied') {
+            detailedError = `Firestore Security Rules do not allow this operation. [OPERATION: ${error.customData?._operationType}, PATH: ${error.customData?._path}]`;
+        } else {
+            detailedError += ` Error: ${error.message}`;
+        }
+        setSaveError(detailedError);
       } finally {
         setIsSaving(false);
       }
@@ -208,6 +226,7 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
         )}
         {saveError && (
             <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Online Sync Failed</AlertTitle>
                 <AlertDescription>{saveError}</AlertDescription>
             </Alert>
@@ -243,3 +262,5 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
     </div>
   );
 }
+
+    
