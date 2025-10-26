@@ -26,16 +26,23 @@ const chunk = <T,>(arr: T[], size: number): T[][] =>
     arr.slice(i * size, i * size + size)
   );
 
-export function TicketPreview({ result }: { result: GenerationResult }) {
+type TicketPreviewProps = {
+  result: GenerationResult;
+  isRegeneration?: boolean;
+};
+
+export function TicketPreview({ result, isRegeneration = false }: TicketPreviewProps) {
   const { tickets, secretKey, eventParams } = result;
   const firestore = useFirestore();
   const { toast } = useToast();
 
-  const [isSaving, setIsSaving] = useState(true);
+  const [isSaving, setIsSaving] = useState(!isRegeneration);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [isSaved, setIsSaved] = useState(false);
+  const [isSaved, setIsSaved] = useState(isRegeneration);
 
   useEffect(() => {
+    if (isRegeneration) return;
+
     const saveTicketsToFirestore = async () => {
       if (!firestore) {
         setSaveError("Firestore is not available. Tickets cannot be saved online.");
@@ -104,10 +111,14 @@ export function TicketPreview({ result }: { result: GenerationResult }) {
     };
 
     saveTicketsToFirestore();
-  }, [firestore, tickets, eventParams, toast, isSaved]);
+  }, [firestore, tickets, eventParams, toast, isSaved, isRegeneration]);
 
 
   const handleDownloadSecret = () => {
+    if (!secretKey) {
+        toast({variant: 'destructive', title: 'Cannot download secret', description: 'The secret key is not available for past events.'})
+        return;
+    }
     downloadFile("secret_key.txt", secretKey, "text/plain");
   };
 
@@ -177,12 +188,12 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
     <div className="w-full">
       <div className="bg-card/80 backdrop-blur-sm border rounded-lg p-4 mb-8 flex flex-wrap justify-between items-center gap-4 sticky top-[70px] z-40 no-print">
         <div>
-          <h2 className="text-2xl font-headline">Generation Complete!</h2>
-          <p className="text-muted-foreground">{tickets.length} tickets generated successfully.</p>
+          <h2 className="text-2xl font-headline">{isRegeneration ? 'Event Details' : 'Generation Complete!'}</h2>
+          <p className="text-muted-foreground">{isRegeneration ? `Viewing ${tickets.length} tickets for ${eventParams.event_name}` : `${tickets.length} tickets generated successfully.`}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={() => window.location.reload()}>
-                <ArrowLeft className="mr-2 h-4 w-4" /> Start Over
+            <Button variant="outline" onClick={() => window.location.href = isRegeneration ? '/history' : '/'}>
+                <ArrowLeft className="mr-2 h-4 w-4" /> {isRegeneration ? 'Back to History' : 'Start Over'}
             </Button>
             <Button onClick={() => window.print()}>
                 <Printer className="mr-2 h-4 w-4" /> Print All Tickets
@@ -192,16 +203,18 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <Button variant="secondary" size="icon" onClick={() => {
-                            handleDownloadSecret();
+                            if (secretKey) handleDownloadSecret();
                             handleDownloadCsv();
-                            handleDownloadJson();
+                            if (secretKey) handleDownloadJson();
                             handleDownloadReadme();
-                        }}>
+                        }}
+                        disabled={!secretKey && !isRegeneration}
+                        >
                             <Download />
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                        <p>Download all assets (.txt, .csv, .json, .md)</p>
+                        {secretKey ? <p>Download all assets (.txt, .csv, .json, .md)</p> : <p>Download CSV of tickets</p>}
                     </TooltipContent>
                 </Tooltip>
             </TooltipProvider>
@@ -218,7 +231,7 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
                 </AlertDescription>
             </Alert>
         )}
-        {isSaved && (
+        {isSaved && !isRegeneration && (
              <Alert variant="default" className="mb-4 bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300">
                 <CheckCircle className="h-4 w-4" />
                 <AlertTitle>Sync Complete</AlertTitle>

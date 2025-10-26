@@ -7,6 +7,7 @@ import { Skeleton } from "./ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { FileQuestion } from "lucide-react";
 import { format } from "date-fns";
+import Link from "next/link";
 
 type Event = {
   id: string;
@@ -80,13 +81,27 @@ export function EventHistory() {
           </TableHeader>
           <TableBody>
             {sortedEvents.map((event) => (
-              <TableRow key={event.id}>
-                <TableCell className="font-medium">{event.eventName}</TableCell>
-                <TableCell>{event.venue}</TableCell>
-                <TableCell>{event.dateTime}</TableCell>
-                <TableCell>
-                  {format(new Date(event.createdAt.seconds * 1000), "PPP p")}
-                </TableCell>
+              <TableRow key={event.id} className="cursor-pointer hover:bg-muted/50">
+                  <TableCell className="font-medium">
+                    <Link href={`/history/${event.id}`} className="block w-full h-full">
+                        {event.eventName}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/history/${event.id}`} className="block w-full h-full">
+                        {event.venue}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/history/${event.id}`} className="block w-full h-full">
+                        {event.dateTime}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/history/${event.id}`} className="block w-full h-full">
+                        {format(new Date(event.createdAt.seconds * 1000), "PPP p")}
+                    </Link>
+                  </TableCell>
               </TableRow>
             ))}
           </TableBody>
