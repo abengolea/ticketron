@@ -8,8 +8,8 @@
  * - CheckParametersOutput - The return type for the checkParametersWithAI function.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { getAi } from '@/ai/genkit';
+import { z } from 'genkit';
 
 const CheckParametersInputSchema = z.object({
   event_name: z.string().describe('El nombre del evento.'),
@@ -32,10 +32,10 @@ export async function checkParametersWithAI(input: CheckParametersInput): Promis
   return checkParametersFlow(input);
 }
 
-const prompt = ai.definePrompt({
+const prompt = getAi().definePrompt({
   name: 'checkParametersPrompt',
-  input: {schema: CheckParametersInputSchema},
-  output: {schema: CheckParametersOutputSchema},
+  input: { schema: CheckParametersInputSchema },
+  output: { schema: CheckParametersOutputSchema },
   prompt: `Eres un asistente de IA que ayuda a validar parámetros de eventos. La respuesta debe ser en español.
 
   Se te darán los siguientes parámetros para un evento:
@@ -60,14 +60,14 @@ const prompt = ai.definePrompt({
 `,
 });
 
-const checkParametersFlow = ai.defineFlow(
+const checkParametersFlow = getAi().defineFlow(
   {
     name: 'checkParametersFlow',
     inputSchema: CheckParametersInputSchema,
     outputSchema: CheckParametersOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
+    const { output } = await prompt(input);
     return output!;
   }
 );

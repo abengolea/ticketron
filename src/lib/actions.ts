@@ -64,15 +64,11 @@ async function addTicketsToEvent(
     const ticketsCollectionRef = eventRef.collection('tickets');
 
     // Use a transaction to ensure atomicity when updating ticket count and adding tickets
-    await db.runTransaction(async (transaction) => {
-        const eventDoc = await transaction.get(eventRef);
-        if (!eventDoc.exists()) {
-            throw new Error("El evento no existe. No se pueden agregar más tickets.");
-        }
-        
-        // Batch write for the new tickets
+    const ticketChunks = chunk(tickets, 499);
+      
+    for (const ticketChunk of ticketChunks) {
         const batch = db.batch();
-        for (const ticket of tickets) {
+        for (const ticket of ticketChunk) {
             const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
             batch.set(ticketRef, {
                 ticketNumber: ticket.ticketNumber,
@@ -82,10 +78,9 @@ async function addTicketsToEvent(
             });
         }
         await batch.commit();
-
-        // Update the main event doc with the new ticket count
-        transaction.update(eventRef, { ticketCount: FieldValue.increment(params.quantity) });
-    });
+    }
+    
+    await eventRef.update({ ticketCount: FieldValue.increment(params.quantity) });
 
 
     return {
@@ -95,6 +90,10 @@ async function addTicketsToEvent(
     };
 }
 
+const chunk = <T,>(arr: T[], size: number): T[][] =>
+  Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
+    arr.slice(i * size, i * size + size)
+  );
 
 export async function generateTicketsAction(
   params: EventParameters & { starting_ticket_number?: number }
@@ -161,18 +160,22 @@ export async function generateTicketsAction(
         });
     });
 
-    const batch = db.batch();
-    for (const ticket of tickets) {
-        const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
-        batch.set(ticketRef, {
-            ticketNumber: ticket.ticketNumber,
-            shortCode: ticket.shortCode,
-            redeemed: false,
-            redeemedAt: null,
-        });
+    const ticketChunks = chunk(tickets, 499);
+      
+    for (const ticketChunk of ticketChunks) {
+        const batch = db.batch();
+        for (const ticket of ticketChunk) {
+            const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
+            batch.set(ticketRef, {
+                ticketNumber: ticket.ticketNumber,
+                shortCode: ticket.shortCode,
+                redeemed: false,
+                redeemedAt: null,
+            });
+        }
+        await batch.commit();
     }
-    await batch.commit();
-
+    
     return {
       success: true,
       data: {
