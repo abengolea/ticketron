@@ -24,9 +24,9 @@ export default function Home() {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="text-center mb-8">
-        <h1 className="text-4xl font-headline text-primary">Ticket Generator</h1>
+        <h1 className="text-4xl font-headline text-primary">Generador de Tickets</h1>
         <p className="text-muted-foreground mt-2">
-          Configure your event details below and generate your printable tickets.
+          Configura los detalles de tu evento a continuación y genera tus tickets para imprimir.
         </p>
       </div>
 
@@ -35,7 +35,7 @@ export default function Home() {
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 animate-spin text-primary" />
             <p className="text-muted-foreground">
-              AI is verifying parameters and generating tickets...
+              La IA está verificando los parámetros y generando los tickets...
             </p>
           </div>
         </div>
@@ -43,7 +43,7 @@ export default function Home() {
 
       {error && !isLoading && (
         <Alert variant="destructive" className="mb-8">
-          <AlertTitle>Generation Error</AlertTitle>
+          <AlertTitle>Error en la Generación</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}

@@ -35,8 +35,8 @@ export default function EventDetailPage() {
 
   useEffect(() => {
     if (!firestore || !eventId) {
-        if (!eventId) setError("Event ID is missing.");
-        if (!firestore) setError("Firestore connection not available.");
+        if (!eventId) setError("Falta el ID del evento.");
+        if (!firestore) setError("La conexión a Firestore no está disponible.");
         setLoading(false);
         return;
     };
@@ -48,7 +48,7 @@ export default function EventDetailPage() {
         const eventSnap = await getDoc(eventRef);
 
         if (!eventSnap.exists()) {
-          throw new Error("Event not found.");
+          throw new Error("Evento no encontrado.");
         }
         
         const eventData = eventSnap.data() as EventData;
@@ -64,7 +64,7 @@ export default function EventDetailPage() {
                 v: 1,
                 eid: eventId,
                 tid: docSnap.id,
-                sig: 'REGENERATED_-WILL_FAIL_OFFLINE_VALIDATION'
+                sig: 'REGENERADO_-FALLARA_EN_VALIDACION_OFFLINE'
             });
 
             return {
@@ -125,7 +125,7 @@ export default function EventDetailPage() {
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 animate-spin text-primary" />
             <p className="text-muted-foreground">
-              Loading event details and tickets...
+              Cargando detalles del evento y tickets...
             </p>
           </div>
         </div>
@@ -135,7 +135,7 @@ export default function EventDetailPage() {
   if (error) {
     return (
       <Alert variant="destructive" className="max-w-2xl mx-auto">
-        <AlertTitle>Error Loading Event</AlertTitle>
+        <AlertTitle>Error al Cargar el Evento</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     );

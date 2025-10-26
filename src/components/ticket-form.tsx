@@ -20,11 +20,11 @@ import { generateTicketsAction } from "@/lib/actions";
 import type { GenerationResult } from "@/lib/types";
 
 const formSchema = z.object({
-  event_name: z.string().min(3, "Event name must be at least 3 characters."),
-  event_id: z.string().min(3, "Event ID must be at least 3 characters."),
-  date_time: z.string().min(5, "Date/Time is required."),
-  venue: z.string().min(3, "Venue is required."),
-  quantity: z.coerce.number().int().positive().max(1000, "Quantity cannot exceed 1000."),
+  event_name: z.string().min(3, "El nombre del evento debe tener al menos 3 caracteres."),
+  event_id: z.string().min(3, "El ID del evento debe tener al menos 3 caracteres."),
+  date_time: z.string().min(5, "La fecha y hora son requeridas."),
+  venue: z.string().min(3, "El lugar es requerido."),
+  quantity: z.coerce.number().int().positive().max(1000, "La cantidad no puede exceder los 1000."),
   tickets_per_page: z.literal(4),
   page_size: z.enum(["A4", "Letter"]),
 });
@@ -86,7 +86,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle>Event Parameters</CardTitle>
+        <CardTitle>Parámetros del Evento</CardTitle>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -96,9 +96,9 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
               name="event_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Event Name</FormLabel>
+                  <FormLabel>Nombre del Evento</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., My Awesome Party" {...field} />
+                    <Input placeholder="Ej: Mi Fiesta Increíble" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -109,9 +109,9 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
               name="event_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Event ID</FormLabel>
+                  <FormLabel>ID del Evento</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., MY-PARTY-2024" {...field} />
+                    <Input placeholder="Ej: MI-FIESTA-2024" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -122,9 +122,9 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
               name="date_time"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Date and Time</FormLabel>
+                  <FormLabel>Fecha y Hora</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., Dec 25, 2024 - 9:00 PM" {...field} />
+                    <Input placeholder="Ej: 25 Dic, 2024 - 21:00" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -135,9 +135,9 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
               name="venue"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Venue</FormLabel>
+                  <FormLabel>Lugar</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., 123 Main St, Anytown" {...field} />
+                    <Input placeholder="Ej: Av. Siempre Viva 123" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -148,11 +148,11 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
               name="quantity"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Quantity of Tickets</FormLabel>
+                  <FormLabel>Cantidad de Tickets</FormLabel>
                   <FormControl>
                     <Input type="number" {...field} />
                   </FormControl>
-                  <FormDescription>Max 1000 tickets.</FormDescription>
+                  <FormDescription>Máximo 1000 tickets.</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -163,11 +163,11 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 name="tickets_per_page"
                 render={({ field }) => (
                     <FormItem>
-                    <FormLabel>Tickets per Page</FormLabel>
+                    <FormLabel>Tickets por Página</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={String(field.value)} disabled>
                         <FormControl>
                         <SelectTrigger>
-                            <SelectValue placeholder="Select..." />
+                            <SelectValue placeholder="Seleccionar..." />
                         </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -183,16 +183,16 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 name="page_size"
                 render={({ field }) => (
                     <FormItem>
-                    <FormLabel>Page Size</FormLabel>
+                    <FormLabel>Tamaño de Página</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                         <FormControl>
                         <SelectTrigger>
-                            <SelectValue placeholder="Select..." />
+                            <SelectValue placeholder="Seleccionar..." />
                         </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                             <SelectItem value="A4">A4</SelectItem>
-                            <SelectItem value="Letter">Letter</SelectItem>
+                            <SelectItem value="Letter">Carta (Letter)</SelectItem>
                         </SelectContent>
                     </Select>
                     <FormMessage />
@@ -203,8 +203,8 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
 
           </CardContent>
           <CardFooter className="flex justify-end gap-4">
-            <Button type="button" variant="outline" onClick={onTestSubmit}>Generate 10 Test Tickets</Button>
-            <Button type="submit">Generate Tickets</Button>
+            <Button type="button" variant="outline" onClick={onTestSubmit}>Generar 10 Tickets de Prueba</Button>
+            <Button type="submit">Generar Tickets</Button>
           </CardFooter>
         </form>
       </Form>

@@ -33,7 +33,7 @@ export function TicketValidator() {
         setRedeemedTickets(new Set(JSON.parse(storedRedeemed)));
       }
     } catch (error) {
-        console.error("Could not parse redeemed tickets from localStorage", error);
+        console.error("No se pudieron parsear los tickets canjeados desde localStorage", error);
         localStorage.removeItem('redeemedTickets');
     }
   }, []);
@@ -42,8 +42,8 @@ export function TicketValidator() {
     if (!secretKey.trim() || !payload.trim()) {
       toast({
         variant: "destructive",
-        title: "Missing Information",
-        description: "Please provide both a secret key and a QR payload.",
+        title: "Falta Información",
+        description: "Por favor, proporciona tanto una clave secreta como el contenido del QR.",
       })
       return;
     }
@@ -53,12 +53,12 @@ export function TicketValidator() {
       const { v, eid, tid, sig } = data;
 
       if (!v || !eid || !tid || !sig) {
-        setValidationResult({ status: 'invalid', message: 'Invalid QR payload structure.' });
+        setValidationResult({ status: 'invalid', message: 'La estructura del código QR es inválida.' });
         return;
       }
       
       if (redeemedTickets.has(tid)) {
-        setValidationResult({ status: 'redeemed', message: `Ticket ${tid.substring(0,8)}... has already been redeemed.` });
+        setValidationResult({ status: 'redeemed', message: `El ticket ${tid.substring(0,8)}... ya ha sido canjeado.` });
         return;
       }
 
@@ -68,16 +68,16 @@ export function TicketValidator() {
       const expectedSig = hmac.digest().slice(0, 12).toString('base64url');
 
       if (expectedSig === sig) {
-        setValidationResult({ status: 'valid', message: `Ticket ${tid.substring(0,8)}... is valid for entry.` });
+        setValidationResult({ status: 'valid', message: `El ticket ${tid.substring(0,8)}... es válido para ingresar.` });
         const newRedeemed = new Set(redeemedTickets).add(tid);
         setRedeemedTickets(newRedeemed);
         localStorage.setItem('redeemedTickets', JSON.stringify(Array.from(newRedeemed)));
       } else {
-        setValidationResult({ status: 'invalid', message: 'Invalid signature. Ticket is a forgery or key is incorrect.' });
+        setValidationResult({ status: 'invalid', message: 'Firma inválida. El ticket es una falsificación o la clave es incorrecta.' });
       }
 
     } catch (error) {
-      setValidationResult({ status: 'invalid', message: 'Failed to parse QR payload. Is it valid JSON?' });
+      setValidationResult({ status: 'invalid', message: 'Falló al parsear el código QR. ¿Es un JSON válido?' });
     }
     setQrPayload('');
   };
@@ -106,18 +106,18 @@ export function TicketValidator() {
                 // ignore errors
             }
         ).catch(err => {
-            toast({ variant: 'destructive', title: 'Scanner Error', description: err.message });
+            toast({ variant: 'destructive', title: 'Error del Escáner', description: err.message });
             setIsScanning(false);
         });
     } catch (err: any) {
-        toast({ variant: 'destructive', title: 'Camera Error', description: "Could not get camera permissions. Please allow camera access." });
+        toast({ variant: 'destructive', title: 'Error de Cámara', description: "No se pudo obtener permisos de cámara. Por favor, permite el acceso a la cámara." });
         setIsScanning(false);
     }
   };
 
   const stopScanner = () => {
     if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().catch(err => console.error("Failed to stop scanner", err));
+        scannerRef.current.stop().catch(err => console.error("Falló al detener el escáner", err));
     }
     setIsScanning(false);
   }
@@ -133,18 +133,18 @@ export function TicketValidator() {
   return (
     <Card className="max-w-2xl mx-auto">
       <CardHeader>
-        <CardTitle>Offline Validator</CardTitle>
-        <CardDescription>Enter the secret key and scan a QR code to validate a ticket. This method does not require internet.</CardDescription>
+        <CardTitle>Validador Offline</CardTitle>
+        <CardDescription>Introduce la clave secreta y escanea un código QR para validar un ticket. Este método no requiere internet.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">
             <Label htmlFor="secret-key" className='flex items-center gap-2'>
                 <KeyRound className='w-4 h-4'/>
-                Secret Key
+                Clave Secreta
             </Label>
             <Textarea
                 id="secret-key"
-                placeholder="Paste the 32-byte secret key here"
+                placeholder="Pega la clave secreta de 32 bytes aquí"
                 value={secretKey}
                 onChange={(e) => setSecretKey(e.target.value)}
                 className="font-mono text-sm"
@@ -154,17 +154,17 @@ export function TicketValidator() {
         {isScanning ? (
             <div className="space-y-2">
                 <div id="qr-reader" className="w-full rounded-md border aspect-video"></div>
-                <Button variant="outline" onClick={stopScanner} className="w-full">Cancel Scan</Button>
+                <Button variant="outline" onClick={stopScanner} className="w-full">Cancelar Escaneo</Button>
             </div>
         ) : (
             <div className="space-y-2">
                 <Label htmlFor="qr-payload" className='flex items-center gap-2'>
                     <ScanLine className='w-4 h-4' />
-                    QR Code Payload
+                    Contenido del Código QR
                 </Label>
                 <Textarea
                     id="qr-payload"
-                    placeholder="Paste data from the scanned QR code here"
+                    placeholder="Pega los datos del código QR escaneado aquí"
                     value={qrPayload}
                     onChange={(e) => setQrPayload(e.target.value)}
                     className="font-mono text-sm"
@@ -180,23 +180,23 @@ export function TicketValidator() {
             {validationResult.status === 'valid' && <CheckCircle2 className="h-4 w-4" />}
             {validationResult.status === 'redeemed' && <AlertTriangle className="h-4 w-4" />}
             {validationResult.status === 'invalid' && <XCircle className="h-4 w-4" />}
-            <AlertTitle className='capitalize'>{validationResult.status}</AlertTitle>
+            <AlertTitle className='capitalize'>{validationResult.status === 'valid' ? 'Válido' : (validationResult.status === 'invalid' ? 'Inválido' : 'Canjeado')}</AlertTitle>
             <AlertDescription>{validationResult.message}</AlertDescription>
           </Alert>
         )}
       </CardContent>
       <CardFooter className='flex-col items-stretch gap-4'>
         <div className="flex gap-2">
-          {!isScanning && <Button onClick={startScanner} variant="secondary" className="w-full"><Camera /> Scan QR</Button>}
-          <Button onClick={() => handleValidate(qrPayload)} className='w-full' disabled={isScanning}>Validate Ticket</Button>
+          {!isScanning && <Button onClick={startScanner} variant="secondary" className="w-full"><Camera className="mr-2"/> Escanear QR</Button>}
+          <Button onClick={() => handleValidate(qrPayload)} className='w-full' disabled={isScanning}>Validar Ticket</Button>
         </div>
         <div className="text-xs text-muted-foreground flex items-center gap-4 bg-muted p-3 rounded-lg">
-            <p>Redeemed tickets: <span className="font-bold">{redeemedTickets.size}</span></p>
+            <p>Tickets canjeados: <span className="font-bold">{redeemedTickets.size}</span></p>
             <Button variant="outline" size="sm" className="ml-auto" onClick={() => {
                 setRedeemedTickets(new Set());
                 localStorage.removeItem('redeemedTickets');
-                toast({ title: "Cleared redeemed tickets." });
-            }}>Clear Redeemed List</Button>
+                toast({ title: "Lista de canjeados limpiada." });
+            }}>Limpiar Lista</Button>
         </div>
       </CardFooter>
     </Card>

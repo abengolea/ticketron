@@ -25,21 +25,21 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
       <Separator className="my-3" />
       <CardContent className="flex-grow flex items-center justify-between gap-4 p-0">
         <div className="flex-grow flex flex-col items-center justify-center text-center">
-          <p className="text-sm text-muted-foreground">Ticket No.</p>
+          <p className="text-sm text-muted-foreground">Nº de Ticket</p>
           <p className="text-6xl font-bold tracking-tighter">{formattedTicketNumber}</p>
           <Separator className="w-24 my-3" />
-          <p className="text-sm text-muted-foreground">Verification Code</p>
+          <p className="text-sm text-muted-foreground">Código de Verificación</p>
           <p className="font-mono text-xl tracking-widest">{shortCode}</p>
         </div>
         <div className="flex flex-col items-center justify-center gap-2 p-2 border rounded-lg">
           <Image
             src={qrUrl}
-            alt={`QR Code for ticket ${formattedTicketNumber}`}
+            alt={`Código QR para el ticket ${formattedTicketNumber}`}
             width={120}
             height={120}
             className="rounded-md"
           />
-           <p className="text-xs text-muted-foreground">Scan for entry</p>
+           <p className="text-xs text-muted-foreground">Escanear para entrar</p>
         </div>
       </CardContent>
       <Separator className="my-3" />

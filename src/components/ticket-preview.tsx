@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import type { GenerationResult, EventParameters } from "@/lib/types";
@@ -32,7 +30,6 @@ import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { generateTicketsAction } from "@/lib/actions";
-
 
 // Helper to chunk array
 const chunk = <T,>(arr: T[], size: number): T[][] =>
@@ -68,13 +65,12 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       venue: eventParams.venue,
   });
 
-
   useEffect(() => {
     if (isRegeneration) return;
 
     const saveTicketsToFirestore = async () => {
         if (!firestore) {
-            setSaveError("Firestore is not available. Tickets cannot be saved online.");
+            setSaveError("Firestore no está disponible. Los tickets no pueden guardarse online.");
             setIsSaving(false);
             return;
         }
@@ -135,14 +131,14 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
             setIsSaved(true);
             toast({
-                title: "Tickets saved online",
-                description: `${tickets.length} new tickets have been synced with the database.`,
+                title: "Tickets guardados online",
+                description: `${tickets.length} nuevos tickets han sido sincronizados con la base de datos.`,
             });
         } catch (error: any) {
-            console.error("Error saving tickets to Firestore:", error);
-             let detailedError = `Failed to save tickets online. Please check your Firestore security rules and internet connection.`;
+            console.error("Error guardando tickets en Firestore:", error);
+            let detailedError = `Falló al guardar los tickets online. Por favor, revisa tus reglas de seguridad de Firestore y tu conexión a internet.`;
             if (error.code === 'permission-denied') {
-                 detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
+                detailedError = `Las reglas de seguridad de Firestore no permiten esta operación. Error original: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
             } else {
                 detailedError += ` Error: ${error.message}`;
             }
@@ -165,8 +161,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const handleGeneratePdf = async () => {
     setIsPrinting(true);
     toast({
-        title: "Generating PDF...",
-        description: "This may take a moment for a large number of tickets."
+        title: "Generando PDF...",
+        description: "Esto puede tardar un momento para una gran cantidad de tickets."
     });
 
     const pdf = new jsPDF({
@@ -208,8 +204,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     pdf.save(`tickets-${eventParams.event_id}.pdf`);
     setIsPrinting(false);
     toast({
-        title: "PDF Generated",
-        description: "Your ticket PDF has been downloaded.",
+        title: "PDF Generado",
+        description: "Tu PDF de tickets ha sido descargado.",
     });
   };
 
@@ -217,14 +213,14 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     if (!moreQuantity || moreQuantity <= 0) {
       toast({
         variant: "destructive",
-        title: "Invalid Quantity",
-        description: "Please enter a positive number of tickets to generate.",
+        title: "Cantidad Inválida",
+        description: "Por favor, introduce un número positivo de tickets a generar.",
       });
       return;
     }
 
     setIsGeneratingMore(true);
-    toast({ title: "Generating more tickets..." });
+    toast({ title: "Generando más tickets..." });
 
     const result = await generateTicketsAction({
       ...eventParams,
@@ -233,15 +229,15 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     
     if (result.success) {
         toast({
-            title: "Generation Complete",
-            description: `${moreQuantity} new tickets have been generated. The page will now reload.`
+            title: "Generación Completa",
+            description: `${moreQuantity} nuevos tickets han sido generados. La página se recargará ahora.`
         });
         // We reload the page to fetch the new tickets from the server
         window.location.reload();
     } else {
         toast({
             variant: "destructive",
-            title: "Generation Failed",
+            title: "Falló la Generación",
             description: result.error,
         });
         setIsGeneratingMore(false);
@@ -250,7 +246,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
   const handleEditEvent = async () => {
     if (!firestore) {
-        toast({ variant: 'destructive', title: "Firestore not available." });
+        toast({ variant: 'destructive', title: "Firestore no disponible." });
         return;
     }
 
@@ -271,10 +267,10 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             });
         }
         
-        toast({ title: "Event Updated", description: "Event details have been successfully updated." });
+        toast({ title: "Evento Actualizado", description: "Los detalles del evento han sido actualizados con éxito." });
         setShowEditDialog(false);
     } catch (error: any) {
-        toast({ variant: 'destructive', title: "Update Failed", description: error.message });
+        toast({ variant: 'destructive', title: "Falló la Actualización", description: error.message });
     } finally {
         setIsEditing(false);
     }
@@ -287,7 +283,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
   const handleDownloadSecret = () => {
     if (!secretKey) {
-        toast({variant: 'destructive', title: 'Cannot download secret', description: 'The secret key is not available for past events.'})
+        toast({variant: 'destructive', title: 'No se puede descargar el secreto', description: 'La clave secreta no está disponible para eventos pasados.'})
         return;
     }
     downloadFile("secret_key.txt", secretKey, "text/plain");
@@ -321,37 +317,36 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
   const handleDownloadReadme = () => {
     const readmeContent = `
-# Ticket Validation Instructions
+# Instrucciones de Validación de Tickets
 
-## 1. Online Validation (Recommended)
+## 1. Validación Online (Recomendado)
 
-Use the "Validator" page in this application. It requires an internet connection.
+Usa la página "Validador" en esta aplicación. Requiere conexión a internet.
 
-1. Go to the "Validator" page.
-2. Click "Scan QR" and use your device's camera to scan the ticket's QR code.
-3. The tool will check the ticket against the online database and show if it's VALID, INVALID, or has ALREADY BEEN REDEEMED.
+1. Ve a la página "Validador".
+2. Haz clic en "Escanear QR" y usa la cámara de tu dispositivo para escanear el código QR del ticket.
+3. La herramienta verificará el ticket contra la base de datos online y mostrará si es VÁLIDO, INVÁLIDO, o si YA HA SIDO CANJEADO.
 
-## 2. Offline Validation (Backup Method)
+## 2. Validación Offline (Método de Respaldo)
 
-If you don't have internet at the venue, you can use the offline validator. This requires sharing the secret key with the validation staff.
+Si no tienes internet en el lugar del evento, puedes usar el validador offline. Esto requiere compartir la clave secreta con el personal de validación.
 
-1.  Download the validation assets using the Download button. You will get a \`secret_key.txt\` file.
-2.  **DO NOT SHARE THE SECRET KEY PUBLICLY.**
-3.  On the "Validator" page, paste the content of \`secret_key.txt\` into the "Secret Key" field.
-4.  Scan a QR code or paste its content. The tool will cryptographically verify the ticket.
-5.  Note: The offline validator keeps a list of redeemed tickets ONLY on that specific device. It does not sync with other devices.
+1. Descarga los activos de validación usando el botón de Descarga. Obtendrás un archivo \`secret_key.txt\`.
+2. **NO COMPARTAS LA CLAVE SECRETA PÚBLICAMENTE.**
+3. En la página "Validador", en la pestaña "Validador Offline", pega el contenido de \`secret_key.txt\` en el campo "Clave Secreta".
+4. Escanea un código QR o pega su contenido. La herramienta verificará criptográficamente el ticket.
+5. Nota: El validador offline mantiene una lista de tickets canjeados SOLO en ese dispositivo específico. No se sincroniza con otros dispositivos.
 
-## 3. Manual Validation (Last Resort)
+## 3. Validación Manual (Último Recurso)
 
-Use the \`tickets.csv\` file for manual lookup if all else fails.
+Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla.
 
-1. Open \`tickets.csv\` in a spreadsheet program.
-2. Find the ticket by its number or verification code.
-3. Manually mark it as redeemed. This method has no security verification.
+1. Abre \`tickets.csv\` en un programa de hojas de cálculo.
+2. Busca el ticket por su número o código de verificación.
+3. Marca manualmente que ha sido canjeado. Este método no tiene verificación de seguridad.
     `;
     downloadFile("README_VALIDACION.md", readmeContent.trim(), "text/markdown");
   };
-
 
   const ticketPages = chunk(tickets, eventParams.tickets_per_page);
 
@@ -359,12 +354,12 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
     <div className="w-full">
       <div className="bg-card/80 backdrop-blur-sm border rounded-lg p-4 mb-8 flex flex-wrap justify-between items-center gap-4 sticky top-[70px] z-40 no-print">
         <div>
-          <h2 className="text-2xl font-headline">{isRegeneration ? 'Event Details' : 'Generation Complete!'}</h2>
-          <p className="text-muted-foreground">{isRegeneration ? `Viewing ${tickets.length} tickets for ${eventParams.event_name}` : `${tickets.length} tickets generated successfully.`}</p>
+          <h2 className="text-2xl font-headline">{isRegeneration ? 'Detalles del Evento' : '¡Generación Completa!'}</h2>
+          <p className="text-muted-foreground">{isRegeneration ? `Viendo ${tickets.length} tickets para ${eventParams.event_name}` : `${tickets.length} tickets generados con éxito.`}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={() => window.location.href = isRegeneration ? '/history' : '/'}>
-                <ArrowLeft className="mr-2 h-4 w-4" /> {isRegeneration ? 'Back to History' : 'Start Over'}
+                <ArrowLeft className="mr-2 h-4 w-4" /> {isRegeneration ? 'Volver al Historial' : 'Empezar de Nuevo'}
             </Button>
              
             {isRegeneration && (
@@ -373,35 +368,35 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
                 <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
                     <DialogTrigger asChild>
                         <Button variant="outline">
-                            <Pencil className="mr-2 h-4 w-4" /> Edit Event
+                            <Pencil className="mr-2 h-4 w-4" /> Editar Evento
                         </Button>
                     </DialogTrigger>
                     <DialogContent>
                         <DialogHeader>
-                            <DialogTitle>Edit Event Details</DialogTitle>
+                            <DialogTitle>Editar Detalles del Evento</DialogTitle>
                             <DialogDescription>
-                                Modify the event information. These changes will be reflected on the printed tickets.
+                                Modifica la información del evento. Estos cambios se reflejarán en los tickets impresos.
                             </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="eventName" className="text-right">Event Name</Label>
+                                <Label htmlFor="eventName" className="text-right">Nombre</Label>
                                 <Input id="eventName" value={editFormData.eventName} onChange={handleEditFormChange} className="col-span-3" />
                             </div>
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="dateTime" className="text-right">Date & Time</Label>
+                                <Label htmlFor="dateTime" className="text-right">Fecha y Hora</Label>
                                 <Input id="dateTime" value={editFormData.dateTime} onChange={handleEditFormChange} className="col-span-3" />
                             </div>
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="venue" className="text-right">Venue</Label>
+                                <Label htmlFor="venue" className="text-right">Lugar</Label>
                                 <Input id="venue" value={editFormData.venue} onChange={handleEditFormChange} className="col-span-3" />
                             </div>
                         </div>
                         <DialogFooter>
-                            <Button type="button" variant="secondary" onClick={() => setShowEditDialog(false)} disabled={isEditing}>Cancel</Button>
+                            <Button type="button" variant="secondary" onClick={() => setShowEditDialog(false)} disabled={isEditing}>Cancelar</Button>
                             <Button type="button" onClick={handleEditEvent} disabled={isEditing}>
                                 {isEditing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                Save Changes
+                                Guardar Cambios
                             </Button>
                         </DialogFooter>
                     </DialogContent>
@@ -411,20 +406,20 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
                 <Dialog open={showGenerateMoreDialog} onOpenChange={setShowGenerateMoreDialog}>
                     <DialogTrigger asChild>
                         <Button>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Generate More
+                            <PlusCircle className="mr-2 h-4 w-4" /> Generar Más
                         </Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
-                        <DialogTitle>Generate More Tickets</DialogTitle>
+                        <DialogTitle>Generar Más Tickets</DialogTitle>
                         <DialogDescription>
-                            How many additional tickets would you like to generate for "{eventParams.event_name}"?
+                            ¿Cuántos tickets adicionales quieres generar para "{eventParams.event_name}"?
                         </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="quantity" className="text-right">
-                            Quantity
+                            Cantidad
                             </Label>
                             <Input
                             id="quantity"
@@ -436,10 +431,10 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
                         </div>
                         </div>
                         <DialogFooter>
-                            <Button type="button" variant="secondary" onClick={() => setShowGenerateMoreDialog(false)} disabled={isGeneratingMore}>Cancel</Button>
+                            <Button type="button" variant="secondary" onClick={() => setShowGenerateMoreDialog(false)} disabled={isGeneratingMore}>Cancelar</Button>
                             <Button type="submit" onClick={handleGenerateMore} disabled={isGeneratingMore}>
                                 {isGeneratingMore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                Generate
+                                Generar
                             </Button>
                         </DialogFooter>
                     </DialogContent>
@@ -449,7 +444,7 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
 
             <Button onClick={handleGeneratePdf} disabled={isPrinting}>
                 {isPrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
-                {isPrinting ? 'Generating...' : 'Download PDF'}
+                {isPrinting ? 'Generando...' : 'Descargar PDF'}
             </Button>
 
             <TooltipProvider>
@@ -467,7 +462,7 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                        {secretKey ? <p>Download all assets (.txt, .csv, .json, .md)</p> : <p>Download CSV of tickets</p>}
+                        {secretKey ? <p>Descargar todos los activos (.txt, .csv, .json, .md)</p> : <p>Descargar CSV de tickets</p>}
                     </TooltipContent>
                 </Tooltip>
             </TooltipProvider>
@@ -478,29 +473,28 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
         {isSaving && (
             <Alert className="mb-4">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <AlertTitle>Saving tickets...</AlertTitle>
+                <AlertTitle>Guardando tickets...</AlertTitle>
                 <AlertDescription>
-                    Syncing generated tickets to the online database. Please wait.
+                    Sincronizando los tickets generados con la base de datos online. Por favor, espera.
                 </AlertDescription>
             </Alert>
         )}
         {isSaved && !isRegeneration && (
              <Alert variant="default" className="mb-4 bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300">
                 <CheckCircle className="h-4 w-4" />
-                <AlertTitle>Sync Complete</AlertTitle>
+                <AlertTitle>Sincronización Completa</AlertTitle>
                 <AlertDescription>
-                    All tickets have been saved to the online database.
+                    Todos los tickets se han guardado en la base de datos online.
                 </AlertDescription>
             </Alert>
         )}
         {saveError && (
             <Alert variant="destructive" className="mb-4">
                 <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Online Sync Failed</AlertTitle>
+                <AlertTitle>Fallo en la Sincronización Online</AlertTitle>
                 <AlertDescription>{saveError}</AlertDescription>
             </Alert>
         )}
-
 
       <div className="printable-area space-y-4">
         {ticketPages.map((page, pageIndex) => (
@@ -531,4 +525,3 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
     </div>
   );
 }
-

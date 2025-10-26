@@ -12,19 +12,19 @@ import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const CheckParametersInputSchema = z.object({
-  event_name: z.string().describe('The name of the event.'),
-  event_id: z.string().describe('A short string ID for the event.'),
-  date_time: z.string().describe('The date and time of the event.'),
-  venue: z.string().describe('The venue of the event.'),
-  quantity: z.number().describe('The number of tickets to generate.'),
-  tickets_per_page: z.number().describe('The number of tickets per page.'),
-  page_size: z.string().describe('The page size (e.g., A4, Letter).'),
+  event_name: z.string().describe('El nombre del evento.'),
+  event_id: z.string().describe('Un ID corto para el evento.'),
+  date_time: z.string().describe('La fecha y hora del evento.'),
+  venue: z.string().describe('El lugar del evento.'),
+  quantity: z.number().describe('La cantidad de tickets a generar.'),
+  tickets_per_page: z.number().describe('El número de tickets por página.'),
+  page_size: z.string().describe('El tamaño de página (ej. A4, Letter).'),
 });
 export type CheckParametersInput = z.infer<typeof CheckParametersInputSchema>;
 
 const CheckParametersOutputSchema = z.object({
-  valid: z.boolean().describe('Whether the parameters are valid and consistent.'),
-  feedback: z.string().describe('Feedback from the AI about the parameters.'),
+  valid: z.boolean().describe('Indica si los parámetros son válidos y consistentes.'),
+  feedback: z.string().describe('Comentarios de la IA sobre los parámetros, en español.'),
 });
 export type CheckParametersOutput = z.infer<typeof CheckParametersOutputSchema>;
 
@@ -36,27 +36,27 @@ const prompt = ai.definePrompt({
   name: 'checkParametersPrompt',
   input: {schema: CheckParametersInputSchema},
   output: {schema: CheckParametersOutputSchema},
-  prompt: `You are an AI assistant that helps validate event parameters.
+  prompt: `Eres un asistente de IA que ayuda a validar parámetros de eventos. La respuesta debe ser en español.
 
-  You will be given the following parameters for an event:
-  Event Name: {{{event_name}}}
-  Event ID: {{{event_id}}}
-  Date and Time: {{{date_time}}}
-  Venue: {{{venue}}}
-  Quantity: {{{quantity}}}
-  Tickets Per Page: {{{tickets_per_page}}}
-  Page Size: {{{page_size}}}
+  Se te darán los siguientes parámetros para un evento:
+  Nombre del Evento: {{{event_name}}}
+  ID del Evento: {{{event_id}}}
+  Fecha y Hora: {{{date_time}}}
+  Lugar: {{{venue}}}
+  Cantidad: {{{quantity}}}
+  Tickets por Página: {{{tickets_per_page}}}
+  Tamaño de Página: {{{page_size}}}
 
-  Determine if the parameters are valid and consistent. Provide feedback to the user if any information is missing or contradictory.
+  Determina si los parámetros son válidos y consistentes. Proporciona comentarios al usuario si falta información o es contradictoria.
 
-  If everything is fine, set valid to true and provide a positive message in the feedback field. Otherwise, set valid to false and explain the issues in the feedback field.
+  Si todo está bien, establece 'valid' en true y proporciona un mensaje positivo en el campo 'feedback'. De lo contrario, establece 'valid' en false y explica los problemas en el campo 'feedback'.
 
-  The output should be structured as a JSON object with "valid" (boolean) and "feedback" (string) fields.
+  La salida debe estar estructurada como un objeto JSON con los campos "valid" (booleano) y "feedback" (string).
 
-  Consider these:
-  - if the quantity of tickets is too high given the tickets_per_page and page_size.
-  - if the date_time appears to be valid and complete.
-  - if the event_id is a reasonable abbreviation of the event_name, and is unique.
+  Considera lo siguiente:
+  - si la cantidad de tickets es demasiado alta dada la cantidad de tickets por página y el tamaño de la página.
+  - si la fecha y hora parecen ser válidas y completas.
+  - si el ID del evento es una abreviatura razonable del nombre del evento, y es único.
 `,
 });
 

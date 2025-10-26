@@ -28,8 +28,8 @@ export function EventHistory() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Loading Events...</CardTitle>
-          <CardDescription>Fetching event history from the database.</CardDescription>
+          <CardTitle>Cargando Eventos...</CardTitle>
+          <CardDescription>Obteniendo el historial de eventos desde la base de datos.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -45,7 +45,7 @@ export function EventHistory() {
   if (error) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Error Loading History</AlertTitle>
+        <AlertTitle>Error al Cargar el Historial</AlertTitle>
         <AlertDescription>{error.message}</AlertDescription>
       </Alert>
     );
@@ -55,8 +55,8 @@ export function EventHistory() {
     return (
         <div className="text-center py-16 border-2 border-dashed rounded-lg">
             <FileQuestion className="mx-auto h-12 w-12 text-muted-foreground" />
-            <h3 className="mt-4 text-lg font-medium text-muted-foreground">No Events Found</h3>
-            <p className="mt-1 text-sm text-muted-foreground">It looks like you haven't generated any tickets yet.</p>
+            <h3 className="mt-4 text-lg font-medium text-muted-foreground">No se Encontraron Eventos</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Parece que aún no has generado ningún ticket.</p>
         </div>
     );
   }
@@ -66,17 +66,17 @@ export function EventHistory() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Your Events</CardTitle>
-        <CardDescription>A list of all events you have created.</CardDescription>
+        <CardTitle>Tus Eventos</CardTitle>
+        <CardDescription>Una lista de todos los eventos que has creado.</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Event Name</TableHead>
-              <TableHead>Venue</TableHead>
-              <TableHead>Date & Time</TableHead>
-              <TableHead>Created On</TableHead>
+              <TableHead>Nombre del Evento</TableHead>
+              <TableHead>Lugar</TableHead>
+              <TableHead>Fecha y Hora</TableHead>
+              <TableHead>Creado el</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

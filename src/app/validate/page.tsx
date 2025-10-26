@@ -4,9 +4,9 @@ export default function ValidatePage() {
   return (
     <div>
       <div className="text-center mb-8">
-        <h1 className="text-4xl font-headline text-primary">Ticket Validator</h1>
+        <h1 className="text-4xl font-headline text-primary">Validador de Tickets</h1>
         <p className="text-muted-foreground mt-2">
-          Scan a ticket's QR code to validate it against the online database.
+          Escanea el código QR de un ticket para validarlo con la base de datos online.
         </p>
       </div>
       <TicketValidatorOnline />
