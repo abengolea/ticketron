@@ -31,6 +31,9 @@ import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { createHmac, randomBytes, randomUUID } from "crypto";
+import { errorEmitter } from "@/firebase/error-emitter";
+import { FirestorePermissionError } from "@/firebase/errors";
+
 
 // Helper to chunk array
 const chunk = <T,>(arr: T[], size: number): T[][] =>
@@ -204,24 +207,42 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             const batch = writeBatch(firestore);
             ticketChunk.forEach((ticket) => {
                 const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
-                batch.set(ticketDocRef, {
+                const ticketData = {
                     ticketNumber: ticket.ticketNumber,
                     shortCode: ticket.shortCode,
                     redeemed: false,
                     redeemedAt: null,
-                });
+                };
+                batch.set(ticketDocRef, ticketData);
             });
-            await batch.commit();
+            batch.commit().catch(async (serverError) => {
+                const permissionError = new FirestorePermissionError({
+                  path: ticketsCollectionRef.path,
+                  operation: 'create',
+                  message: serverError.message,
+                });
+                errorEmitter.emit('permission-error', permissionError);
+            });
         }
+        
+        const updateData = { ticketCount: increment(moreQuantity) };
+        updateDoc(eventRef, updateData).catch(async (serverError) => {
+            const permissionError = new FirestorePermissionError({
+                path: eventRef.path,
+                operation: 'update',
+                requestResourceData: updateData,
+                message: serverError.message,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+        });
 
-        await updateDoc(eventRef, { ticketCount: increment(moreQuantity) });
 
         toast({
-            title: "Generación Completa",
-            description: `${moreQuantity} nuevos tickets han sido guardados. La página se recargará ahora.`
+            title: "Generación en Progreso",
+            description: `${moreQuantity} nuevos tickets se están guardando. La página se recargará en breve.`
         });
         
-        setTimeout(() => window.location.reload(), 1500);
+        setTimeout(() => window.location.reload(), 2500);
 
     } catch(e: any) {
         console.error("Failed to generate more tickets", e);
@@ -241,14 +262,14 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     }
 
     setIsEditing(true);
-    try {
-        const eventDocRef = doc(firestore, 'events', eventParams.event_id);
-        await updateDoc(eventDocRef, {
-            eventName: editFormData.eventName,
-            dateTime: editFormData.dateTime,
-            venue: editFormData.venue,
-        });
-
+    const eventDocRef = doc(firestore, 'events', eventParams.event_id);
+    const updateData = {
+        eventName: editFormData.eventName,
+        dateTime: editFormData.dateTime,
+        venue: editFormData.venue,
+    };
+    updateDoc(eventDocRef, updateData)
+      .then(() => {
         if (onEventUpdate) {
             onEventUpdate({
                 event_name: editFormData.eventName,
@@ -259,11 +280,19 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         
         toast({ title: "Evento Actualizado", description: "Los detalles del evento han sido actualizados con éxito." });
         setShowEditDialog(false);
-    } catch (error: any) {
-        toast({ variant: 'destructive', title: "Falló la Actualización", description: error.message });
-    } finally {
         setIsEditing(false);
-    }
+      })
+      .catch(async (serverError) => {
+        const permissionError = new FirestorePermissionError({
+          path: eventDocRef.path,
+          operation: 'update',
+          requestResourceData: updateData,
+          message: serverError.message,
+        });
+        errorEmitter.emit('permission-error', permissionError);
+        toast({ variant: 'destructive', title: "Falló la Actualización", description: serverError.message });
+        setIsEditing(false);
+      });
   };
 
   const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -12,6 +13,8 @@ import { useFirestore } from '@/firebase';
 import { doc, runTransaction } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TicketValidator } from './ticket-validator';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError } from '@/firebase/errors';
 
 type ValidationResult = {
   status: 'valid' | 'invalid' | 'redeemed';
@@ -40,6 +43,7 @@ export function TicketValidatorOnline() {
     setIsLoading(true);
     setValidationResult(null);
 
+    let ticketRef: any;
     try {
       const data = JSON.parse(payload);
       const { eid: eventId, tid: ticketId } = data;
@@ -50,7 +54,7 @@ export function TicketValidatorOnline() {
         return;
       }
       
-      const ticketRef = doc(firestore, 'events', eventId, 'tickets', ticketId);
+      ticketRef = doc(firestore, 'events', eventId, 'tickets', ticketId);
 
       const resultMessage = await runTransaction(firestore, async (transaction) => {
         const ticketDoc = await transaction.get(ticketRef);
@@ -71,13 +75,15 @@ export function TicketValidatorOnline() {
       setValidationResult({ status: 'valid', message: resultMessage });
 
     } catch (error: any) {
-      let detailedError = `Ocurrió un error de validación desconocido.`;
-       if (error.code === 'permission-denied') {
-            detailedError = `Las reglas de seguridad de Firestore no permiten esta operación. Error original: ${error.message}`;
-        } else {
-            detailedError = error.message;
+        if (error.code === 'permission-denied' || (error.message && error.message.toLowerCase().includes('permission-denied'))) {
+            const permissionError = new FirestorePermissionError({
+                path: ticketRef?.path || 'unknown path',
+                operation: 'update',
+                message: error.message
+            });
+            errorEmitter.emit('permission-error', permissionError);
         }
-      setValidationResult({ status: 'invalid', message: detailedError });
+        setValidationResult({ status: 'invalid', message: error.message });
     } finally {
         setIsLoading(false);
         setQrPayload('');
