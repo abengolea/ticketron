@@ -64,6 +64,7 @@ export function TicketValidatorOnline() {
         }
 
         transaction.update(ticketRef, { redeemed: true, redeemedAt: new Date() });
+        return `Ticket ${ticketId.substring(0,8)}... is valid and has been redeemed.`;
       });
 
       setValidationResult({ status: 'valid', message: `Ticket ${ticketId.substring(0,8)}... is valid and has been redeemed.` });
