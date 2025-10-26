@@ -63,18 +63,30 @@ async function addTicketsToEvent(
     const eventRef = db.collection('events').doc(params.event_id);
     const ticketsCollectionRef = eventRef.collection('tickets');
 
-    const batch = db.batch();
-    for (const ticket of tickets) {
-        const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
-        batch.set(ticketRef, {
-            ticketNumber: ticket.ticketNumber,
-            shortCode: ticket.shortCode,
-            redeemed: false,
-            redeemedAt: null,
-        });
-    }
-    batch.update(eventRef, { ticketCount: FieldValue.increment(params.quantity) });
-    await batch.commit();
+    // Use a transaction to ensure atomicity when updating ticket count and adding tickets
+    await db.runTransaction(async (transaction) => {
+        const eventDoc = await transaction.get(eventRef);
+        if (!eventDoc.exists) {
+            throw new Error("El evento no existe. No se pueden agregar más tickets.");
+        }
+        
+        // Batch write for the new tickets
+        const batch = db.batch();
+        for (const ticket of tickets) {
+            const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
+            batch.set(ticketRef, {
+                ticketNumber: ticket.ticketNumber,
+                shortCode: ticket.shortCode,
+                redeemed: false,
+                redeemedAt: null,
+            });
+        }
+        await batch.commit();
+
+        // Update the main event doc with the new ticket count
+        transaction.update(eventRef, { ticketCount: FieldValue.increment(params.quantity) });
+    });
+
 
     return {
         tickets,
@@ -93,21 +105,25 @@ export async function generateTicketsAction(
     // --- ROUTE 1: ADDING TICKETS TO EXISTING EVENT ---
     // This path bypasses the AI validation completely by not importing it.
     if (isAddingTickets) {
-      console.log(`Adding ${params.quantity} tickets to event ${params.event_id}...`);
+      console.log(`Ruta de acción: Agregando ${params.quantity} tickets al evento ${params.event_id}...`);
       const data = await addTicketsToEvent(params as EventParameters & { starting_ticket_number: number });
       return { success: true, data };
     }
 
     // --- ROUTE 2: CREATING A NEW EVENT ---
     // This path uses dynamic import to load the AI flow only when needed.
-    console.log(`Creating new event ${params.event_id}...`);
+    console.log(`Ruta de acción: Creando nuevo evento ${params.event_id}...`);
     
     // Step 1: Dynamically import and validate parameters with AI
+    console.log("Cargando dinámicamente el módulo de IA para validación...");
     const { checkParametersWithAI } = await import("@/ai/flows/check-parameters-with-ai");
+    console.log("Módulo de IA cargado. Validando parámetros...");
     const aiCheckResult = await checkParametersWithAI(params);
     if (!aiCheckResult.valid) {
+      console.error("La validación de IA falló:", aiCheckResult.feedback);
       return { success: false, error: aiCheckResult.feedback };
     }
+    console.log("Validación de IA exitosa.");
     
     // Step 2: Get or create the secret key
     const secretKey = await getSecretKeyForEvent(params.event_id);
@@ -167,7 +183,7 @@ export async function generateTicketsAction(
       },
     };
   } catch (e: any) {
-    console.error("Error in generateTicketsAction:", e);
+    console.error("Error en generateTicketsAction:", e);
     return { success: false, error: e.message || "Un error desconocido ocurrió durante la generación de tickets." };
   }
 }
