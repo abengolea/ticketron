@@ -61,14 +61,18 @@
   .no-print {
     display: none !important;
   }
-  body.printing * {
-    visibility: hidden;
+  body.printing {
+    margin: 0;
+    padding: 0;
+    background-color: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
-  body.printing .printable-area,
-  body.printing .printable-area * {
-    visibility: visible;
+  body.printing > * {
+    display: none;
   }
   body.printing .printable-area {
+    display: block !important;
     position: absolute;
     left: 0;
     top: 0;
@@ -76,25 +80,24 @@
     margin: 0;
     padding: 0;
   }
-  body {
-    background-color: white !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    margin: 0;
-    padding: 0;
-  }
+  
   .print-page {
     page-break-after: always;
-    width: 210mm;
-    height: 297mm;
     box-shadow: none !important;
     border: none !important;
     margin: 0;
     padding: 0;
     overflow: hidden;
   }
+
   .ticket-card {
     border: none !important;
     box-shadow: none !important;
   }
 }
+
+/* Styles for PDF generation with html2canvas */
+.printable-area .print-page:not(.no-print-pdf-hide) {
+    display: none;
+}
+

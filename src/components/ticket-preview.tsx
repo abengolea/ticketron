@@ -6,7 +6,7 @@ import type { GenerationResult } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
 import { downloadFile } from "@/lib/utils";
-import { Download, Printer, ArrowLeft, Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { Download, Printer, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -14,10 +14,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useFirestore } from "@/firebase";
-import { collection, writeBatch, doc } from "firebase/firestore";
+import { collection, writeBatch, doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 
 // Helper to chunk array
@@ -39,71 +41,71 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
   const [isSaving, setIsSaving] = useState(!isRegeneration);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(isRegeneration);
+  const [isPrinting, setIsPrinting] = useState(false);
 
   useEffect(() => {
     if (isRegeneration) return;
 
     const saveTicketsToFirestore = async () => {
-      if (!firestore) {
-        setSaveError("Firestore is not available. Tickets cannot be saved online.");
-        setIsSaving(false);
-        return;
-      }
-      if(isSaved || tickets.length === 0) {
-        setIsSaving(false);
-        return;
-      };
+        if (!firestore) {
+            setSaveError("Firestore is not available. Tickets cannot be saved online.");
+            setIsSaving(false);
+            return;
+        }
+        if(isSaved || tickets.length === 0) {
+            setIsSaving(false);
+            return;
+        };
 
-      setIsSaving(true);
-      setSaveError(null);
+        setIsSaving(true);
+        setSaveError(null);
 
-      try {
-        const eventId = eventParams.event_id;
-        const eventDocRef = doc(firestore, 'events', eventId);
-        
-        // Update rules to allow update on events collection for this to work
-        await writeBatch(firestore).set(eventDocRef, { 
-            eventName: eventParams.event_name,
-            dateTime: eventParams.date_time,
-            venue: eventParams.venue,
-            ticketCount: tickets.length,
-            createdAt: new Date(),
-        }, { merge: true }).commit();
+        try {
+            const eventId = eventParams.event_id;
+            const eventDocRef = doc(firestore, 'events', eventId);
+            
+            await setDoc(eventDocRef, { 
+                eventName: eventParams.event_name,
+                dateTime: eventParams.date_time,
+                venue: eventParams.venue,
+                ticketCount: tickets.length,
+                createdAt: serverTimestamp(),
+            }, { merge: true });
 
-        const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
-        const ticketChunks = chunk(tickets, 499);
-        
-        for (const ticketChunk of ticketChunks) {
-            const ticketBatch = writeBatch(firestore);
-            ticketChunk.forEach((ticket) => {
-              const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
-              ticketBatch.set(ticketDocRef, {
-                ticketNumber: ticket.ticketNumber,
-                shortCode: ticket.shortCode,
-                redeemed: false,
-                redeemedAt: null,
-              });
+            const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
+            const ticketChunks = chunk(tickets, 499);
+            
+            for (const ticketChunk of ticketChunks) {
+                const ticketBatch = writeBatch(firestore);
+                ticketChunk.forEach((ticket) => {
+                const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
+                ticketBatch.set(ticketDocRef, {
+                    ticketNumber: ticket.ticketNumber,
+                    shortCode: ticket.shortCode,
+                    redeemed: false,
+                    redeemedAt: null,
+                });
+                });
+                await ticketBatch.commit();
+            }
+
+            setIsSaved(true);
+            toast({
+                title: "Tickets saved online",
+                description: `${tickets.length} tickets have been synced with the database.`,
             });
-            await ticketBatch.commit();
+        } catch (error: any) {
+            console.error("Error saving tickets to Firestore:", error);
+            let detailedError = `Failed to save tickets online. Please check your Firestore security rules and internet connection.`;
+            if (error.code === 'permission-denied') {
+                 detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
+            } else {
+                detailedError += ` Error: ${error.message}`;
+            }
+            setSaveError(detailedError);
+        } finally {
+            setIsSaving(false);
         }
-
-        setIsSaved(true);
-        toast({
-          title: "Tickets saved online",
-          description: `${tickets.length} tickets have been synced with the database.`,
-        });
-      } catch (error: any) {
-        console.error("Error saving tickets to Firestore:", error);
-        let detailedError = `Failed to save tickets online. Please check your Firestore security rules and internet connection.`;
-        if (error.code === 'permission-denied') {
-             detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
-        } else {
-            detailedError += ` Error: ${error.message}`;
-        }
-        setSaveError(detailedError);
-      } finally {
-        setIsSaving(false);
-      }
     };
 
     saveTicketsToFirestore();
@@ -114,6 +116,57 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
     document.body.classList.add('printing');
     window.print();
     document.body.classList.remove('printing');
+  };
+
+  const handleGeneratePdf = async () => {
+    setIsPrinting(true);
+    toast({
+        title: "Generating PDF...",
+        description: "This may take a moment for a large number of tickets."
+    });
+
+    const pdf = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4'
+    });
+
+    const pageElements = document.querySelectorAll('.print-page');
+    const A4_WIDTH = 210;
+    const A4_HEIGHT = 297;
+
+    for (let i = 0; i < pageElements.length; i++) {
+        const page = pageElements[i] as HTMLElement;
+        
+        // Temporarily make the element visible for capturing
+        page.style.display = 'grid';
+
+        const canvas = await html2canvas(page, {
+            scale: 2, // Higher scale for better quality
+            useCORS: true,
+            logging: false,
+            width: page.offsetWidth,
+            height: page.offsetHeight,
+        });
+
+        // Hide it back
+        page.style.display = '';
+
+        const imgData = canvas.toDataURL('image/png');
+        
+        if (i > 0) {
+            pdf.addPage();
+        }
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, A4_WIDTH, A4_HEIGHT);
+    }
+    
+    pdf.save(`tickets-${eventParams.event_id}.pdf`);
+    setIsPrinting(false);
+    toast({
+        title: "PDF Generated",
+        description: "Your ticket PDF has been downloaded.",
+    });
   };
 
   const handleDownloadSecret = () => {
@@ -197,8 +250,9 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
             <Button variant="outline" onClick={() => window.location.href = isRegeneration ? '/history' : '/'}>
                 <ArrowLeft className="mr-2 h-4 w-4" /> {isRegeneration ? 'Back to History' : 'Start Over'}
             </Button>
-            <Button onClick={handlePrint}>
-                <Printer className="mr-2 h-4 w-4" /> Print All Tickets
+            <Button onClick={handleGeneratePdf} disabled={isPrinting}>
+                {isPrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+                {isPrinting ? 'Generating...' : 'Download PDF'}
             </Button>
 
             <TooltipProvider>
@@ -253,7 +307,7 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
 
       <div className="printable-area space-y-4">
         {ticketPages.map((page, pageIndex) => (
-          <div key={pageIndex} className="print-page bg-card shadow-lg rounded-lg mx-auto p-5 grid grid-cols-2 grid-rows-2 gap-0 relative w-[210mm] h-[297mm]">
+          <div key={pageIndex} className="print-page bg-card shadow-lg rounded-lg mx-auto p-5 grid grid-cols-2 grid-rows-2 gap-0 relative w-[210mm] h-[297mm] no-print-pdf-hide">
             {/* Cutting guides */}
             <div className="absolute top-1/2 left-0 right-0 h-[1px] bg-gray-300 border-b border-dashed"></div>
             <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-gray-300 border-r border-dashed"></div>
