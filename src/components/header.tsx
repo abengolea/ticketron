@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Ticket, ShieldCheck } from "lucide-react";
+import { Ticket, ShieldCheck, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -12,6 +12,7 @@ export function Header() {
   const navItems = [
     { href: "/", label: "Generator", icon: Ticket },
     { href: "/validate", label: "Validator", icon: ShieldCheck },
+    { href: "/history", label: "History", icon: History },
   ];
 
   return (

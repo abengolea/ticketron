@@ -64,6 +64,7 @@ export function TicketPreview({ result }: { result: GenerationResult }) {
             eventName: eventParams.event_name,
             dateTime: eventParams.date_time,
             venue: eventParams.venue,
+            ticketCount: tickets.length,
             createdAt: new Date(),
         }, { merge: true });
         await eventBatch.commit();
@@ -92,7 +93,7 @@ export function TicketPreview({ result }: { result: GenerationResult }) {
         console.error("Error saving tickets to Firestore:", error);
         let detailedError = `Failed to save tickets online. Please check your Firestore security rules and internet connection.`;
         if (error.code === 'permission-denied') {
-            detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${error.message}`;
+             detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${JSON.stringify({code: error.code, name: error.name})}`;
         } else {
             detailedError += ` Error: ${error.message}`;
         }
