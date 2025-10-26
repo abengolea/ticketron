@@ -106,6 +106,19 @@ export default function EventDetailPage() {
     fetchEventDetails();
   }, [firestore, eventId]);
 
+  const handleEventUpdate = (updatedParams: Partial<EventParameters>) => {
+    setGenerationResult(prev => {
+        if (!prev) return null;
+        return {
+            ...prev,
+            eventParams: {
+                ...prev.eventParams,
+                ...updatedParams
+            }
+        }
+    });
+  }
+
   if (loading) {
     return (
         <div className="flex justify-center items-center my-8">
@@ -129,7 +142,7 @@ export default function EventDetailPage() {
   }
 
   if (generationResult) {
-    return <TicketPreview result={generationResult} isRegeneration={true} />;
+    return <TicketPreview result={generationResult} isRegeneration={true} onEventUpdate={handleEventUpdate} />;
   }
 
   return null;

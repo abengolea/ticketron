@@ -2,11 +2,11 @@
 
 "use client";
 
-import type { GenerationResult } from "@/lib/types";
+import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
 import { downloadFile } from "@/lib/utils";
-import { Download, Printer, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown, PlusCircle } from "lucide-react";
+import { Download, Printer, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown, PlusCircle, Pencil } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,7 +25,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useFirestore } from "@/firebase";
-import { collection, writeBatch, doc, serverTimestamp, setDoc, runTransaction } from "firebase/firestore";
+import { collection, writeBatch, doc, serverTimestamp, setDoc, runTransaction, updateDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
@@ -43,9 +43,10 @@ const chunk = <T,>(arr: T[], size: number): T[][] =>
 type TicketPreviewProps = {
   result: GenerationResult;
   isRegeneration?: boolean;
+  onEventUpdate?: (updatedParams: Partial<EventParameters>) => void;
 };
 
-export function TicketPreview({ result, isRegeneration = false }: TicketPreviewProps) {
+export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, secretKey, eventParams } = result;
   const firestore = useFirestore();
   const { toast } = useToast();
@@ -54,9 +55,18 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(isRegeneration);
   const [isPrinting, setIsPrinting] = useState(false);
+  
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
   const [moreQuantity, setMoreQuantity] = useState(10);
   const [showGenerateMoreDialog, setShowGenerateMoreDialog] = useState(false);
+
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+      eventName: eventParams.event_name,
+      dateTime: eventParams.date_time,
+      venue: eventParams.venue,
+  });
 
 
   useEffect(() => {
@@ -130,7 +140,7 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
             });
         } catch (error: any) {
             console.error("Error saving tickets to Firestore:", error);
-            let detailedError = `Failed to save tickets online. Please check your Firestore security rules and internet connection.`;
+             let detailedError = `Failed to save tickets online. Please check your Firestore security rules and internet connection.`;
             if (error.code === 'permission-denied') {
                  detailedError = `Firestore Security Rules do not allow this operation. Raw Error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
             } else {
@@ -238,6 +248,43 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
     }
   };
 
+  const handleEditEvent = async () => {
+    if (!firestore) {
+        toast({ variant: 'destructive', title: "Firestore not available." });
+        return;
+    }
+
+    setIsEditing(true);
+    try {
+        const eventDocRef = doc(firestore, 'events', eventParams.event_id);
+        await updateDoc(eventDocRef, {
+            eventName: editFormData.eventName,
+            dateTime: editFormData.dateTime,
+            venue: editFormData.venue,
+        });
+
+        if (onEventUpdate) {
+            onEventUpdate({
+                event_name: editFormData.eventName,
+                date_time: editFormData.dateTime,
+                venue: editFormData.venue
+            });
+        }
+        
+        toast({ title: "Event Updated", description: "Event details have been successfully updated." });
+        setShowEditDialog(false);
+    } catch (error: any) {
+        toast({ variant: 'destructive', title: "Update Failed", description: error.message });
+    } finally {
+        setIsEditing(false);
+    }
+  };
+
+  const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { id, value } = e.target;
+    setEditFormData(prev => ({ ...prev, [id]: value }));
+  };
+
   const handleDownloadSecret = () => {
     if (!secretKey) {
         toast({variant: 'destructive', title: 'Cannot download secret', description: 'The secret key is not available for past events.'})
@@ -321,42 +368,83 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
             </Button>
              
             {isRegeneration && (
-                <Dialog open={showGenerateMoreDialog} onOpenChange={setShowGenerateMoreDialog}>
-                <DialogTrigger asChild>
-                    <Button>
-                        <PlusCircle className="mr-2 h-4 w-4" /> Generate More
-                    </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
-                    <DialogTitle>Generate More Tickets</DialogTitle>
-                    <DialogDescription>
-                        How many additional tickets would you like to generate for "{eventParams.event_name}"?
-                    </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="quantity" className="text-right">
-                        Quantity
-                        </Label>
-                        <Input
-                        id="quantity"
-                        type="number"
-                        value={moreQuantity}
-                        onChange={(e) => setMoreQuantity(Number(e.target.value))}
-                        className="col-span-3"
-                        />
-                    </div>
-                    </div>
-                    <DialogFooter>
-                        <Button type="button" variant="secondary" onClick={() => setShowGenerateMoreDialog(false)} disabled={isGeneratingMore}>Cancel</Button>
-                        <Button type="submit" onClick={handleGenerateMore} disabled={isGeneratingMore}>
-                            {isGeneratingMore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                            Generate
+              <>
+                {/* Edit Event Dialog */}
+                <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+                    <DialogTrigger asChild>
+                        <Button variant="outline">
+                            <Pencil className="mr-2 h-4 w-4" /> Edit Event
                         </Button>
-                    </DialogFooter>
-                </DialogContent>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Edit Event Details</DialogTitle>
+                            <DialogDescription>
+                                Modify the event information. These changes will be reflected on the printed tickets.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="eventName" className="text-right">Event Name</Label>
+                                <Input id="eventName" value={editFormData.eventName} onChange={handleEditFormChange} className="col-span-3" />
+                            </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="dateTime" className="text-right">Date & Time</Label>
+                                <Input id="dateTime" value={editFormData.dateTime} onChange={handleEditFormChange} className="col-span-3" />
+                            </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="venue" className="text-right">Venue</Label>
+                                <Input id="venue" value={editFormData.venue} onChange={handleEditFormChange} className="col-span-3" />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="secondary" onClick={() => setShowEditDialog(false)} disabled={isEditing}>Cancel</Button>
+                            <Button type="button" onClick={handleEditEvent} disabled={isEditing}>
+                                {isEditing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                Save Changes
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
                 </Dialog>
+
+                {/* Generate More Tickets Dialog */}
+                <Dialog open={showGenerateMoreDialog} onOpenChange={setShowGenerateMoreDialog}>
+                    <DialogTrigger asChild>
+                        <Button>
+                            <PlusCircle className="mr-2 h-4 w-4" /> Generate More
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                        <DialogTitle>Generate More Tickets</DialogTitle>
+                        <DialogDescription>
+                            How many additional tickets would you like to generate for "{eventParams.event_name}"?
+                        </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="quantity" className="text-right">
+                            Quantity
+                            </Label>
+                            <Input
+                            id="quantity"
+                            type="number"
+                            value={moreQuantity}
+                            onChange={(e) => setMoreQuantity(Number(e.target.value))}
+                            className="col-span-3"
+                            />
+                        </div>
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="secondary" onClick={() => setShowGenerateMoreDialog(false)} disabled={isGeneratingMore}>Cancel</Button>
+                            <Button type="submit" onClick={handleGenerateMore} disabled={isGeneratingMore}>
+                                {isGeneratingMore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                Generate
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+              </>
             )}
 
             <Button onClick={handleGeneratePdf} disabled={isPrinting}>
@@ -443,3 +531,4 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
     </div>
   );
 }
+
