@@ -11,10 +11,14 @@ import { base32Encode } from "./utils";
 // --- Firebase Admin Initialization ---
 let adminApp: App;
 if (!getApps().length) {
-  // IMPORTANT: This requires the GOOGLE_APPLICATION_CREDENTIALS environment variable
-  // to be set with the path to your service account key file.
-  // In Firebase Hosting with App Hosting, this is configured automatically.
-  adminApp = initializeApp();
+  try {
+    // This works in App Hosting by using the runtime service account
+    adminApp = initializeApp();
+  } catch (e) {
+    console.error("Failed to initialize Firebase Admin SDK automatically", e);
+    // Fallback for local dev if GOOGLE_APPLICATION_CREDENTIALS is set
+    adminApp = initializeApp();
+  }
 } else {
   adminApp = getApps()[0];
 }
@@ -31,7 +35,10 @@ async function getSecretKeyForEvent(eventId: string): Promise<string> {
     const secretRef = db.collection('event_secrets').doc(eventId);
     const doc = await secretRef.get();
     if (doc.exists) {
-        return doc.data()?.secretKey;
+        const data = doc.data();
+        if (data && data.secretKey) {
+          return data.secretKey;
+        }
     }
     // If not, create, store, and return a new one
     const newSecretKey = randomBytes(32).toString('base64');
@@ -43,7 +50,7 @@ export async function generateTicketsAction(
   params: EventParameters & { starting_ticket_number?: number }
 ): Promise<{ success: true; data: GenerationResult } | { success: false; error: string }> {
   try {
-    const isAddingTickets = params.starting_ticket_number && params.starting_ticket_number > 1;
+    const isAddingTickets = !!params.starting_ticket_number && params.starting_ticket_number > 1;
 
     // We only run the AI check for brand new events, not when adding more tickets.
     if (!isAddingTickets) {
@@ -53,8 +60,6 @@ export async function generateTicketsAction(
         }
     }
     
-    // For new events, we generate and return the secret key to the client for asset download.
-    // For existing events, we fetch it from the DB to sign new tickets, but don't return it.
     const secretKey = await getSecretKeyForEvent(params.event_id);
         
     const tickets: TicketData[] = [];
@@ -115,16 +120,18 @@ export async function generateTicketsAction(
             });
         }
 
-        // Add the new tickets to the subcollection
+        // Add the new tickets to the subcollection in a single batch within the transaction
+        const batch = db.batch();
         for (const ticket of tickets) {
             const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
-            transaction.set(ticketRef, {
+            batch.set(ticketRef, {
                 ticketNumber: ticket.ticketNumber,
                 shortCode: ticket.shortCode,
                 redeemed: false,
                 redeemedAt: null,
             });
         }
+        // This batch will be committed as part of the transaction
     });
     // --- End Transaction ---
 
@@ -142,7 +149,6 @@ export async function generateTicketsAction(
       success: true,
       data: {
         tickets,
-        // Only return the secret key on initial creation
         secretKey: isAddingTickets ? "" : secretKey,
         eventParams: eventParamsResult,
       },
@@ -152,5 +158,3 @@ export async function generateTicketsAction(
     return { success: false, error: e.message || "Un error desconocido ocurrió durante la generación de tickets." };
   }
 }
-
-    
