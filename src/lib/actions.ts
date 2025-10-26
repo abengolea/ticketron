@@ -102,23 +102,22 @@ export async function generateTicketsAction(
   try {
     const isAddingTickets = !!params.starting_ticket_number && params.starting_ticket_number > 1;
 
-    // --- ROUTE 1: ADDING TICKETS TO EXISTING EVENT ---
-    // This path bypasses the AI validation completely by not importing it.
+    // --- ROUTE 1: ADDING TICKETS TO EXISTING EVENT (NO AI) ---
     if (isAddingTickets) {
-      console.log(`Ruta de acción: Agregando ${params.quantity} tickets al evento ${params.event_id}...`);
+      console.log(`Ruta de acción: Agregando ${params.quantity} tickets al evento ${params.event_id}. No se utiliza IA.`);
       const data = await addTicketsToEvent(params as EventParameters & { starting_ticket_number: number });
       return { success: true, data };
     }
 
-    // --- ROUTE 2: CREATING A NEW EVENT ---
-    // This path uses dynamic import to load the AI flow only when needed.
-    console.log(`Ruta de acción: Creando nuevo evento ${params.event_id}...`);
+    // --- ROUTE 2: CREATING A NEW EVENT (WITH DYNAMIC AI VALIDATION) ---
+    console.log(`Ruta de acción: Creando nuevo evento ${params.event_id}.`);
     
     // Step 1: Dynamically import and validate parameters with AI
-    console.log("Cargando dinámicamente el módulo de IA para validación...");
+    console.log("Importando dinámicamente el módulo de IA para validación...");
     const { checkParametersWithAI } = await import("@/ai/flows/check-parameters-with-ai");
     console.log("Módulo de IA cargado. Validando parámetros...");
     const aiCheckResult = await checkParametersWithAI(params);
+    
     if (!aiCheckResult.valid) {
       console.error("La validación de IA falló:", aiCheckResult.feedback);
       return { success: false, error: aiCheckResult.feedback };
