@@ -4,7 +4,6 @@
 import { createHmac, randomBytes, randomUUID } from "crypto";
 import { initializeApp, getApps, App } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { checkParametersWithAI } from "@/ai/flows/check-parameters-with-ai";
 import type { EventParameters, TicketData, GenerationResult } from "./types";
 import { base32Encode } from "./utils";
 
@@ -15,8 +14,6 @@ if (!getApps().length) {
     adminApp = initializeApp();
   } catch (e) {
     console.error("Failed to initialize Firebase Admin SDK automatically", e);
-    // In many environments, the SDK can be initialized without arguments.
-    // If that fails, it might need specific credentials.
     adminApp = initializeApp();
   }
 } else {
@@ -71,7 +68,6 @@ async function addTicketsToEvent(
     const eventRef = db.collection('events').doc(params.event_id);
     const ticketsCollectionRef = eventRef.collection('tickets');
 
-    // Batch write tickets
     const batch = db.batch();
     for (const ticket of tickets) {
         const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
@@ -82,7 +78,6 @@ async function addTicketsToEvent(
             redeemedAt: null,
         });
     }
-    // Increment the total ticket count on the event document
     batch.update(eventRef, { ticketCount: FieldValue.increment(params.quantity) });
     await batch.commit();
 
@@ -98,11 +93,10 @@ export async function generateTicketsAction(
   params: EventParameters & { starting_ticket_number?: number }
 ): Promise<{ success: true; data: GenerationResult } | { success: false; error: string }> {
   try {
-    // --- ROUTE 1: ADDING TICKETS TO EXISTING EVENT ---
-    // If a starting_ticket_number is provided, it means we are adding tickets.
-    // This path bypasses the AI validation completely to avoid auth conflicts.
     const isAddingTickets = !!params.starting_ticket_number && params.starting_ticket_number > 1;
 
+    // --- ROUTE 1: ADDING TICKETS TO EXISTING EVENT ---
+    // This path bypasses the AI validation completely by not importing it.
     if (isAddingTickets) {
       console.log(`Adding ${params.quantity} tickets to event ${params.event_id}...`);
       const data = await addTicketsToEvent(params as EventParameters & { starting_ticket_number: number });
@@ -110,10 +104,11 @@ export async function generateTicketsAction(
     }
 
     // --- ROUTE 2: CREATING A NEW EVENT ---
-    // This path is for brand new events and includes AI validation.
+    // This path uses dynamic import to load the AI flow only when needed.
     console.log(`Creating new event ${params.event_id}...`);
     
-    // Step 1: Validate parameters with AI
+    // Step 1: Dynamically import and validate parameters with AI
+    const { checkParametersWithAI } = await import("@/ai/flows/check-parameters-with-ai");
     const aiCheckResult = await checkParametersWithAI(params);
     if (!aiCheckResult.valid) {
       return { success: false, error: aiCheckResult.feedback };
@@ -142,7 +137,6 @@ export async function generateTicketsAction(
     const eventRef = db.collection('events').doc(params.event_id);
     const ticketsCollectionRef = eventRef.collection('tickets');
 
-    // Use a transaction to ensure the event doesn't already exist
     await db.runTransaction(async (transaction) => {
         const eventDoc = await transaction.get(eventRef);
         if (eventDoc.exists) {
@@ -157,7 +151,6 @@ export async function generateTicketsAction(
         });
     });
 
-    // Batch write tickets outside the transaction for performance
     const batch = db.batch();
     for (const ticket of tickets) {
         const ticketRef = ticketsCollectionRef.doc(ticket.ticketId);
