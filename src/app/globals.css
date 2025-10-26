@@ -58,29 +58,30 @@
 }
 
 @media print {
-  body * {
+  .no-print {
+    display: none !important;
+  }
+  body.printing * {
     visibility: hidden;
   }
-  .printable-area, .printable-area * {
+  body.printing .printable-area,
+  body.printing .printable-area * {
     visibility: visible;
   }
-  .printable-area {
+  body.printing .printable-area {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
     margin: 0;
     padding: 0;
-    box-shadow: none;
-    border: none;
   }
   body {
     background-color: white !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-  }
-  .no-print {
-    display: none !important;
+    margin: 0;
+    padding: 0;
   }
   .print-page {
     page-break-after: always;

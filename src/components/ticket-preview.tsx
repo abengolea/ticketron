@@ -60,23 +60,19 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
       try {
         const eventId = eventParams.event_id;
         const eventDocRef = doc(firestore, 'events', eventId);
-        const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
-
-        // Firestore limits batches to 500 operations.
-        const ticketChunks = chunk(tickets, 499);
-
-        // First, set the event details in a separate operation or its own batch
-        const eventBatch = writeBatch(firestore);
-        eventBatch.set(eventDocRef, { 
+        
+        // Update rules to allow update on events collection for this to work
+        await writeBatch(firestore).set(eventDocRef, { 
             eventName: eventParams.event_name,
             dateTime: eventParams.date_time,
             venue: eventParams.venue,
             ticketCount: tickets.length,
             createdAt: new Date(),
-        }, { merge: true });
-        await eventBatch.commit();
+        }, { merge: true }).commit();
 
-        // Then, process tickets in batches
+        const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
+        const ticketChunks = chunk(tickets, 499);
+        
         for (const ticketChunk of ticketChunks) {
             const ticketBatch = writeBatch(firestore);
             ticketChunk.forEach((ticket) => {
@@ -113,6 +109,12 @@ export function TicketPreview({ result, isRegeneration = false }: TicketPreviewP
     saveTicketsToFirestore();
   }, [firestore, tickets, eventParams, toast, isSaved, isRegeneration]);
 
+
+  const handlePrint = () => {
+    document.body.classList.add('printing');
+    window.print();
+    document.body.classList.remove('printing');
+  };
 
   const handleDownloadSecret = () => {
     if (!secretKey) {
@@ -195,7 +197,7 @@ Use the \`tickets.csv\` file for manual lookup if all else fails.
             <Button variant="outline" onClick={() => window.location.href = isRegeneration ? '/history' : '/'}>
                 <ArrowLeft className="mr-2 h-4 w-4" /> {isRegeneration ? 'Back to History' : 'Start Over'}
             </Button>
-            <Button onClick={() => window.print()}>
+            <Button onClick={handlePrint}>
                 <Printer className="mr-2 h-4 w-4" /> Print All Tickets
             </Button>
 
