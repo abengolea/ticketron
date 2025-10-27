@@ -286,7 +286,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                         <FormControl>
                         <SelectTrigger>
                             <SelectValue placeholder="Seleccionar..." />
-                        </Trigger>
+                        </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                             <SelectItem value="A4">A4</SelectItem>
