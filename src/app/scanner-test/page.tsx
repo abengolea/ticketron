@@ -16,18 +16,12 @@ export default function ScannerTestPage() {
     const [scanResult, setScanResult] = useState<string | null>(null);
     const { toast } = useToast();
 
-    // Effect for initializing and cleaning up the scanner
+    // Effect for cleaning up the scanner
     useEffect(() => {
-        // Initialize scanner instance on mount
-        if (!scannerRef.current) {
-            scannerRef.current = new Html5Qrcode(QR_READER_ID, { verbose: false });
-        }
-        const scanner = scannerRef.current;
-
-        // Cleanup function to be called on component unmount
+        // This function is returned from useEffect and will be called on component unmount
         return () => {
-            if (scanner && scanner.isScanning) {
-                scanner.stop().catch(err => {
+            if (scannerRef.current && scannerRef.current.isScanning) {
+                scannerRef.current.stop().catch(err => {
                     // This error is often safe to ignore, as it can happen if the camera is already closed.
                     console.warn("Test Page: Failed to stop scanner on cleanup, it might have been already stopped.", err);
                 });
@@ -36,9 +30,12 @@ export default function ScannerTestPage() {
     }, []);
     
     const startScanner = async () => {
-        const scanner = scannerRef.current;
-        if (!scanner || scanner.isScanning) {
-            console.log("Scanner is already running or not initialized.");
+        // Ensure we have a fresh instance, in case the old one was corrupted
+        const scanner = new Html5Qrcode(QR_READER_ID, { verbose: false });
+        scannerRef.current = scanner;
+
+        if (scanner.isScanning) {
+            console.log("Scanner is already running.");
             return;
         }
 
@@ -46,19 +43,24 @@ export default function ScannerTestPage() {
         setIsScanning(true);
 
         try {
-            await scanner.start(
-                { facingMode: "environment" },
-                { fps: 10, qrbox: { width: 250, height: 250 } },
-                (decodedText, decodedResult) => {
-                    // success callback
-                    setScanResult(decodedText);
-                    // Stop scanning after a successful scan
-                    stopScanner();
-                },
-                (errorMessage) => {
-                    // parse error callback, we can ignore it.
-                }
-            );
+            const devices = await Html5Qrcode.getCameras();
+            if (devices && devices.length) {
+                await scanner.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    (decodedText, decodedResult) => {
+                        // success callback
+                        setScanResult(decodedText);
+                        // Stop scanning after a successful scan
+                        stopScanner();
+                    },
+                    (errorMessage) => {
+                        // parse error callback, we can ignore it.
+                    }
+                );
+            } else {
+                 throw new Error('No se encontraron cámaras.');
+            }
         } catch (err: any) {
             console.error("Error starting scanner:", err);
             toast({
