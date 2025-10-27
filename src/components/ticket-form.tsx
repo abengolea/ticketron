@@ -76,12 +76,13 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       return;
     }
     
+    // 1. Generate Secret Key (Client-side)
     const secretBytes = new Uint8Array(32);
     crypto.getRandomValues(secretBytes);
     const secretKey = btoa(String.fromCharCode.apply(null, Array.from(secretBytes)));
 
+    // 2. Generate Ticket Data (Client-side)
     const tickets: TicketData[] = [];
-    
     for (let i = 0; i < values.quantity; i++) {
         const ticketNumber = i + 1;
         const ticketId = crypto.randomUUID();
@@ -98,31 +99,35 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
         tickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
     }
     
+    // 3. Firestore Operations
     const secretRef = doc(firestore, 'event_secrets', values.event_id);
     const eventRef = doc(firestore, 'events', values.event_id);
+    const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
 
-    runTransaction(firestore, async (transaction) => {
-        const eventDoc = await transaction.get(eventRef);
-        if (eventDoc.exists()) {
-            throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
-        }
+    try {
+        // Run transaction to create event and secret
+        await runTransaction(firestore, async (transaction) => {
+            const eventDoc = await transaction.get(eventRef);
+            if (eventDoc.exists()) {
+                throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
+            }
 
-        const secretData = { secretKey };
-        transaction.set(secretRef, secretData);
-        
-        const eventData = {
-            eventName: values.event_name,
-            dateTime: values.date_time,
-            venue: values.venue,
-            ticketCount: values.quantity,
-            createdAt: serverTimestamp()
-        };
-        transaction.set(eventRef, eventData);
-    }).then(async () => {
-        const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
+            const secretData = { secretKey };
+            transaction.set(secretRef, secretData);
+            
+            const eventData = {
+                eventName: values.event_name,
+                dateTime: values.date_time,
+                venue: values.venue,
+                ticketCount: values.quantity,
+                createdAt: serverTimestamp()
+            };
+            transaction.set(eventRef, eventData);
+        });
+
+        // Batch write tickets
         const ticketChunks = chunk(tickets, 499);
-
-        const allPromises: Promise<void>[] = [];
+        const batchPromises: Promise<void>[] = [];
 
         for (const ticketChunk of ticketChunks) {
             const batch = writeBatch(firestore);
@@ -138,8 +143,8 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 batch.set(ticketDocRef, ticketData);
                 batchData[ticket.ticketId] = ticketData;
             });
-
-            const batchPromise = batch.commit().catch(async (serverError) => {
+            
+            const batchPromise = batch.commit().catch(serverError => {
                 const permissionError = new FirestorePermissionError({
                     path: ticketsCollectionRef.path,
                     operation: 'create',
@@ -147,15 +152,18 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                     message: serverError.message,
                 });
                 errorEmitter.emit('permission-error', permissionError);
-                throw permissionError;
+                throw permissionError; 
             });
-            allPromises.push(batchPromise);
+            batchPromises.push(batchPromise);
         }
         
-        await Promise.all(allPromises);
+        await Promise.all(batchPromises);
+
+        // If all successful, show the preview
         onGenerate({ tickets, secretKey, eventParams: values }, null);
-        setIsLoading(false);
-    }).catch((e: any) => {
+    
+    } catch (e: any) {
+        // This will now catch the re-thrown permission error or the transaction error
         if (e.name !== 'FirestorePermissionError') {
              onGenerate(null, `Un error ocurrió: ${e.message}`);
              toast({
@@ -164,8 +172,9 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                  description: e.message,
              });
         }
+    } finally {
         setIsLoading(false);
-    });
+    }
   };
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
