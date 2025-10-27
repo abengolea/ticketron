@@ -11,7 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle, Camera } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 
 type ValidationResult = {
   status: 'valid' | 'invalid' | 'redeemed';
@@ -25,31 +25,58 @@ export function TicketValidator() {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const isMountedRef = useRef(true);
+
   const { toast } = useToast();
 
   useEffect(() => {
+    isMountedRef.current = true;
+    
+    // Load redeemed tickets from local storage
     try {
       const storedRedeemed = localStorage.getItem('redeemedTickets');
-      if (storedRedeemed) {
+      if (storedRedeemed && isMountedRef.current) {
         setRedeemedTickets(new Set(JSON.parse(storedRedeemed)));
       }
     } catch (error) {
         console.error("No se pudieron parsear los tickets canjeados desde localStorage", error);
         localStorage.removeItem('redeemedTickets');
     }
+
+    // Initialize scanner instance
+    scannerRef.current = new Html5Qrcode('qr-reader');
+
+    // Cleanup function
+    return () => {
+      isMountedRef.current = false;
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch(err => {
+          console.error("Error al detener el escáner offline en cleanup:", err);
+        });
+      }
+    };
   }, []);
 
   const stopScanner = () => {
     if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().catch(err => {
-            // Log error but don't bother the user.
-            // This can happen if the scanner is already stopping.
-            console.error("Error al detener el escáner offline:", err);
+      scannerRef.current.stop()
+        .then(() => {
+          if (isMountedRef.current) {
+            setIsScanning(false);
+          }
+        })
+        .catch(err => {
+          console.error("Error al detener el escáner offline:", err);
+          if (isMountedRef.current) {
+            setIsScanning(false); // Force state update even on error
+          }
         });
+    } else {
+        if(isMountedRef.current) {
+            setIsScanning(false);
+        }
     }
-    scannerRef.current = null;
-    setIsScanning(false);
-  }
+  };
 
   const handleValidate = (payload: string) => {
     if (!secretKey.trim() || !payload.trim()) {
@@ -92,20 +119,29 @@ export function TicketValidator() {
     } catch (error) {
       setValidationResult({ status: 'invalid', message: 'Falló al parsear el código QR. ¿Es un JSON válido?' });
     }
-    setQrPayload('');
+    if (isMountedRef.current) {
+        setQrPayload('');
+    }
   };
 
   const startScanner = async () => {
-    setIsScanning(true);
-    setValidationResult(null);
+    if (!scannerRef.current) {
+        toast({ variant: 'destructive', title: 'Error de Escáner', description: 'La instancia del escáner no está lista.' });
+        return;
+    }
 
-    // Ensure there's a fresh scanner instance
-    scannerRef.current = new Html5Qrcode('qr-reader');
+    const scannerState = scannerRef.current.getState();
+    if (scannerState !== Html5QrcodeScannerState.NOT_STARTED) {
+        return;
+    }
+
+    if (isMountedRef.current) {
+        setIsScanning(true);
+        setValidationResult(null);
+    }
 
     try {
-        await Html5Qrcode.getCameras();
-        
-        scannerRef.current.start(
+        await scannerRef.current.start(
             { facingMode: "environment" },
             {
                 fps: 10,
@@ -113,30 +149,22 @@ export function TicketValidator() {
             },
             (decodedText) => {
                 stopScanner();
-                setQrPayload(decodedText);
+                if (isMountedRef.current) {
+                    setQrPayload(decodedText);
+                }
                 handleValidate(decodedText);
             },
             (errorMessage) => {
                 // ignore errors
             }
-        ).catch(err => {
-            toast({ variant: 'destructive', title: 'Error del Escáner', description: err.message });
-            setIsScanning(false);
-        });
+        )
     } catch (err: any) {
-        toast({ variant: 'destructive', title: 'Error de Cámara', description: "No se pudo obtener permisos de cámara. Por favor, permite el acceso a la cámara." });
-        setIsScanning(false);
-    }
-  };
-
-  useEffect(() => {
-    // Cleanup on component unmount
-    return () => {
-        if (scannerRef.current && scannerRef.current.isScanning) {
-            stopScanner();
+        if (isMountedRef.current) {
+            toast({ variant: 'destructive', title: 'Error de Cámara', description: "No se pudo obtener permisos de cámara. Por favor, permite el acceso a la cámara." });
+            setIsScanning(false);
         }
     }
-  }, []);
+  };
 
   return (
     <Card className="max-w-2xl mx-auto">
