@@ -141,9 +141,8 @@ export function TicketValidatorOnline() {
         await scanner.start(
             { facingMode: "environment" },
             { fps: 10, qrbox: { width: 250, height: 250 } },
-            (decodedText) => {
-                // Do not call stopScanner here, handleValidate will do it.
-                handleValidate(decodedText);
+            async (decodedText) => {
+                await handleValidate(decodedText);
             },
             (errorMessage) => { /* ignore */ }
         )

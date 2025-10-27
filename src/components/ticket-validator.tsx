@@ -141,9 +141,9 @@ export function TicketValidator() {
                 fps: 10,
                 qrbox: { width: 250, height: 250 }
             },
-            (decodedText) => {
+            async (decodedText) => {
                 setQrPayload(decodedText);
-                handleValidate(decodedText);
+                await handleValidate(decodedText);
             },
             (errorMessage) => {
                 // ignore errors
