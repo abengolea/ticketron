@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
@@ -112,15 +113,22 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     const pageElements = document.querySelectorAll('.print-page');
     const A4_WIDTH = 210;
     const A4_HEIGHT = 297;
-    let hasError = false;
   
     for (let i = 0; i < pageElements.length; i++) {
       const page = pageElements[i] as HTMLElement;
-      // Make the page visible to allow images to load
-      page.classList.remove('no-print-pdf-hide');
-  
+      
+      console.log(`🔍 Verificando elemento para la página ${i + 1}...`);
+      const rect = page.getBoundingClientRect();
+      console.log(`  - Dimensiones: { width: ${rect.width}, height: ${rect.height} }`);
+      console.log(`  - Estilo de Display: ${window.getComputedStyle(page).display}`);
+      console.log(`  - Visibilidad: ${window.getComputedStyle(page).visibility}`);
+      
+      if (rect.width === 0 || rect.height === 0) {
+        console.error(`  ❌ ERROR: El elemento para la página ${i + 1} no es visible o no tiene dimensiones. Saltando esta página.`);
+        continue;
+      }
+      
       try {
-        // Now wait for images to load since the element is visible
         await waitForImagesInContainer(page);
   
         const canvas = await html2canvas(page, {
@@ -135,7 +143,13 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         const imgData = canvas.toDataURL('image/png');
   
         if (!isValidDataURL(imgData)) {
-            throw new Error(`Generated canvas for page ${i + 1} is invalid or empty.`);
+            console.error(`Error: Generated canvas for page ${i + 1} is invalid or empty.`);
+            toast({
+              variant: 'destructive',
+              title: `Error al Generar Página ${i+1}`,
+              description: 'El canvas generado está vacío o es inválido.',
+            });
+            continue; // Skip this page
         }
 
         if (i > 0) {
@@ -143,30 +157,20 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         }
         pdf.addImage(imgData, 'PNG', 0, 0, A4_WIDTH, A4_HEIGHT);
       } catch (error: any) {
-        console.error(`Error generating PDF for page ${i + 1}:`, error);
+        console.error(`Error al procesar la página ${i + 1}:`, error);
         toast({
           variant: 'destructive',
-          title: `Error al Generar Página ${i+1}`,
+          title: `Error en Página ${i+1}`,
           description: error.message || 'No se pudo procesar una de las páginas.',
         });
-        hasError = true;
-        break; // Stop the process on the first error
-      } finally {
-        // Hide the page again after processing
-        page.classList.add('no-print-pdf-hide');
       }
     }
     
-    // Hide all pages again just in case of an error loop
-    if(hasError) {
-        pageElements.forEach(p => p.classList.add('no-print-pdf-hide'));
-    } else {
-        pdf.save(`tickets-${eventParams.event_id}.pdf`);
-        toast({
-          title: 'PDF Generado',
-          description: 'Tu PDF de tickets ha sido descargado.',
-        });
-    }
+    pdf.save(`tickets-${eventParams.event_id}.pdf`);
+    toast({
+        title: 'PDF Generado',
+        description: 'Tu PDF de tickets ha sido descargado.',
+    });
 
     setIsPrinting(false);
   };
@@ -545,7 +549,7 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
 
       <div className="printable-area space-y-4">
         {ticketPages.map((page, pageIndex) => (
-          <div key={pageIndex} className="print-page bg-card shadow-lg rounded-lg mx-auto p-5 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm] no-print-pdf-hide">
+          <div key={pageIndex} className="print-page bg-card shadow-lg rounded-lg mx-auto p-5 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm]">
             {/* Cutting guides */}
             <div className="absolute top-1/4 left-0 right-0 h-[1px] bg-gray-300 border-b border-dashed"></div>
             <div className="absolute top-2/4 left-0 right-0 h-[1px] bg-gray-300 border-b border-dashed"></div>
@@ -574,3 +578,5 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
     </div>
   );
 }
+
+    
