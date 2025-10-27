@@ -34,7 +34,7 @@ const formSchema = z.object({
   date_time: z.string().min(5, "La fecha y hora son requeridas."),
   venue: z.string().min(3, "El lugar es requerido."),
   quantity: z.coerce.number().int().positive().max(1000, "La cantidad no puede exceder los 1000."),
-  tickets_per_page: z.literal(8),
+  tickets_per_page: z.literal(4),
   page_size: z.enum(["A4", "Letter"]),
 });
 
@@ -158,7 +158,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       date_time: "Fecha y hora a confirmar",
       venue: "Lugar a confirmar",
       quantity: 100,
-      tickets_per_page: 8,
+      tickets_per_page: 4,
       page_size: "A4",
     },
   });
@@ -167,7 +167,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   const { user } = useUser();
   const { toast } = useToast();
 
-  const handleTicketGeneration = (values: FormValues) => {
+  function onSubmit(values: FormValues) {
     if (!firestore) {
       onGenerate(null, "Firestore no está disponible.");
       return;
@@ -179,11 +179,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     generateAndStoreTickets(firestore, values, onGenerate, setIsLoading, user.uid, toast);
   };
 
-  const onSubmit = (values: FormValues) => {
-    handleTicketGeneration(values);
-  };
-
-  const onTestSubmit = () => {
+  function onTestSubmit() {
     const values = form.getValues();
     const testValues = { ...values, quantity: 10 };
     
@@ -193,7 +189,11 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       return;
     }
     
-    handleTicketGeneration(testValues);
+    if (!firestore || !user) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Debes iniciar sesión y Firestore debe estar disponible.' });
+      return;
+    }
+    generateAndStoreTickets(firestore, testValues, onGenerate, setIsLoading, user.uid, toast);
   };
 
   return (
@@ -284,7 +284,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                         </Trigger>
                         </FormControl>
                         <SelectContent>
-                            <SelectItem value="8">8</SelectItem>
+                            <SelectItem value="4">4</SelectItem>
                         </SelectContent>
                     </Select>
                     <FormMessage />
@@ -334,3 +334,5 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     </Card>
   );
 }
+
+    
