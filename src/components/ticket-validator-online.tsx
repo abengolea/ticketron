@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef }s from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
@@ -29,6 +29,18 @@ export function TicketValidatorOnline() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
   const firestore = useFirestore();
+
+  const stopScanner = () => {
+    if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch(err => {
+            // Log error but don't bother the user.
+            // This can happen if the scanner is already stopping.
+            console.error("Error al detener el escáner online:", err)
+        });
+    }
+    scannerRef.current = null;
+    setIsScanning(false);
+  }
 
   const handleValidate = async (payload: string) => {
     if (!firestore) {
@@ -94,17 +106,18 @@ export function TicketValidatorOnline() {
     setIsScanning(true);
     setValidationResult(null);
 
+    // Ensure there's a fresh scanner instance
+    scannerRef.current = new Html5Qrcode('qr-reader-online');
+
     try {
         await Html5Qrcode.getCameras();
-        const scanner = new Html5Qrcode('qr-reader-online');
-        scannerRef.current = scanner;
         
-        scanner.start(
+        scannerRef.current.start(
             { facingMode: "environment" },
             { fps: 10, qrbox: { width: 250, height: 250 } },
             (decodedText) => {
-                handleValidate(decodedText);
                 stopScanner();
+                handleValidate(decodedText);
             },
             (errorMessage) => { /* ignore */ }
         ).catch(err => {
@@ -117,16 +130,10 @@ export function TicketValidatorOnline() {
     }
   };
 
-  const stopScanner = () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().catch(err => console.error("Falló al detener el escáner", err));
-    }
-    setIsScanning(false);
-  }
-
   useEffect(() => {
     return () => {
-        if(scannerRef.current && scannerRef.current.isScanning) {
+        // Cleanup on component unmount
+        if (scannerRef.current && scannerRef.current.isScanning) {
             stopScanner();
         }
     }

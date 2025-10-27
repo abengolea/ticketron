@@ -39,6 +39,18 @@ export function TicketValidator() {
     }
   }, []);
 
+  const stopScanner = () => {
+    if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch(err => {
+            // Log error but don't bother the user.
+            // This can happen if the scanner is already stopping.
+            console.error("Error al detener el escáner offline:", err);
+        });
+    }
+    scannerRef.current = null;
+    setIsScanning(false);
+  }
+
   const handleValidate = (payload: string) => {
     if (!secretKey.trim() || !payload.trim()) {
       toast({
@@ -87,21 +99,22 @@ export function TicketValidator() {
     setIsScanning(true);
     setValidationResult(null);
 
+    // Ensure there's a fresh scanner instance
+    scannerRef.current = new Html5Qrcode('qr-reader');
+
     try {
         await Html5Qrcode.getCameras();
-        const scanner = new Html5Qrcode('qr-reader');
-        scannerRef.current = scanner;
         
-        scanner.start(
+        scannerRef.current.start(
             { facingMode: "environment" },
             {
                 fps: 10,
                 qrbox: { width: 250, height: 250 }
             },
             (decodedText) => {
+                stopScanner();
                 setQrPayload(decodedText);
                 handleValidate(decodedText);
-                stopScanner();
             },
             (errorMessage) => {
                 // ignore errors
@@ -116,16 +129,10 @@ export function TicketValidator() {
     }
   };
 
-  const stopScanner = () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().catch(err => console.error("Falló al detener el escáner", err));
-    }
-    setIsScanning(false);
-  }
-
   useEffect(() => {
+    // Cleanup on component unmount
     return () => {
-        if(scannerRef.current && scannerRef.current.isScanning) {
+        if (scannerRef.current && scannerRef.current.isScanning) {
             stopScanner();
         }
     }
@@ -203,5 +210,3 @@ export function TicketValidator() {
     </Card>
   );
 }
-
-    
