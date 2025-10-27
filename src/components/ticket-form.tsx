@@ -27,7 +27,6 @@ import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
 import { format } from "date-fns";
 
-
 const formSchema = z.object({
   event_name: z.string().min(3, "El nombre del evento debe tener al menos 3 caracteres."),
   event_id: z.string().min(3, "El ID del evento debe tener al menos 3 caracteres."),
@@ -43,7 +42,6 @@ type TicketFormProps = {
   setIsLoading: (isLoading: boolean) => void;
 };
 
-// Helper to chunk array
 const chunk = <T,>(arr: T[], size: number): T[][] =>
   Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
     arr.slice(i * size, i * size + size)
@@ -76,104 +74,86 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       return;
     }
 
-    // 1. Generate Secret Key (Client-side)
     const secretBytes = new Uint8Array(32);
     crypto.getRandomValues(secretBytes);
     const secretKey = btoa(String.fromCharCode.apply(null, Array.from(secretBytes)));
 
-    // 2. Generate Ticket Data (Client-side)
     const tickets: TicketData[] = [];
     for (let i = 0; i < values.quantity; i++) {
-        const ticketNumber = i + 1;
-        const ticketId = crypto.randomUUID();
-        const version = 1;
-        const payloadToSign = `${values.event_id}|${ticketId}|${version}`;
-        
-        const hmac = createHmac("sha256", Buffer.from(secretKey, "base64"));
-        hmac.update(payloadToSign);
-        const sig = hmac.digest().slice(0, 12).toString("base64").replace(/\+/g, '-').replace(/\//g, '_');
+      const ticketNumber = i + 1;
+      const ticketId = crypto.randomUUID();
+      const version = 1;
+      const payloadToSign = `${values.event_id}|${ticketId}|${version}`;
+      
+      const hmac = createHmac("sha256", Buffer.from(secretKey, "base64"));
+      hmac.update(payloadToSign);
+      const sig = hmac.digest().slice(0, 12).toString("base64").replace(/\+/g, '-').replace(/\//g, '_');
 
-        const qrPayload = JSON.stringify({ v: version, eid: values.event_id, tid: ticketId, sig });
-        const shortCodeSource = Buffer.from(ticketId.substring(0, 8) + sig.substring(0, 4));
-        const shortCode = base32Encode(shortCodeSource).substring(0, 7);
-        tickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
+      const qrPayload = JSON.stringify({ v: version, eid: values.event_id, tid: ticketId, sig });
+      const shortCodeSource = Buffer.from(ticketId.substring(0, 8) + sig.substring(0, 4));
+      const shortCode = base32Encode(shortCodeSource).substring(0, 7);
+      tickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
     }
     
-    // 3. Firestore Operations
     const secretRef = doc(firestore, 'event_secrets', values.event_id);
     const eventRef = doc(firestore, 'events', values.event_id);
-
+    
     try {
-      await runTransaction(firestore, async (transaction) => {
-        const eventDoc = await transaction.get(eventRef);
-        if (eventDoc.exists()) {
-          throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
+        await runTransaction(firestore, async (transaction) => {
+            const eventDoc = await transaction.get(eventRef);
+            if (eventDoc.exists()) {
+                throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
+            }
+
+            const secretData = { secretKey };
+            transaction.set(secretRef, secretData);
+            
+            const eventData = {
+                eventName: values.event_name,
+                dateTime: values.date_time,
+                venue: values.venue,
+                ticketCount: values.quantity,
+                createdAt: serverTimestamp()
+            };
+            transaction.set(eventRef, eventData);
+        });
+
+        const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
+        const ticketChunks = chunk(tickets, 499);
+        for (const ticketChunk of ticketChunks) {
+            const batch = writeBatch(firestore);
+            const batchData: Record<string, any> = {};
+            ticketChunk.forEach((ticket) => {
+                const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
+                const ticketData = {
+                    ticketNumber: ticket.ticketNumber,
+                    shortCode: ticket.shortCode,
+                    redeemed: false,
+                    redeemedAt: null,
+                };
+                batch.set(ticketDocRef, ticketData);
+                batchData[ticket.ticketId] = ticketData;
+            });
+            
+            await batch.commit().catch(serverError => {
+                const permissionError = new FirestorePermissionError({
+                    path: ticketsCollectionRef.path,
+                    operation: 'create',
+                    requestResourceData: batchData,
+                    message: serverError.message,
+                });
+                errorEmitter.emit('permission-error', permissionError);
+                throw permissionError;
+            });
         }
-
-        const secretData = { secretKey };
-        transaction.set(secretRef, secretData);
         
-        const eventData = {
-            eventName: values.event_name,
-            dateTime: values.date_time,
-            venue: values.venue,
-            ticketCount: values.quantity,
-            createdAt: serverTimestamp()
-        };
-        transaction.set(eventRef, eventData);
-      });
-
-      // Batch write tickets
-      const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
-      const ticketChunks = chunk(tickets, 499);
-      for (const ticketChunk of ticketChunks) {
-          const batch = writeBatch(firestore);
-          const batchData: Record<string, any> = {};
-          ticketChunk.forEach((ticket) => {
-              const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
-              const ticketData = {
-                  ticketNumber: ticket.ticketNumber,
-                  shortCode: ticket.shortCode,
-                  redeemed: false,
-                  redeemedAt: null,
-              };
-              batch.set(ticketDocRef, ticketData);
-              batchData[ticket.ticketId] = ticketData;
-          });
-          
-          await batch.commit().catch(serverError => {
-              const permissionError = new FirestorePermissionError({
-                  path: ticketsCollectionRef.path,
-                  operation: 'create',
-                  requestResourceData: batchData,
-                  message: serverError.message,
-              });
-              errorEmitter.emit('permission-error', permissionError);
-              throw permissionError; // Re-throw to be caught by the outer try/catch
-          });
-      }
-
-      // If all successful, show the preview
-      onGenerate({ tickets, secretKey, eventParams: values }, null);
+        onGenerate({ tickets, secretKey, eventParams: values }, null);
 
     } catch (e: any) {
-        if (e.name !== 'FirestorePermissionError' && !e.message.includes('permission-denied')) {
-            onGenerate(null, `Un error ocurrió: ${e.message}`);
-            toast({
-                variant: "destructive",
-                title: "Error en la Generación",
-                description: e.message,
-            });
-        } else if (e.name !== 'FirestorePermissionError') {
-             // Handle transaction permission error
-            const permissionError = new FirestorePermissionError({
-                path: eventRef.path,
-                operation: 'create',
-                message: e.message
-            });
-            errorEmitter.emit('permission-error', permissionError);
+        if (e.name !== 'FirestorePermissionError') {
+             onGenerate(null, `Un error ocurrió: ${e.message}`);
         }
-        // For FirestorePermissionError, the specific catch blocks already emitted it.
+        // FirestorePermissionError is handled by the emitter, so we don't show a generic message.
     } finally {
         setIsLoading(false);
     }
