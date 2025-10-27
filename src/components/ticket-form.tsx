@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -17,11 +16,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import type { GenerationResult, TicketData } from "@/lib/types";
+import type { GenerationResult, TicketData, EventParameters } from "@/lib/types";
 import { useFirestore } from "@/firebase";
 import { createHmac } from 'crypto-browserify';
 import { base32Encode } from "@/lib/utils";
-import { doc, runTransaction, collection, writeBatch, serverTimestamp, Firestore } from "firebase/firestore";
+import { doc, runTransaction, collection, writeBatch, serverTimestamp, type Firestore } from "firebase/firestore";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
 import { format } from "date-fns";
@@ -38,11 +37,6 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-type TicketFormProps = {
-  onGenerate: (result: GenerationResult | null, error: string | null) => void;
-  setIsLoading: (isLoading: boolean) => void;
-};
-
 const chunk = <T,>(arr: T[], size: number): T[][] =>
   Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
     arr.slice(i * size, i * size + size)
@@ -51,9 +45,13 @@ const chunk = <T,>(arr: T[], size: number): T[][] =>
 async function generateAndStoreTickets(
     firestore: Firestore, 
     values: FormValues,
-    onGenerate: (result: GenerationResult | null, error: string | null) => void
+    onGenerate: (result: GenerationResult | null, error: string | null) => void,
+    setIsLoading: (loading: boolean) => void
 ) {
+    setIsLoading(true);
+    onGenerate(null, null);
     let eventRefPath: string | undefined;
+
     try {
         const secretBytes = new Uint8Array(32);
         crypto.getRandomValues(secretBytes);
@@ -126,8 +124,15 @@ async function generateAndStoreTickets(
         } else {
              onGenerate(null, `Un error ocurrió: ${e.message}`);
         }
+    } finally {
+        setIsLoading(false);
     }
 }
+
+type TicketFormProps = {
+  onGenerate: (result: GenerationResult | null, error: string | null) => void;
+  setIsLoading: (isLoading: boolean) => void;
+};
 
 export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   const form = useForm<FormValues>({
@@ -146,23 +151,11 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   const firestore = useFirestore();
 
   const handleTicketGeneration = async (values: FormValues) => {
-    setIsLoading(true);
-    onGenerate(null, null);
-
     if (!firestore) {
       onGenerate(null, "Firestore no está disponible.");
-      setIsLoading(false);
       return;
     }
-
-    try {
-        await generateAndStoreTickets(firestore, values, onGenerate);
-    } catch (e: any) {
-        // This catch is for unexpected errors in the generation function itself
-        onGenerate(null, `Un error crítico ocurrió: ${e.message}`);
-    } finally {
-        setIsLoading(false);
-    }
+    await generateAndStoreTickets(firestore, values, onGenerate, setIsLoading);
   };
 
   const onSubmit = (values: FormValues) => {
