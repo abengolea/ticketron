@@ -31,6 +31,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
+import { isValidDataURL, waitForImagesInContainer } from "@/lib/image-utils";
 
 
 // Helper to chunk array
@@ -44,20 +45,6 @@ type TicketPreviewProps = {
   isRegeneration?: boolean;
   onEventUpdate?: (updatedParams: Partial<EventParameters>) => void;
 };
-
-// Nueva función para esperar a que todas las imágenes en un contenedor se carguen
-const waitForImagesInPage = (pageElement: HTMLElement): Promise<any> => {
-    const images = Array.from(pageElement.getElementsByTagName('img'));
-    const promises = images.map(img => {
-        if (img.complete) return Promise.resolve();
-        return new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = reject;
-        });
-    });
-    return Promise.all(promises);
-};
-
 
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, secretKey, eventParams } = result;
@@ -115,61 +102,70 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       title: 'Generando PDF...',
       description: 'Esto puede tardar un momento para una gran cantidad de tickets.',
     });
-
+  
     const pdf = new jsPDF({
       orientation: 'p',
       unit: 'mm',
       format: 'a4',
     });
-
+  
     const pageElements = document.querySelectorAll('.print-page');
     const A4_WIDTH = 210;
     const A4_HEIGHT = 297;
-
+    let hasError = false;
+  
     for (let i = 0; i < pageElements.length; i++) {
       const page = pageElements[i] as HTMLElement;
       page.classList.remove('no-print-pdf-hide');
-
+  
       try {
-        await waitForImagesInPage(page);
-
+        await waitForImagesInContainer(page);
+  
         const canvas = await html2canvas(page, {
           scale: 2,
           useCORS: true,
           logging: false,
+          allowTaint: true,
           width: page.offsetWidth,
           height: page.offsetHeight,
         });
         
         const imgData = canvas.toDataURL('image/png');
+  
+        if (!isValidDataURL(imgData)) {
+            throw new Error(`Generated canvas for page ${i + 1} is invalid or empty.`);
+        }
 
         if (i > 0) {
           pdf.addPage();
         }
         pdf.addImage(imgData, 'PNG', 0, 0, A4_WIDTH, A4_HEIGHT);
-      } catch (error) {
-        console.error('Error al generar la página del PDF:', error);
+      } catch (error: any) {
+        console.error(`Error generating PDF for page ${i + 1}:`, error);
         toast({
           variant: 'destructive',
-          title: 'Error al Generar PDF',
-          description: 'No se pudo procesar una de las páginas. Revisa la consola para más detalles.',
+          title: `Error al Generar Página ${i+1}`,
+          description: error.message || 'No se pudo procesar una de las páginas.',
         });
-        setIsPrinting(false);
-        // Ocultar todas las páginas nuevamente si hay un error
-        pageElements.forEach(p => p.classList.add('no-print-pdf-hide'));
-        return;
+        hasError = true;
+        break; // Stop the process on the first error
       } finally {
         page.classList.add('no-print-pdf-hide');
       }
     }
-
-    pdf.save(`tickets-${eventParams.event_id}.pdf`);
+    
+    // Ocultar todas las páginas si hubo un error para limpiar la vista
+    if(hasError) {
+        pageElements.forEach(p => p.classList.add('no-print-pdf-hide'));
+    } else {
+        pdf.save(`tickets-${eventParams.event_id}.pdf`);
+        toast({
+          title: 'PDF Generado',
+          description: 'Tu PDF de tickets ha sido descargado.',
+        });
+    }
 
     setIsPrinting(false);
-    toast({
-      title: 'PDF Generado',
-      description: 'Tu PDF de tickets ha sido descargado.',
-    });
   };
 
   const handleGenerateMore = async () => {
@@ -575,5 +571,3 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
     </div>
   );
 }
-    
-    
