@@ -25,6 +25,8 @@ import { format } from "date-fns";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { LogIn } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { errorEmitter } from "@/firebase/error-emitter";
+import { FirestorePermissionError } from "@/firebase/errors";
 
 const formSchema = z.object({
   event_name: z.string().min(3, "El nombre del evento debe tener al menos 3 caracteres."),
@@ -49,11 +51,13 @@ async function generateAndStoreTickets(
     setIsLoading(true);
     onGenerate(null, null);
 
-    try {
-        const eventId = values.event_id;
-        const eventRef = doc(firestore, 'events', eventId);
-        const eventDoc = await getDoc(eventRef);
+    const eventId = values.event_id;
+    const eventRef = doc(firestore, 'events', eventId);
+    const secretRef = doc(firestore, 'event_secrets', eventId);
+    const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
 
+    try {
+        const eventDoc = await getDoc(eventRef);
         if (eventDoc.exists()) {
             throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
         }
@@ -68,13 +72,10 @@ async function generateAndStoreTickets(
             const ticketId = crypto.randomUUID();
             const version = 1;
             const payloadToSign = `${eventId}|${ticketId}|${version}`;
-
             const sig = await createHmacSha256(secretKey, payloadToSign);
-
             const qrPayload = JSON.stringify({ v: version, eid: eventId, tid: ticketId, sig });
             const shortCodeSource = new TextEncoder().encode(ticketId.substring(0, 8) + sig.substring(0, 4));
             const shortCode = base32Encode(Buffer.from(shortCodeSource)).substring(0, 7);
-
             tickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
         }
 
@@ -90,7 +91,6 @@ async function generateAndStoreTickets(
         };
         batch.set(eventRef, eventData);
 
-        const secretRef = doc(firestore, 'event_secrets', eventId);
         const secretData = {
             ownerId: ownerId,
             secretKey,
@@ -98,7 +98,7 @@ async function generateAndStoreTickets(
         };
         batch.set(secretRef, secretData);
         
-        const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
+        const ticketsBatchData: Record<string, any> = {};
         tickets.forEach(ticket => {
             const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
             const ticketData = {
@@ -109,19 +109,35 @@ async function generateAndStoreTickets(
                 redeemedAt: null,
             };
             batch.set(ticketDocRef, ticketData);
+            ticketsBatchData[ticket.ticketId] = ticketData;
         });
         
-        await batch.commit();
+        await batch.commit().catch((serverError) => {
+            const permissionError = new FirestorePermissionError({
+                path: 'batch operation',
+                operation: 'create',
+                requestResourceData: {
+                    event: eventData,
+                    secret: secretData,
+                    tickets: ticketsBatchData
+                },
+            });
+            errorEmitter.emit('permission-error', permissionError);
+            // Re-throw to be caught by the outer catch block
+            throw serverError; 
+        });
 
         onGenerate({ tickets, secretKey, eventParams: values }, null);
 
     } catch (e: any) {
-        onGenerate(null, `Un error ocurrió: ${e.message}`);
-        toast({
-          variant: "destructive",
-          title: "Error al Crear el Evento",
-          description: e.message || "No se pudo guardar el evento. Revisa los permisos o los datos."
-        });
+        if (e.name !== 'FirebaseError') { // Don't show generic toast if it's a permission error (handled globally)
+            onGenerate(null, `Un error ocurrió: ${e.message}`);
+            toast({
+              variant: "destructive",
+              title: "Error al Crear el Evento",
+              description: e.message || "No se pudo guardar el evento. Revisa los permisos o los datos."
+            });
+        }
     } finally {
         setIsLoading(false);
     }
