@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -21,7 +20,7 @@ import type { GenerationResult, TicketData, EventParameters } from "@/lib/types"
 import { useFirestore, useUser } from "@/firebase";
 import { createHmac } from 'crypto-browserify';
 import { base32Encode } from "@/lib/utils";
-import { doc, runTransaction, collection, writeBatch, serverTimestamp, type Firestore } from "firebase/firestore";
+import { doc, collection, writeBatch, serverTimestamp, setDoc, getDoc, type Firestore } from "firebase/firestore";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
 import { format } from "date-fns";
@@ -54,12 +53,56 @@ async function generateAndStoreTickets(
 ) {
     setIsLoading(true);
     onGenerate(null, null);
-    let eventRefPath: string | undefined;
 
     try {
+        const eventRef = doc(firestore, 'events', values.event_id);
+        const secretRef = doc(firestore, 'event_secrets', values.event_id);
+
+        const eventDoc = await getDoc(eventRef);
+        if (eventDoc.exists()) {
+            throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
+        }
+
         const secretBytes = new Uint8Array(32);
         crypto.getRandomValues(secretBytes);
         const secretKey = btoa(String.fromCharCode.apply(null, Array.from(secretBytes)));
+
+        const eventData = {
+            ownerId: ownerId,
+            eventName: values.event_name,
+            dateTime: values.date_time,
+            venue: values.venue,
+            ticketCount: values.quantity,
+            createdAt: serverTimestamp()
+        };
+
+        const secretData = {
+            secretKey,
+            ownerId: ownerId,
+            createdAt: serverTimestamp()
+        };
+
+        // Create Event and Secret docs first
+        await setDoc(eventRef, eventData).catch(serverError => {
+            const permissionError = new FirestorePermissionError({
+                path: eventRef.path,
+                operation: 'create',
+                requestResourceData: eventData,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+            throw permissionError;
+        });
+
+        await setDoc(secretRef, secretData).catch(serverError => {
+            const permissionError = new FirestorePermissionError({
+                path: secretRef.path,
+                operation: 'create',
+                requestResourceData: secretData,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+            throw permissionError;
+        });
+
 
         const tickets: TicketData[] = [];
         for (let i = 0; i < values.quantity; i++) {
@@ -78,70 +121,31 @@ async function generateAndStoreTickets(
             tickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
         }
         
-        const secretRef = doc(firestore, 'event_secrets', values.event_id);
-        const eventRef = doc(firestore, 'events', values.event_id);
-        eventRefPath = eventRef.path;
-        
-        await runTransaction(firestore, async (transaction) => {
-            const eventDoc = await transaction.get(eventRef);
-            if (eventDoc.exists()) {
-                throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
-            }
-            const eventData = {
-                ownerId: ownerId,
-                eventName: values.event_name,
-                dateTime: values.date_time,
-                venue: values.venue,
-                ticketCount: values.quantity,
-                createdAt: serverTimestamp()
-            };
-            
-            const secretData = {
-                secretKey,
-                ownerId: ownerId,
-                createdAt: serverTimestamp()
-            };
-
-            transaction.set(secretRef, secretData);
-            transaction.set(eventRef, eventData);
-        }).catch(e => {
-            if (e.code === 'permission-denied') {
-                 const permissionError = new FirestorePermissionError({
-                    path: eventRef.path,
-                    operation: 'create',
-                    message: e.message,
-                });
-                errorEmitter.emit('permission-error', permissionError);
-                throw permissionError;
-            }
-            throw e;
-        });
-        
         const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
         const ticketChunks = chunk(tickets, 499);
         
         for (const ticketChunk of ticketChunks) {
             const batch = writeBatch(firestore);
+            const batchDataForError: Record<string, any> = {};
             ticketChunk.forEach((ticket) => {
                 const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
-                batch.set(ticketDocRef, {
+                const ticketData = {
                     ticketNumber: ticket.ticketNumber,
                     shortCode: ticket.shortCode,
                     redeemed: false,
                     redeemedAt: null,
-                });
+                };
+                batch.set(ticketDocRef, ticketData);
+                batchDataForError[ticket.ticketId] = ticketData;
             });
-            await batch.commit().catch(e => {
-                if (e.code === 'permission-denied') {
-                    const permissionError = new FirestorePermissionError({
-                        path: ticketsCollectionRef.path,
-                        operation: 'create',
-                        message: e.message,
-                    });
-                    errorEmitter.emit('permission-error', permissionError);
-                    throw permissionError;
-                }
-                throw e;
+            await batch.commit().catch(serverError => {
+                const permissionError = new FirestorePermissionError({
+                    path: ticketsCollectionRef.path,
+                    operation: 'create',
+                    requestResourceData: batchDataForError,
+                });
+                errorEmitter.emit('permission-error', permissionError);
+                throw permissionError;
             });
         }
 
@@ -151,6 +155,7 @@ async function generateAndStoreTickets(
         if (!(e instanceof FirestorePermissionError)) {
              onGenerate(null, `Un error ocurrió: ${e.message}`);
         }
+        // FirestorePermissionError is thrown by the emitter, no need to call onGenerate
     } finally {
         setIsLoading(false);
     }
@@ -308,7 +313,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 render={({ field }) => (
                     <FormItem>
                     <FormLabel>Tamaño de Página</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValuechange={field.onChange} defaultValue={field.value}>
                         <FormControl>
                         <SelectTrigger>
                             <SelectValue placeholder="Seleccionar..." />
