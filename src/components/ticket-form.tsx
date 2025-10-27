@@ -74,6 +74,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       return;
     }
     
+    let eventRefPath: string | undefined;
     try {
       // 1. Generate Secret Key
       const secretBytes = new Uint8Array(32);
@@ -101,6 +102,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       // 3. Firestore Transaction: Create Event and Secret
       const secretRef = doc(firestore, 'event_secrets', values.event_id);
       const eventRef = doc(firestore, 'events', values.event_id);
+      eventRefPath = eventRef.path;
       
       await runTransaction(firestore, async (transaction) => {
         const eventDoc = await transaction.get(eventRef);
@@ -143,8 +145,8 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     } catch (e: any) {
         if (e.code === 'permission-denied') {
             const permissionError = new FirestorePermissionError({
-                path: e.customData?.path || 'unknown path',
-                operation: e.customData?.operation || 'create',
+                path: eventRefPath || 'unknown path',
+                operation: 'create',
                 message: e.message,
             });
             errorEmitter.emit('permission-error', permissionError);
@@ -156,11 +158,11 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     }
   };
 
-  const onSubmit = async (values: z.infer<typeof formSchema>) => {
-    await handleTicketGeneration(values);
+  const onSubmit = (values: z.infer<typeof formSchema>) => {
+    handleTicketGeneration(values);
   };
 
-  const onTestSubmit = async () => {
+  const onTestSubmit = () => {
     const values = form.getValues();
     const testValues = { ...values, quantity: 10 };
     
@@ -170,7 +172,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       return;
     }
     
-    await handleTicketGeneration(testValues);
+    handleTicketGeneration(testValues);
   };
 
   return (
