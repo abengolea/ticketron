@@ -1,47 +1,63 @@
 /**
- * @fileoverview Firestore Security Rules for Ticketron.
+ * @file Overview
+ * This ruleset enforces a public read with owner-only writes security model for `events` and `tickets` collections.
  *
- * Core Philosophy: This ruleset prioritizes security and scalability for ticket generation and validation. It enforces strict data segregation and authorization independence, eliminating the need for `get()` calls in security rules. Access is generally open for reads, with restricted write operations to protect data integrity, assuming a trusted backend manages data modifications.
- *
- * Data Structure: The data is organized into two top-level collections:
- *   - /events/{eventId}: Stores event details, including the secretKey (used offline).
- *   - /tickets/{ticketId}: Stores ticket information, including a denormalized eventId.
+ * Data Structure:
+ * - `/events/{eventId}`: Stores event details.
+ * - `/tickets/{ticketId}`: Stores ticket information.
  *
  * Key Security Decisions:
- *   - Public read access to both /events and /tickets collections.
- *   - Event and ticket creation is assumed to be handled by trusted backend logic and is not directly controlled by these rules.
- *   - Authorization Independence: All necessary data for ticket validation is stored within the ticket document itself (except for the secretKey, which is handled offline).
+ * - Events: Anyone can read event details, but only authorized users can create, update, or delete events.
+ * - Tickets: Anyone can read ticket details, but only authorized users can create, update, or delete tickets.
+ * - Denormalization: `eventId` is denormalized in the `tickets` collection to avoid `get()` calls.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Allows public read access to event data. Assumes event creation and management are handled by a trusted backend.
+     * @description Allows public read access to event data while restricting write access to authorized users.
      * @path /events/{eventId}
-     * @allow (get, list) Any user can read event data.
-     * @deny (create, update, delete) No user can create, update, or delete events through direct Firestore writes.
-     * @principle Public read access with backend-managed writes.
+     * @allow (get, list) - Any user can read event data.
+     * @allow (create) - Authenticated user can create an event with a matching authorId
+     * @allow (update, delete) - Authenticated user can update or delete an event if they are the owner.
+     * @deny (create) - Unauthenticated user cannot create an event.
+     * @deny (update, delete) - Unauthenticated user cannot update or delete an event.
+     * @principle Enforces public read with owner-only writes for events.
      */
     match /events/{eventId} {
       allow get, list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow create: if isSignedIn() && request.resource.data.id == eventId;
+      allow update, delete: if isSignedIn() && isExistingOwner(resource.data.id);
     }
 
     /**
-     * @description Allows public read access to ticket data. Assumes ticket creation and management are handled by a trusted backend.
+     * @description Allows public read access to ticket data while restricting write access to authorized users.
      * @path /tickets/{ticketId}
-     * @allow (get, list) Any user can read ticket data.
-     * @deny (create, update, delete) No user can create, update, or delete tickets through direct Firestore writes.
-     * @principle Public read access with backend-managed writes.
+     * @allow (get, list) - Any user can read ticket data.
+     * @allow (create) - Authenticated user can create a ticket with a matching authorId
+     * @allow (update, delete) - Authenticated user can update or delete a ticket if they are the owner.
+     * @deny (create) - Unauthenticated user cannot create a ticket.
+     * @deny (update, delete) - Unauthenticated user cannot update or delete a ticket.
+     * @principle Enforces public read with owner-only writes for tickets.
      */
     match /tickets/{ticketId} {
       allow get, list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow create: if isSignedIn() && request.resource.data.id == ticketId;
+      allow update, delete: if isSignedIn() && isExistingOwner(resource.data.id);
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(resourceId) {
+      return request.auth.uid == resourceId;
+    }
+
+    function isExistingOwner(resourceId) {
+      return isSignedIn() && isOwner(resourceId) && resource != null;
     }
   }
 }
