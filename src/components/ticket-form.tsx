@@ -18,7 +18,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import type { GenerationResult, TicketData } from "@/lib/types";
 import { useFirestore } from "@/firebase";
-import { useToast } from "@/hooks/use-toast";
 import { createHmac } from 'crypto-browserify';
 import { base32Encode } from "@/lib/utils";
 import { doc, runTransaction, collection, writeBatch, serverTimestamp } from "firebase/firestore";
