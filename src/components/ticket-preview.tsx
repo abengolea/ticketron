@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
@@ -554,4 +555,5 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
   );
 }
 
+    
     
