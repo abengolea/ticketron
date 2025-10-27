@@ -112,14 +112,14 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const handleGeneratePdf = async () => {
     setIsPrinting(true);
     toast({
-        title: "Generando PDF...",
-        description: "Esto puede tardar un momento para una gran cantidad de tickets."
+      title: 'Generando PDF...',
+      description: 'Esto puede tardar un momento para una gran cantidad de tickets.',
     });
 
     const pdf = new jsPDF({
-        orientation: 'p',
-        unit: 'mm',
-        format: 'a4'
+      orientation: 'p',
+      unit: 'mm',
+      format: 'a4',
     });
 
     const pageElements = document.querySelectorAll('.print-page');
@@ -127,48 +127,48 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     const A4_HEIGHT = 297;
 
     for (let i = 0; i < pageElements.length; i++) {
-        const page = pageElements[i] as HTMLElement;
+      const page = pageElements[i] as HTMLElement;
+      page.classList.remove('no-print-pdf-hide');
+
+      try {
+        await waitForImagesInPage(page);
+
+        const canvas = await html2canvas(page, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          width: page.offsetWidth,
+          height: page.offsetHeight,
+        });
         
-        page.classList.remove('no-print-pdf-hide');
+        const imgData = canvas.toDataURL('image/png');
 
-        try {
-            // Esperar a que las imágenes de la página actual se carguen
-            await waitForImagesInPage(page);
-
-            const canvas = await html2canvas(page, {
-                scale: 2,
-                useCORS: true,
-                logging: false,
-                width: page.offsetWidth,
-                height: page.offsetHeight,
-            });
-
-            const imgData = canvas.toDataURL('image/png');
-            
-            if (i > 0) {
-                pdf.addPage();
-            }
-            
-            pdf.addImage(imgData, 'PNG', 0, 0, A4_WIDTH, A4_HEIGHT);
-        } catch (error) {
-            console.error("Error al generar la página del PDF:", error);
-            toast({
-                variant: 'destructive',
-                title: 'Error al Generar PDF',
-                description: 'No se pudo procesar una de las páginas. Revisa la consola para más detalles.'
-            });
-            setIsPrinting(false);
-            return; // Detener la generación si hay un error
-        } finally {
-             page.classList.add('no-print-pdf-hide');
+        if (i > 0) {
+          pdf.addPage();
         }
+        pdf.addImage(imgData, 'PNG', 0, 0, A4_WIDTH, A4_HEIGHT);
+      } catch (error) {
+        console.error('Error al generar la página del PDF:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Error al Generar PDF',
+          description: 'No se pudo procesar una de las páginas. Revisa la consola para más detalles.',
+        });
+        setIsPrinting(false);
+        // Ocultar todas las páginas nuevamente si hay un error
+        pageElements.forEach(p => p.classList.add('no-print-pdf-hide'));
+        return;
+      } finally {
+        page.classList.add('no-print-pdf-hide');
+      }
     }
-    
+
     pdf.save(`tickets-${eventParams.event_id}.pdf`);
+
     setIsPrinting(false);
     toast({
-        title: "PDF Generado",
-        description: "Tu PDF de tickets ha sido descargado.",
+      title: 'PDF Generado',
+      description: 'Tu PDF de tickets ha sido descargado.',
     });
   };
 
