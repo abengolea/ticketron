@@ -8,15 +8,21 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { FirestorePermissionError } from "@/firebase/errors";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FlameKindling } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function DebugFirestorePage() {
   const firestore = useFirestore();
   const { user, loading } = useUser();
   const auth = useAuth();
+  const { toast } = useToast();
 
   const handleTestWrite = () => {
     if (!firestore || !user) {
-      alert("Firestore no está disponible o no has iniciado sesión.");
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Firestore no está disponible o no has iniciado sesión.",
+      });
       return;
     }
 
@@ -32,25 +38,21 @@ export default function DebugFirestorePage() {
 
     console.log("Intentando escribir en:", testDocRef.path);
 
-    // ** CORRECT ERROR HANDLING IMPLEMENTATION **
-    // We don't use try/catch. We chain .catch() to the Firestore promise.
     setDoc(testDocRef, testData)
       .then(() => {
-        alert("¡Escritura exitosa! Esto no debería suceder si las reglas son restrictivas.");
+        toast({
+          title: "¡Escritura Exitosa!",
+          description: "El documento de prueba se ha escrito correctamente en Firestore.",
+        });
       })
       .catch((serverError) => {
-        // 1. We build the detailed contextual error.
         const permissionError = new FirestorePermissionError({
           path: testDocRef.path,
           operation: 'create',
           requestResourceData: testData,
         });
 
-        // 2. We emit the error to the global listener.
-        // This will trigger the Next.js error overlay with the detailed information.
         errorEmitter.emit('permission-error', permissionError);
-
-        // DO NOT use console.error here as it will be caught by the global listener.
       });
   };
 
@@ -73,7 +75,7 @@ export default function DebugFirestorePage() {
             <AlertTitle>Estado de la Depuración</AlertTitle>
             <AlertDescription>
               {user 
-                ? `Sesión iniciada como ${user.email}. Presiona el botón para intentar una escritura en Firestore que se espera que falle.`
+                ? `Sesión iniciada como ${user.email}. Presiona el botón para intentar una escritura en Firestore.`
                 : "Por favor, inicia sesión para poder realizar la prueba de escritura."
               }
             </AlertDescription>
@@ -87,9 +89,8 @@ export default function DebugFirestorePage() {
           </Button>
           <p className="text-sm text-muted-foreground">
             Al hacer clic, se intentará crear un documento en la colección <code>/debug_writes</code>. 
-            Si las reglas de seguridad son restrictivas (como se espera), esto debería fallar y 
-            el sistema de errores contextuales (<code>FirebaseErrorListener</code>) debería capturar 
-            y mostrar un error detallado en el overlay de Next.js.
+            Si las reglas de seguridad son correctas, debería aparecer una notificación de "Escritura Exitosa". 
+            Si fallan, el sistema de errores contextuales mostrará un error detallado.
           </p>
         </CardContent>
       </Card>
