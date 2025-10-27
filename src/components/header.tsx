@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Ticket, ShieldCheck, History, LogIn, LogOut } from "lucide-react";
+import { Ticket, ShieldCheck, History, LogIn, LogOut, TestTube2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { useAuth, useUser } from "@/firebase";
@@ -47,6 +47,7 @@ export function Header() {
     { href: "/", label: "Generador", icon: Ticket },
     { href: "/validate", label: "Validador", icon: ShieldCheck },
     { href: "/history", label: "Historial", icon: History },
+    { href: "/scanner-test", label: "Test", icon: TestTube2 },
   ];
 
   return (
