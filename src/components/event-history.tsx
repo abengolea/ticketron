@@ -1,6 +1,8 @@
 "use client";
 
 import { useCollection } from "@/firebase/firestore/use-collection";
+import { useFirestore, useMemoFirebase } from "@/firebase/provider";
+import { collection } from "firebase/firestore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Skeleton } from "./ui/skeleton";
@@ -22,7 +24,14 @@ type Event = {
 };
 
 export function EventHistory() {
-  const { data: events, loading, error } = useCollection<Event>("events");
+  const firestore = useFirestore();
+  
+  const eventsQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return collection(firestore, 'events');
+  }, [firestore]);
+
+  const { data: events, loading, error } = useCollection<Event>(eventsQuery);
 
   if (loading) {
     return (
