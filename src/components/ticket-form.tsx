@@ -24,6 +24,8 @@ import { doc, runTransaction, collection, writeBatch, serverTimestamp, type Fire
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
 import { format } from "date-fns";
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { LogIn } from "lucide-react";
 
 const formSchema = z.object({
   event_name: z.string().min(3, "El nombre del evento debe tener al menos 3 caracteres."),
@@ -94,6 +96,15 @@ async function generateAndStoreTickets(
             };
             transaction.set(secretRef, { secretKey, ownerId });
             transaction.set(eventRef, eventData);
+        }).catch(e => {
+            if (e.code === 'permission-denied') {
+                throw new FirestorePermissionError({
+                    path: eventRef.path,
+                    operation: 'create',
+                    message: e.message,
+                });
+            }
+            throw e;
         });
         
         const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
@@ -110,19 +121,23 @@ async function generateAndStoreTickets(
                     redeemedAt: null,
                 });
             });
-            await batch.commit();
+            await batch.commit().catch(e => {
+                if (e.code === 'permission-denied') {
+                    throw new FirestorePermissionError({
+                        path: ticketsCollectionRef.path,
+                        operation: 'create',
+                        message: e.message,
+                    });
+                }
+                throw e;
+            });
         }
 
         onGenerate({ tickets, secretKey, eventParams: values }, null);
 
     } catch (e: any) {
-        if (e.code === 'permission-denied') {
-            const permissionError = new FirestorePermissionError({
-                path: eventRefPath || `events/${values.event_id}`,
-                operation: 'create',
-                message: e.message,
-            });
-            errorEmitter.emit('permission-error', permissionError);
+        if (e instanceof FirestorePermissionError) {
+            errorEmitter.emit('permission-error', e);
         } else {
              onGenerate(null, `Un error ocurrió: ${e.message}`);
         }
@@ -301,9 +316,20 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 />
             </div>
           </CardContent>
-          <CardFooter className="flex justify-end gap-4">
-            <Button type="button" variant="outline" onClick={onTestSubmit} disabled={!user}>Generar 10 Tickets de Prueba</Button>
-            <Button type="submit" disabled={!user}>Generar Tickets</Button>
+          <CardFooter className="flex-col gap-4">
+             {!user && (
+              <Alert>
+                <LogIn className="h-4 w-4" />
+                <AlertTitle>¡Inicia Sesión para Continuar!</AlertTitle>
+                <AlertDescription>
+                  Necesitas iniciar sesión para poder generar tickets. Utiliza el botón en la cabecera.
+                </AlertDescription>
+              </Alert>
+            )}
+            <div className="flex justify-end gap-4 w-full">
+                <Button type="button" variant="outline" onClick={onTestSubmit} disabled={!user}>Generar 10 Tickets de Prueba</Button>
+                <Button type="submit" disabled={!user}>Generar Tickets</Button>
+            </div>
           </CardFooter>
         </form>
       </Form>
