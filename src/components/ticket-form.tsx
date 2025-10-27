@@ -117,16 +117,16 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
         };
         transaction.set(secretRef, { secretKey });
         transaction.set(eventRef, eventData);
-      }).catch(err => {
-         if (err.code === 'permission-denied') {
-            const permissionError = new FirestorePermissionError({
-                path: eventRef.path,
-                operation: 'create',
-                message: err.message,
-            });
-            errorEmitter.emit('permission-error', permissionError);
-         }
-         throw err;
+      }).catch(serverError => {
+        // This catch block is for the transaction specifically
+        const permissionError = new FirestorePermissionError({
+            path: eventRef.path,
+            operation: 'create', // or 'get' if the failure is on read
+            message: serverError.message,
+        });
+        errorEmitter.emit('permission-error', permissionError);
+        // Re-throw to be caught by the outer catch
+        throw serverError;
       });
 
       // 4. Batch Write Tickets
@@ -135,8 +135,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       
       for (const ticketChunk of ticketChunks) {
         const batch = writeBatch(firestore);
-        const batchDataForError: Record<string, any> = {};
-
+        const batchData: Record<string, any> = {};
         ticketChunk.forEach((ticket) => {
           const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
           const ticketData = {
@@ -146,17 +145,17 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
             redeemedAt: null,
           };
           batch.set(ticketDocRef, ticketData);
-          batchDataForError[ticket.ticketId] = ticketData;
+          batchData[ticket.ticketId] = ticketData;
         });
-
         await batch.commit().catch(serverError => {
             const permissionError = new FirestorePermissionError({
                 path: ticketsCollectionRef.path,
                 operation: 'create',
-                requestResourceData: batchDataForError,
+                requestResourceData: batchData,
                 message: serverError.message,
             });
             errorEmitter.emit('permission-error', permissionError);
+            // Re-throw to be caught by the outer catch
             throw serverError;
         });
       }
@@ -165,9 +164,13 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       onGenerate({ tickets, secretKey, eventParams: values }, null);
 
     } catch (e: any) {
-      if (!e.message?.toLowerCase().includes('permission-denied')) {
-        onGenerate(null, `Un error ocurrió: ${e.message}`);
-      }
+        // This is the generic catch-all for any error thrown above
+        if (e.name !== 'FirestorePermissionError') {
+             onGenerate(null, `Un error ocurrió: ${e.message}`);
+        } else {
+            // The specific .catch() blocks already emitted the detailed error
+            onGenerate(null, `Un error ocurrió: ${e.message}`);
+        }
     } finally {
       setIsLoading(false);
     }
