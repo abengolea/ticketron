@@ -16,35 +16,35 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrPayload)}`;
 
   return (
-    <Card className="ticket-card w-[148mm] h-[105mm] flex flex-col p-4 bg-card shadow-lg border border-dashed border-gray-300">
-      <div className="text-center">
-        <h2 className="text-2xl font-headline text-primary">{eventName}</h2>
-        <p className="text-sm text-muted-foreground">{dateTime}</p>
-        <p className="text-sm font-bold">{venue}</p>
-      </div>
-      <Separator className="my-3" />
-      <CardContent className="flex-grow flex items-center justify-between gap-4 p-0">
-        <div className="flex-grow flex flex-col items-center justify-center text-center">
-          <p className="text-sm text-muted-foreground">Nº de Ticket</p>
-          <p className="text-6xl font-bold tracking-tighter">{formattedTicketNumber}</p>
-          <Separator className="w-24 my-3" />
-          <p className="text-sm text-muted-foreground">Código de Verificación</p>
-          <p className="font-mono text-xl tracking-widest">{shortCode}</p>
-        </div>
-        <div className="flex flex-col items-center justify-center gap-2 p-2 border rounded-lg">
+    <Card className="ticket-card w-[105mm] h-[74.25mm] flex p-2 bg-card shadow-lg border border-dashed border-gray-300">
+      <div className="flex flex-col items-center justify-center gap-1 p-1 border-r pr-2 w-[58px]">
           <Image
             src={qrUrl}
             alt={`Código QR para el ticket ${formattedTicketNumber}`}
-            width={120}
-            height={120}
-            className="rounded-md"
+            width={48}
+            height={48}
+            className="rounded-sm"
           />
-           <p className="text-xs text-muted-foreground">Escanear para entrar</p>
+           <p className="text-[6px] text-muted-foreground text-center leading-tight">Escanear para entrar</p>
         </div>
-      </CardContent>
-      <Separator className="my-3" />
-      <div className="text-center">
-        <p className="text-xs text-muted-foreground">
+      <div className="flex-grow flex flex-col justify-between pl-2">
+        <div className="text-center">
+            <h2 className="text-base font-headline text-primary leading-tight">{eventName}</h2>
+            <p className="text-[8px] text-muted-foreground">{dateTime} @ {venue}</p>
+        </div>
+
+        <div className="flex items-center justify-around gap-2">
+            <div className="text-center">
+                <p className="text-[8px] text-muted-foreground">Nº Ticket</p>
+                <p className="text-xl font-bold tracking-tighter">{formattedTicketNumber}</p>
+            </div>
+            <div className="text-center">
+                <p className="text-[8px] text-muted-foreground">Verificación</p>
+                <p className="font-mono text-xs tracking-widest">{shortCode}</p>
+            </div>
+        </div>
+
+        <p className="text-[6px] text-muted-foreground text-center leading-tight mt-1">
           Válida 1 ingreso. No transferible una vez escaneada. Prohibida su reproducción.
         </p>
       </div>

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -31,7 +32,7 @@ const formSchema = z.object({
   date_time: z.string().min(5, "La fecha y hora son requeridas."),
   venue: z.string().min(3, "El lugar es requerido."),
   quantity: z.coerce.number().int().positive().max(1000, "La cantidad no puede exceder los 1000."),
-  tickets_per_page: z.literal(4),
+  tickets_per_page: z.literal(8),
   page_size: z.enum(["A4", "Letter"]),
 });
 
@@ -97,8 +98,9 @@ async function generateAndStoreTickets(
         };
         batch.set(secretRef, secretData);
         
+        const ticketsCollectionRef = doc(firestore, 'events', eventId);
         tickets.forEach(ticket => {
-            const ticketDocRef = doc(firestore, 'events', eventId, 'tickets', ticket.ticketId);
+            const ticketDocRef = doc(ticketsCollectionRef, 'tickets', ticket.ticketId);
             const ticketData = {
                 ownerId: ownerId,
                 ticketNumber: ticket.ticketNumber,
@@ -108,7 +110,7 @@ async function generateAndStoreTickets(
             };
             batch.set(ticketDocRef, ticketData);
         });
-
+        
         await batch.commit();
 
         onGenerate({ tickets, secretKey, eventParams: values }, null);
@@ -140,7 +142,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       date_time: "Fecha y hora a confirmar",
       venue: "Lugar a confirmar",
       quantity: 100,
-      tickets_per_page: 4,
+      tickets_per_page: 8,
       page_size: "A4",
     },
   });
@@ -263,10 +265,10 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                         <FormControl>
                         <SelectTrigger>
                             <SelectValue placeholder="Seleccionar..." />
-                        </SelectTrigger>
+                        </Trigger>
                         </FormControl>
                         <SelectContent>
-                            <SelectItem value="4">4</SelectItem>
+                            <SelectItem value="8">8</SelectItem>
                         </SelectContent>
                     </Select>
                     <FormMessage />
@@ -283,7 +285,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                         <FormControl>
                         <SelectTrigger>
                             <SelectValue placeholder="Seleccionar..." />
-                        </SelectTrigger>
+                        </Trigger>
                         </FormControl>
                         <SelectContent>
                             <SelectItem value="A4">A4</SelectItem>

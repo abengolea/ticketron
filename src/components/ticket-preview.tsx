@@ -521,9 +521,11 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
 
       <div className="printable-area space-y-4">
         {ticketPages.map((page, pageIndex) => (
-          <div key={pageIndex} className="print-page bg-card shadow-lg rounded-lg mx-auto p-5 grid grid-cols-2 grid-rows-2 gap-0 relative w-[210mm] h-[297mm] no-print-pdf-hide">
+          <div key={pageIndex} className="print-page bg-card shadow-lg rounded-lg mx-auto p-5 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm] no-print-pdf-hide">
             {/* Cutting guides */}
-            <div className="absolute top-1/2 left-0 right-0 h-[1px] bg-gray-300 border-b border-dashed"></div>
+            <div className="absolute top-1/4 left-0 right-0 h-[1px] bg-gray-300 border-b border-dashed"></div>
+            <div className="absolute top-2/4 left-0 right-0 h-[1px] bg-gray-300 border-b border-dashed"></div>
+            <div className="absolute top-3/4 left-0 right-0 h-[1px] bg-gray-300 border-b border-dashed"></div>
             <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-gray-300 border-r border-dashed"></div>
 
             {page.map((ticket) => (
@@ -539,7 +541,7 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
               </div>
             ))}
              {/* Fill empty slots on the last page */}
-            {Array.from({ length: 4 - page.length }).map((_, i) => (
+            {Array.from({ length: 8 - page.length }).map((_, i) => (
               <div key={`empty-${pageIndex}-${i}`}></div>
             ))}
           </div>
@@ -548,5 +550,3 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
     </div>
   );
 }
-
-    
