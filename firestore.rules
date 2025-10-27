@@ -1,56 +1,69 @@
 /**
- * @file Firebase Security Rules for Ticketron Application
- *
- * Core Philosophy:
- * This ruleset enforces a secure model for managing events and tickets.
- * All write operations are restricted. Read permissions on the `tickets` collection are public.
+ * @file Overview
+ * This ruleset enforces a public read, owner-write security model for events and tickets.
+ * It prioritizes authorization independence and avoids `get()` calls for scalability.
+ * All data is stored in two top-level collections: `events` and `tickets`.
  *
  * Data Structure:
- * - /events/{eventId}: Stores event details.
- * - /tickets/{ticketId}: Stores ticket information, including a denormalized eventId.
+ * - /events/{eventId}: Stores event metadata, including a secretKey used for ticket generation.
+ * - /tickets/{ticketId}: Stores ticket details, including a reference to the eventId.
  *
  * Key Security Decisions:
- * - No user-specific data trees: This design intentionally avoids nesting data under user IDs.
- * - `secretKey` is NOT stored within the `tickets` document for enhanced security.
- * - Public listing for the `tickets` collection is enabled since all validation data is contained in the ticket itself.
+ * - Events and tickets are publicly readable to facilitate broad access and discovery.
+ * - Only authorized users (e.g., server-side processes using a service account) can create, update, or delete events and tickets. This authorization isn't based on Firebase Authentication but will be done with other mechanisms such as service accounts. Therefore, the rules check for `false` because the validation is done with a backend process with elevated privileges.
+ * - No user listing is allowed on any collection.
+ * - No data shape validation is performed, except for fields directly involved in authorization.
  *
  * Denormalization for Authorization:
- * - The `eventId` is denormalized onto each `ticket` document. This avoids costly `get()` calls to the `/events/{eventId}` document during ticket validation.
+ * - The `tickets` collection contains the `eventId` of the parent event. This avoids the need for `get()` calls to the `/events/{eventId}` document to authorize ticket access.
+ *
+ * Structural Segregation:
+ * - Public readability is achieved by storing all tickets in a single top-level collection, without using boolean flags or private subcollections.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Rules for the /events/{eventId} collection. Only allow read for now.
-     * @path /events/{eventId}
-     * @allow get: if true;
-     * @allow list: if true;
-     * @deny create: if false;
-     * @deny update: if false;
-     * @deny delete: if false;
-     * @principle Restricts write operations to events collection.
+     * @description Allows public read access to event documents, but restricts writes. Only the backend will write to the events collection.
+     * @path /databases/{database}/documents/events/{eventId}
+     * @allow get, list: if true;
+     * @allow create: if false;
+     * @allow update: if false;
+     * @allow delete: if false;
+     * @principle Events are publicly readable, but only created and managed by the backend.
      */
     match /events/{eventId} {
       allow get, list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
 
     /**
-     * @description Rules for the /tickets/{ticketId} collection.
-     * @path /tickets/{ticketId}
-     * @allow get: if true;
-     * @allow list: if true;
-     * @deny create: if false;
-     * @deny update: if false;
-     * @deny delete: if false;
-     * @principle Allows public read access to ticket data.
+     * @description Allows public read access to ticket documents, but restricts writes. Only the backend will write to the tickets collection.
+     * @path /databases/{database}/documents/tickets/{ticketId}
+     * @allow get, list: if true;
+     * @allow create: if false;
+     * @allow update: if false;
+     * @allow delete: if false;
+     * @principle Tickets are publicly readable, but only created and managed by the backend.
      */
     match /tickets/{ticketId} {
       allow get, list: if true;
-      allow create: if false;
+      allow create, update, delete: if false;
+    }
+
+    /**
+     * @description ONLY FOR DEBUG PURPOSES. Allows authenticated users to write to the debug_writes collection.
+     * @path /databases/{database}/documents/debug_writes/{debugId}
+     * @allow get, list: if false;
+     * @allow create: if request.auth.uid == request.resource.data.userId;
+     * @allow update: if false;
+     * @allow delete: if false;
+     * @principle Debug writes are only allowed for authenticated users and used for local development and testing.
+     */
+    match /debug_writes/{debugId} {
+      allow get, list: if false;
+      allow create: if request.auth.uid == request.resource.data.userId;
       allow update: if false;
       allow delete: if false;
     }
