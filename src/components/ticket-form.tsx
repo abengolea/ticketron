@@ -101,32 +101,23 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       // 3. Firestore Transaction: Create Event and Secret
       const secretRef = doc(firestore, 'event_secrets', values.event_id);
       const eventRef = doc(firestore, 'events', values.event_id);
-      const eventData = {
-        eventName: values.event_name,
-        dateTime: values.date_time,
-        venue: values.venue,
-        ticketCount: values.quantity,
-        createdAt: serverTimestamp()
-      };
-
+      
       await runTransaction(firestore, async (transaction) => {
         const eventDoc = await transaction.get(eventRef);
         if (eventDoc.exists()) {
           throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
         }
+
+        const eventData = {
+          eventName: values.event_name,
+          dateTime: values.date_time,
+          venue: values.venue,
+          ticketCount: values.quantity,
+          createdAt: serverTimestamp()
+        };
+
         transaction.set(secretRef, { secretKey });
         transaction.set(eventRef, eventData);
-      }).catch(e => {
-        if (e.code === 'permission-denied') {
-             const permissionError = new FirestorePermissionError({
-                path: eventRef.path,
-                operation: 'create',
-                message: e.message,
-            });
-            errorEmitter.emit('permission-error', permissionError);
-        }
-        // re-throw other transaction errors
-        throw e;
       });
       
       // 4. Batch Write Tickets
@@ -137,30 +128,27 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
         const batch = writeBatch(firestore);
         ticketChunk.forEach((ticket) => {
           const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
-          const ticketData = {
+          batch.set(ticketDocRef, {
             ticketNumber: ticket.ticketNumber,
             shortCode: ticket.shortCode,
             redeemed: false,
             redeemedAt: null,
-          };
-          batch.set(ticketDocRef, ticketData);
+          });
         });
-        await batch.commit().catch(e => {
-           if (e.code === 'permission-denied') {
-             const permissionError = new FirestorePermissionError({
-                path: ticketsCollectionRef.path,
-                operation: 'create',
-                message: e.message,
-            });
-            errorEmitter.emit('permission-error', permissionError);
-           }
-           throw e;
-        });
+        await batch.commit();
       }
 
       onGenerate({ tickets, secretKey, eventParams: values }, null);
+
     } catch (e: any) {
-        if (!e.message.toLowerCase().includes('permission-denied')) {
+        if (e.code === 'permission-denied') {
+            const permissionError = new FirestorePermissionError({
+                path: e.customData?.path || 'unknown path',
+                operation: e.customData?.operation || 'create',
+                message: e.message,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+        } else {
              onGenerate(null, `Un error ocurrió: ${e.message}`);
         }
     } finally {
