@@ -11,7 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle, Camera } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 
 type ValidationResult = {
   status: 'valid' | 'invalid' | 'redeemed';
@@ -25,17 +25,15 @@ export function TicketValidator() {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const isMountedRef = useRef(true);
+  const readerId = "qr-reader";
 
   const { toast } = useToast();
 
   useEffect(() => {
-    isMountedRef.current = true;
-    
-    // Load redeemed tickets from local storage
+    // Load redeemed tickets from local storage on mount
     try {
       const storedRedeemed = localStorage.getItem('redeemedTickets');
-      if (storedRedeemed && isMountedRef.current) {
+      if (storedRedeemed) {
         setRedeemedTickets(new Set(JSON.parse(storedRedeemed)));
       }
     } catch (error) {
@@ -44,13 +42,15 @@ export function TicketValidator() {
     }
 
     // Initialize scanner instance
-    scannerRef.current = new Html5Qrcode('qr-reader');
+    if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(readerId);
+    }
+    const scanner = scannerRef.current;
 
-    // Cleanup function
+    // Cleanup function to stop the scanner on unmount
     return () => {
-      isMountedRef.current = false;
-      if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().catch(err => {
+      if (scanner && scanner.isScanning) {
+        scanner.stop().catch(err => {
           console.error("Error al detener el escáner offline en cleanup:", err);
         });
       }
@@ -58,27 +58,23 @@ export function TicketValidator() {
   }, []);
 
   const stopScanner = () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
-      scannerRef.current.stop()
-        .then(() => {
-          if (isMountedRef.current) {
-            setIsScanning(false);
-          }
-        })
+    const scanner = scannerRef.current;
+    if (scanner && scanner.isScanning) {
+      scanner.stop()
+        .then(() => setIsScanning(false))
         .catch(err => {
           console.error("Error al detener el escáner offline:", err);
-          if (isMountedRef.current) {
-            setIsScanning(false); // Force state update even on error
-          }
+          setIsScanning(false); // Force state update
         });
     } else {
-        if(isMountedRef.current) {
-            setIsScanning(false);
-        }
+        setIsScanning(false);
     }
   };
 
   const handleValidate = (payload: string) => {
+    if (isScanning) {
+      stopScanner();
+    }
     if (!secretKey.trim() || !payload.trim()) {
       toast({
         variant: "destructive",
@@ -119,39 +115,32 @@ export function TicketValidator() {
     } catch (error) {
       setValidationResult({ status: 'invalid', message: 'Falló al parsear el código QR. ¿Es un JSON válido?' });
     }
-    if (isMountedRef.current) {
-        setQrPayload('');
-    }
+    setQrPayload('');
   };
 
   const startScanner = async () => {
-    if (!scannerRef.current) {
+    const scanner = scannerRef.current;
+    if (!scanner) {
         toast({ variant: 'destructive', title: 'Error de Escáner', description: 'La instancia del escáner no está lista.' });
         return;
     }
 
-    const scannerState = scannerRef.current.getState();
-    if (scannerState !== Html5QrcodeScannerState.NOT_STARTED) {
+    if (scanner.isScanning) {
         return;
     }
 
-    if (isMountedRef.current) {
-        setIsScanning(true);
-        setValidationResult(null);
-    }
+    setIsScanning(true);
+    setValidationResult(null);
 
     try {
-        await scannerRef.current.start(
+        await scanner.start(
             { facingMode: "environment" },
             {
                 fps: 10,
                 qrbox: { width: 250, height: 250 }
             },
             (decodedText) => {
-                stopScanner();
-                if (isMountedRef.current) {
-                    setQrPayload(decodedText);
-                }
+                setQrPayload(decodedText);
                 handleValidate(decodedText);
             },
             (errorMessage) => {
@@ -159,10 +148,8 @@ export function TicketValidator() {
             }
         )
     } catch (err: any) {
-        if (isMountedRef.current) {
-            toast({ variant: 'destructive', title: 'Error de Cámara', description: "No se pudo obtener permisos de cámara. Por favor, permite el acceso a la cámara." });
-            setIsScanning(false);
-        }
+        toast({ variant: 'destructive', title: 'Error de Cámara', description: "No se pudo obtener permisos de cámara. Por favor, permite el acceso a la cámara." });
+        setIsScanning(false);
     }
   };
 
@@ -189,7 +176,7 @@ export function TicketValidator() {
 
         {isScanning ? (
             <div className="space-y-2">
-                <div id="qr-reader" className="w-full rounded-md border aspect-video"></div>
+                <div id={readerId} className="w-full rounded-md border aspect-video"></div>
                 <Button variant="outline" onClick={stopScanner} className="w-full">Cancelar Escaneo</Button>
             </div>
         ) : (

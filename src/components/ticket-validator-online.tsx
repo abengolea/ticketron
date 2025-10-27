@@ -26,19 +26,22 @@ export function TicketValidatorOnline() {
   const [isLoading, setIsLoading] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const isMountedRef = useRef(true);
+  const readerId = "qr-reader-online";
 
   const { toast } = useToast();
   const firestore = useFirestore();
 
   useEffect(() => {
-    isMountedRef.current = true;
-    scannerRef.current = new Html5Qrcode('qr-reader-online');
+    // Initialize the scanner instance on component mount
+    if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(readerId);
+    }
+    const scanner = scannerRef.current;
 
+    // Cleanup function to stop the scanner when the component unmounts
     return () => {
-      isMountedRef.current = false;
-      if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().catch(err => {
+      if (scanner && scanner.isScanning) {
+        scanner.stop().catch(err => {
           console.error("Error al detener el escáner online en cleanup:", err);
         });
       }
@@ -46,28 +49,22 @@ export function TicketValidatorOnline() {
   }, []);
 
   const stopScanner = () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
-      scannerRef.current.stop()
-        .then(() => {
-          if (isMountedRef.current) {
-            setIsScanning(false);
-          }
-        })
+    const scanner = scannerRef.current;
+    if (scanner && scanner.isScanning) {
+      scanner.stop()
+        .then(() => setIsScanning(false))
         .catch(err => {
           console.error("Error al detener el escáner online:", err);
-          if (isMountedRef.current) {
-            setIsScanning(false); // Force state update even on error
-          }
+          setIsScanning(false); // Force state update even on error
         });
     } else {
-        if (isMountedRef.current) {
-            setIsScanning(false);
-        }
+        setIsScanning(false);
     }
   };
 
 
   const handleValidate = async (payload: string) => {
+    stopScanner();
     if (!firestore) {
         toast({ variant: 'destructive', title: 'Error', description: 'Firestore no está conectado.' });
         return;
@@ -122,44 +119,37 @@ export function TicketValidatorOnline() {
         }
         setValidationResult({ status: 'invalid', message: error.message });
     } finally {
-        if (isMountedRef.current) {
-            setIsLoading(false);
-        }
+        setIsLoading(false);
     }
   };
 
   const startScanner = async () => {
-    if (!scannerRef.current) {
+    const scanner = scannerRef.current;
+    if (!scanner) {
         toast({ variant: 'destructive', title: 'Error de Escáner', description: 'La instancia del escáner no está lista.' });
         return;
     }
     
-    // Do not start if already scanning
-    const scannerState = scannerRef.current.getState();
-    if (scannerState !== Html5QrcodeScannerState.NOT_STARTED) {
+    if (scanner.isScanning) {
         return;
     }
     
-    if (isMountedRef.current) {
-        setIsScanning(true);
-        setValidationResult(null);
-    }
+    setIsScanning(true);
+    setValidationResult(null);
     
     try {
-        await scannerRef.current.start(
+        await scanner.start(
             { facingMode: "environment" },
             { fps: 10, qrbox: { width: 250, height: 250 } },
             (decodedText) => {
-                stopScanner();
+                // Do not call stopScanner here, handleValidate will do it.
                 handleValidate(decodedText);
             },
             (errorMessage) => { /* ignore */ }
         )
     } catch (err: any) {
-        if (isMountedRef.current) {
-            toast({ variant: 'destructive', title: 'Error de Cámara', description: "No se pudo obtener permisos de cámara. Por favor, permite el acceso a la cámara." });
-            setIsScanning(false);
-        }
+        toast({ variant: 'destructive', title: 'Error de Cámara', description: "No se pudo obtener permisos de cámara. Por favor, permite el acceso a la cámara." });
+        setIsScanning(false);
     }
   };
 
@@ -178,7 +168,7 @@ export function TicketValidatorOnline() {
                 <CardContent className="space-y-6">
                      {isScanning ? (
                         <div className="space-y-2">
-                            <div id="qr-reader-online" className="w-full rounded-md border aspect-video bg-muted"></div>
+                            <div id={readerId} className="w-full rounded-md border aspect-video bg-muted"></div>
                             <Button variant="outline" onClick={stopScanner} className="w-full">Cancelar Escaneo</Button>
                         </div>
                     ) : (
