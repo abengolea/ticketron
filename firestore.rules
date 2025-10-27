@@ -1,0 +1,25 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Allow public read access to events for the history page
+    match /events/{eventId} {
+      allow read: if true;
+      allow create, update: if true; // Allow creating and updating events
+
+      // Allow creating and reading tickets for a specific event
+      match /tickets/{ticketId} {
+        allow read, create: if true;
+        allow update: if request.resource.data.redeemed == true && resource.data.redeemed == false; // Allow redeeming a ticket
+      }
+    }
+
+    // Allow creating the secret key for an event, but deny reading it.
+    match /event_secrets/{eventId} {
+      allow read: if false;
+      allow create: if true;
+    }
+  }
+}
