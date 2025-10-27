@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import type { GenerationResult, TicketData, EventParameters } from "@/lib/types";
-import { useFirestore } from "@/firebase";
+import { useFirestore, useAuth } from "@/firebase";
 import { createHmac } from 'crypto-browserify';
 import { base32Encode } from "@/lib/utils";
 import { doc, runTransaction, collection, writeBatch, serverTimestamp, type Firestore } from "firebase/firestore";
@@ -46,7 +46,8 @@ async function generateAndStoreTickets(
     firestore: Firestore, 
     values: FormValues,
     onGenerate: (result: GenerationResult | null, error: string | null) => void,
-    setIsLoading: (loading: boolean) => void
+    setIsLoading: (loading: boolean) => void,
+    ownerId: string
 ) {
     setIsLoading(true);
     onGenerate(null, null);
@@ -84,13 +85,14 @@ async function generateAndStoreTickets(
                 throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
             }
             const eventData = {
+                ownerId: ownerId,
                 eventName: values.event_name,
                 dateTime: values.date_time,
                 venue: values.venue,
                 ticketCount: values.quantity,
                 createdAt: serverTimestamp()
             };
-            transaction.set(secretRef, { secretKey });
+            transaction.set(secretRef, { secretKey, ownerId });
             transaction.set(eventRef, eventData);
         });
         
@@ -149,13 +151,19 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   });
 
   const firestore = useFirestore();
+  const auth = useAuth();
+  const user = auth?.currentUser;
 
   const handleTicketGeneration = async (values: FormValues) => {
     if (!firestore) {
       onGenerate(null, "Firestore no está disponible.");
       return;
     }
-    await generateAndStoreTickets(firestore, values, onGenerate, setIsLoading);
+     if (!user) {
+      onGenerate(null, "Debes iniciar sesión para crear un evento.");
+      return;
+    }
+    await generateAndStoreTickets(firestore, values, onGenerate, setIsLoading, user.uid);
   };
 
   const onSubmit = (values: FormValues) => {
@@ -294,8 +302,8 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
             </div>
           </CardContent>
           <CardFooter className="flex justify-end gap-4">
-            <Button type="button" variant="outline" onClick={onTestSubmit}>Generar 10 Tickets de Prueba</Button>
-            <Button type="submit">Generar Tickets</Button>
+            <Button type="button" variant="outline" onClick={onTestSubmit} disabled={!user}>Generar 10 Tickets de Prueba</Button>
+            <Button type="submit" disabled={!user}>Generar Tickets</Button>
           </CardFooter>
         </form>
       </Form>

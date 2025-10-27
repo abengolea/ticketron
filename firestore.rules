@@ -1,25 +1,65 @@
-
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
+  
+    // Función para verificar si el usuario está autenticado
+    function isSignedIn() {
+      return request.auth != null;
+    }
     
-    // Allow public read access to events for the history page
-    match /events/{eventId} {
-      allow read: if true;
-      allow create, update: if true; // Allow creating and updating events
+    // Función para verificar si el usuario es el dueño del recurso
+    function isOwner(resource) {
+      return request.auth.uid == resource.data.ownerId;
+    }
 
-      // Allow creating and reading tickets for a specific event
+    // Reglas para la colección de eventos
+    match /events/{eventId} {
+      // CREAR: Solo usuarios autenticados pueden crear un evento.
+      // El ownerId del nuevo evento debe ser el UID del usuario que lo crea.
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      
+      // LEER: 
+      // - El dueño puede leer su propio evento.
+      // - Cualquier usuario autenticado puede leer la lista de eventos (para el historial),
+      //   pero no se debe exponer información sensible aquí si la hubiera.
+      allow get: if isSignedIn() && isOwner(get(/databases/$(database)/documents/events/$(eventId)));
+      allow list: if isSignedIn();
+
+      // ACTUALIZAR: Solo el dueño del evento puede actualizarlo.
+      allow update: if isSignedIn() && isOwner(get(/databases/$(database)/documents/events/$(eventId)));
+
+      // BORRAR: Deshabilitado para prevenir borrados accidentales.
+      // Puedes habilitarlo si es necesario con: allow delete: if isSignedIn() && isOwner(resource);
+      allow delete: if false;
+
+      // Reglas para la subcolección de tickets
       match /tickets/{ticketId} {
-        allow read, create: if true;
-        allow update: if request.resource.data.redeemed == true && resource.data.redeemed == false; // Allow redeeming a ticket
+        // CREAR: La creación de tickets se maneja por lotes (write batch) desde el backend
+        // al crear el evento. Aquí permitimos la escritura si el usuario es el dueño del evento padre.
+        allow create: if isSignedIn() && isOwner(get(/databases/$(database)/documents/events/$(eventId)));
+
+        // LEER: Solo el dueño del evento puede leer los datos de los tickets.
+        allow get, list: if isSignedIn() && isOwner(get(/databases/$(database)/documents/events/$(eventId)));
+
+        // ACTUALIZAR: Permitimos la actualización (canje) de un ticket a cualquier usuario autenticado.
+        // Esto asume que el personal que valida tiene credenciales.
+        // Se verifica que solo se modifiquen los campos 'redeemed' y 'redeemedAt'.
+        allow update: if isSignedIn() 
+                      && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['redeemed', 'redeemedAt']);
+
+        // BORRAR: Deshabilitado.
+        allow delete: if false;
       }
     }
 
-    // Allow creating the secret key for an event, but deny reading it.
+    // Reglas para la colección de secretos de eventos
     match /event_secrets/{eventId} {
-      allow read: if false;
-      allow create: if true;
+      // LEER, ACTUALIZAR, BORRAR: Solo el dueño del secreto puede acceder a él.
+      allow get, update, delete: if isSignedIn() && isOwner(resource);
+
+      // CREAR: Solo usuarios autenticados, y el ownerId debe coincidir.
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
     }
   }
 }
