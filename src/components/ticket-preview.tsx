@@ -116,9 +116,11 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   
     for (let i = 0; i < pageElements.length; i++) {
       const page = pageElements[i] as HTMLElement;
+      // Make the page visible to allow images to load
       page.classList.remove('no-print-pdf-hide');
   
       try {
+        // Now wait for images to load since the element is visible
         await waitForImagesInContainer(page);
   
         const canvas = await html2canvas(page, {
@@ -150,11 +152,12 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         hasError = true;
         break; // Stop the process on the first error
       } finally {
+        // Hide the page again after processing
         page.classList.add('no-print-pdf-hide');
       }
     }
     
-    // Ocultar todas las páginas si hubo un error para limpiar la vista
+    // Hide all pages again just in case of an error loop
     if(hasError) {
         pageElements.forEach(p => p.classList.add('no-print-pdf-hide'));
     } else {
