@@ -189,7 +189,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             
             const hmac = createHmac("sha256", Buffer.from(eventSecretKey, "base64"));
             hmac.update(payloadToSign);
-            const sig = hmac.digest().slice(0, 12).toString("base64url");
+            const sig = hmac.digest().slice(0, 12).toString("base64").replace(/\+/g, '-').replace(/\//g, '_');
 
             const qrPayload = JSON.stringify({ v: version, eid: eventId, tid: ticketId, sig });
             const shortCodeSource = Buffer.from(ticketId.substring(0, 8) + sig.substring(0, 4));
@@ -553,3 +553,5 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
     </div>
   );
 }
+
+    

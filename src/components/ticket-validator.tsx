@@ -1,7 +1,8 @@
+
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { createHmac } from 'crypto';
+import { createHmac } from 'crypto-browserify';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card';
@@ -65,7 +66,7 @@ export function TicketValidator() {
       const payloadToSign = `${eid}|${tid}|${v}`;
       const hmac = createHmac('sha256', Buffer.from(secretKey, 'base64'));
       hmac.update(payloadToSign);
-      const expectedSig = hmac.digest().slice(0, 12).toString('base64url');
+      const expectedSig = hmac.digest().slice(0, 12).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
 
       if (expectedSig === sig) {
         setValidationResult({ status: 'valid', message: `El ticket ${tid.substring(0,8)}... es válido para ingresar.` });
@@ -202,3 +203,5 @@ export function TicketValidator() {
     </Card>
   );
 }
+
+    
