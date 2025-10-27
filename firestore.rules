@@ -1,44 +1,67 @@
 /**
- * @fileoverview Firestore Security Rules for Ticketron.
+ * @fileoverview Firestore Security Rules for the Ticketron application.
  *
- * Core Philosophy: This ruleset prioritizes security and scalability for ticket generation and validation. It enforces strict data segregation and authorization independence, eliminating the need for `get()` calls in security rules. Access is generally open, except for specific restrictions on write operations to protect data integrity.
+ * Core Philosophy:
+ * This ruleset prioritizes ease of access and rapid prototyping. Data validation is relaxed, and authorization primarily focuses on preventing unauthorized modification of event data.
  *
- * Data Structure: The data is organized into two top-level collections:
- *   - /events/{eventId}: Stores event details, including the secretKey (used offline).
- *   - /tickets/{ticketId}: Stores ticket information, including a denormalized eventId.
+ * Data Structure:
+ * The database consists of two top-level collections: `events` and `tickets`. Events store event details, while tickets store individual ticket information with a denormalized `eventId` for querying.
  *
  * Key Security Decisions:
- *   - Public read access to both /events and /tickets collections.
- *   - No user-specific data or subcollections are used.
- *   - Event and ticket creation is assumed to be handled by trusted backend logic and is not directly controlled by these rules.
- *   - Authorization Independence: All necessary data for ticket validation is stored within the ticket document itself (except for the secretKey, which is handled offline).
+ * - Read access (get, list) is generally open to facilitate development and testing. This should be restricted in the production environment.
+ * - Write access (create, update, delete) to `events` is restricted to authenticated users. Specific roles and ownership checks should be added as the application matures.
+ * - Write access (create, update, delete) to `tickets` is also restricted to authenticated users, for now.
+ * - No data validation is enforced to allow for rapid data model changes. More specific validation should be added as the application matures.
+ * - The secretKey MUST NOT be made available to the client.
+ *
+ * Denormalization for Authorization:
+ * The `tickets` collection contains the `eventId` to support efficient listing and querying of tickets for a specific event, removing the need for complex joins or subcollection traversals in the rules.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Allows public read access to event data. Assumes event creation and management are handled by a trusted backend.
+     * @description Allows read-only access to all events, and restricts write access to authenticated users.
      * @path /events/{eventId}
-     * @allow (get, list) Any user can read event data.
-     * @deny (create, update, delete) No user can create, update, or delete events through direct Firestore writes.
-     * @principle Public read access with backend-managed writes.
+     * @allow (get, list): any user can read event data.
+     * @allow (create, update, delete): only authenticated users can modify event data.
+     * @deny (create): unauthenticated users cannot create events.
+     * @deny (update): unauthenticated users cannot update events.
+     * @deny (delete): unauthenticated users cannot delete events.
+     * @principle Allows public read access while restricting writes to authenticated users.
      */
     match /events/{eventId} {
       allow get, list: if true;
-      allow create, update, delete: if false;
+      allow create, update, delete: if isSignedIn();
     }
 
     /**
-     * @description Allows public read access to ticket data. Assumes ticket creation and management are handled by a trusted backend.
+     * @description Allows read-only access to all tickets, and restricts write access to authenticated users.
      * @path /tickets/{ticketId}
-     * @allow (get, list) Any user can read ticket data.
-     * @deny (create, update, delete) No user can create, update, or delete tickets through direct Firestore writes.
-     * @principle Public read access with backend-managed writes.
+     * @allow (get, list): any user can read ticket data.
+     * @allow (create, update, delete): only authenticated users can modify ticket data.
+     * @deny (create): unauthenticated users cannot create tickets.
+     * @deny (update): unauthenticated users cannot update tickets.
+     * @deny (delete): unauthenticated users cannot delete tickets.
+     * @principle Allows public read access while restricting writes to authenticated users.
      */
     match /tickets/{ticketId} {
       allow get, list: if true;
-      allow create, update, delete: if false;
+      allow create, update, delete: if isSignedIn();
     }
+
+    //---------------------------------------------------------------------------------------------
+    // Helper functions
+    //---------------------------------------------------------------------------------------------
+
+    /**
+     * @description Checks if the user is signed in.
+     * @return {boolean} True if the user is signed in, false otherwise.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
   }
 }
