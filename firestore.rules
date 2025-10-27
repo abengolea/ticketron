@@ -1,53 +1,57 @@
 /**
- * @fileoverview Firestore Security Rules for Ticketron.
- *
- * Core Philosophy:
- * This ruleset enforces a flexible data model that prioritizes security through authorization independence.
- * It explicitly avoids `get()` calls in rules for performance and cost efficiency.
- * Read access to both collections is public, while write access is denied to all.
- *
- * Data Structure:
- * The database consists of two top-level collections: `events` and `tickets`.
- * - `/events/{eventId}`: Stores event metadata, including the secret key.
- * - `/tickets/{ticketId}`: Stores individual ticket information, including a denormalized `eventId`.
- *
- * Key Security Decisions:
- * - Public Read Access: Both `events` and `tickets` collections are publicly readable to allow for rapid prototyping and data discovery.
- * - No Write Access: All write operations (create, update, delete) are denied to all users. This is a prototype that prioritizes the ticket generation and offline validation functionalities. This ensures that no data can be modified through direct client interaction.
- * - Authorization Independence: No `get()` calls are used in the security rules, avoiding complex lookups and dependencies. All data necessary for authorization should be present within the document itself.
+ * @file Firebase Security Rules for Ticketron Application
+ * @corePhilosophy This ruleset prioritizes security and scalability for the Ticketron application.
+ *   It eliminates the need for `get()` calls in security rules and ensures atomic operations.
+ *   Rules are not filters.
+ * @dataStructure The structure is segregated into two main collections: `events` and `tickets`.
+ *   Events store event-specific data. Tickets are stored under the `tickets` collection,
+ *   including the denormalized `eventId` for efficient querying and authorization.
+ * @keySecurityDecisions
+ *   - No public listing of tickets.
+ *   - Events can be created by any signed-in user.
+ *   - Tickets can be created by any signed-in user.
+ *   - Read access to events and tickets is public.
+ * @denormalizationForAuthorization The `tickets` collection denormalizes `eventId` from the `events` collection
+ *   to enable efficient authorization checks without requiring `get()` calls.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Allows public read access to event documents, but denies all write operations.
-     * @path /events/{eventId}
-     * @allow get, list: Everyone can read event details.
-     * @deny create, update, delete: No one can create, update, or delete events directly.
-     * @principle Allows public read access and no client-side writes.
+     * @description Controls access to the /events/{eventId} collection.
+     * @path /databases/{database}/documents/events/{eventId}
+     * @allow (get, list) Allow any user to read events.
+     * @allow (create) Allow any signed-in user to create an event.
+     * @deny (update, delete) Deny updates and deletes to all users.
+     * @principle Allows public read access to events while restricting modifications.
      */
     match /events/{eventId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow get, list: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if false;
     }
 
     /**
-     * @description Allows public read access to ticket documents, but denies all write operations.
-     * @path /tickets/{ticketId}
-     * @allow get, list: Everyone can read ticket details.
-     * @deny create, update, delete: No one can create, update, or delete tickets directly.
-     * @principle Allows public read access and no client-side writes.
+     * @description Controls access to the /tickets/{ticketId} collection.
+     * @path /databases/{database}/documents/tickets/{ticketId}
+     * @allow (get) Allow any user to read ticket.
+     * @allow (create) Allow any signed-in user to create a ticket.
+     * @deny (list, update, delete) Deny listing, updating, and deleting tickets to all users.
+     * @principle Restricts listing and modifications of tickets.
      */
     match /tickets/{ticketId} {
       allow get: if true;
-      allow list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow create: if isSignedIn();
+      allow list, update, delete: if false;
+    }
+
+    /**
+     * @description Checks if the user is signed in.
+     * @return {boolean} True if the user is signed in, false otherwise.
+     */
+    function isSignedIn() {
+      return request.auth != null;
     }
   }
 }

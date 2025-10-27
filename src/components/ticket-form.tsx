@@ -98,7 +98,7 @@ async function generateAndStoreTickets(
             
             const secretData = {
                 secretKey,
-                ownerId,
+                ownerId: ownerId,
                 createdAt: serverTimestamp()
             };
 
@@ -106,11 +106,13 @@ async function generateAndStoreTickets(
             transaction.set(eventRef, eventData);
         }).catch(e => {
             if (e.code === 'permission-denied') {
-                throw new FirestorePermissionError({
+                 const permissionError = new FirestorePermissionError({
                     path: eventRef.path,
                     operation: 'create',
                     message: e.message,
                 });
+                errorEmitter.emit('permission-error', permissionError);
+                throw permissionError;
             }
             throw e;
         });
@@ -131,11 +133,13 @@ async function generateAndStoreTickets(
             });
             await batch.commit().catch(e => {
                 if (e.code === 'permission-denied') {
-                    throw new FirestorePermissionError({
+                    const permissionError = new FirestorePermissionError({
                         path: ticketsCollectionRef.path,
                         operation: 'create',
                         message: e.message,
                     });
+                    errorEmitter.emit('permission-error', permissionError);
+                    throw permissionError;
                 }
                 throw e;
             });
@@ -144,9 +148,7 @@ async function generateAndStoreTickets(
         onGenerate({ tickets, secretKey, eventParams: values }, null);
 
     } catch (e: any) {
-        if (e instanceof FirestorePermissionError) {
-            errorEmitter.emit('permission-error', e);
-        } else {
+        if (!(e instanceof FirestorePermissionError)) {
              onGenerate(null, `Un error ocurrió: ${e.message}`);
         }
     } finally {
