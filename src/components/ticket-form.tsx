@@ -73,7 +73,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       setIsLoading(false);
       return;
     }
-
+    
     try {
       // 1. Generate Secret Key
       const secretBytes = new Uint8Array(32);
@@ -97,7 +97,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
         const shortCode = base32Encode(shortCodeSource).substring(0, 7);
         tickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
       }
-
+      
       // 3. Firestore Transaction: Create Event and Secret
       const secretRef = doc(firestore, 'event_secrets', values.event_id);
       const eventRef = doc(firestore, 'events', values.event_id);
@@ -116,17 +116,17 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
         }
         transaction.set(secretRef, { secretKey });
         transaction.set(eventRef, eventData);
-      }).catch((serverError: any) => {
-        if (serverError.code === 'permission-denied') {
-          const permissionError = new FirestorePermissionError({
-            path: eventRef.path,
-            operation: 'create',
-            requestResourceData: { eventData, secretData: { secretKey } },
-            message: serverError.message,
-          });
-          errorEmitter.emit('permission-error', permissionError);
+      }).catch(e => {
+        if (e.code === 'permission-denied') {
+             const permissionError = new FirestorePermissionError({
+                path: eventRef.path,
+                operation: 'create',
+                message: e.message,
+            });
+            errorEmitter.emit('permission-error', permissionError);
         }
-        throw serverError;
+        // re-throw other transaction errors
+        throw e;
       });
       
       // 4. Batch Write Tickets
@@ -135,7 +135,6 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       
       for (const ticketChunk of ticketChunks) {
         const batch = writeBatch(firestore);
-        const batchDataForError: Record<string, any> = {};
         ticketChunk.forEach((ticket) => {
           const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
           const ticketData = {
@@ -145,28 +144,24 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
             redeemedAt: null,
           };
           batch.set(ticketDocRef, ticketData);
-          batchDataForError[ticket.ticketId] = ticketData;
         });
-        
-        await batch.commit().catch((serverError: any) => {
-           if (serverError.code === 'permission-denied') {
-            const permissionError = new FirestorePermissionError({
-              path: ticketsCollectionRef.path,
-              operation: 'create',
-              requestResourceData: batchDataForError,
-              message: serverError.message,
+        await batch.commit().catch(e => {
+           if (e.code === 'permission-denied') {
+             const permissionError = new FirestorePermissionError({
+                path: ticketsCollectionRef.path,
+                operation: 'create',
+                message: e.message,
             });
             errorEmitter.emit('permission-error', permissionError);
-          }
-          throw serverError;
+           }
+           throw e;
         });
       }
 
       onGenerate({ tickets, secretKey, eventParams: values }, null);
     } catch (e: any) {
-        const isPermissionError = e.name === 'FirestorePermissionError' || (e.code && e.code.includes('permission-denied'));
-        if (!isPermissionError) {
-           onGenerate(null, `Un error ocurrió: ${e.message}`);
+        if (!e.message.toLowerCase().includes('permission-denied')) {
+             onGenerate(null, `Un error ocurrió: ${e.message}`);
         }
     } finally {
         setIsLoading(false);
