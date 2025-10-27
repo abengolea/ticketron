@@ -22,7 +22,7 @@ import { base32Encode, createHmacSha256 } from "@/lib/utils";
 import { doc, writeBatch, serverTimestamp, getDoc, collection, type Firestore } from "firebase/firestore";
 import { format } from "date-fns";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { LogIn } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
@@ -33,7 +33,7 @@ const formSchema = z.object({
   date_time: z.string().min(5, "La fecha y hora son requeridas."),
   venue: z.string().min(3, "El lugar es requerido."),
   quantity: z.coerce.number().int().positive().max(1000, "La cantidad no puede exceder los 1000."),
-  tickets_per_page: z.literal(4),
+  tickets_per_page: z.literal(8),
   page_size: z.enum(["A4", "Letter"]),
 });
 
@@ -157,13 +157,13 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       date_time: "Fecha y hora a confirmar",
       venue: "Lugar a confirmar",
       quantity: 100,
-      tickets_per_page: 4,
+      tickets_per_page: 8,
       page_size: "A4",
     },
   });
 
   const firestore = useFirestore();
-  const { user } = useUser();
+  const { user, loading: isUserLoading } = useUser();
   const { toast } = useToast();
 
   function onSubmit(values: FormValues) {
@@ -172,7 +172,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       return;
     }
     if (!user) {
-      onGenerate(null, "Debes iniciar sesión para crear un evento.");
+      onGenerate(null, "El usuario anónimo no está listo. Por favor, espera un momento.");
       return;
     }
     generateAndStoreTickets(firestore, values, onGenerate, setIsLoading, user.uid, toast);
@@ -189,11 +189,13 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     }
     
     if (!firestore || !user) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Debes iniciar sesión y Firestore debe estar disponible.' });
+      toast({ variant: 'destructive', title: 'Error', description: 'El usuario anónimo no está listo. Por favor, espera un momento.' });
       return;
     }
     generateAndStoreTickets(firestore, testValues, onGenerate, setIsLoading, user.uid, toast);
   };
+
+  const isDisabled = isUserLoading;
 
   return (
     <Card className="w-full">
@@ -210,7 +212,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 <FormItem>
                   <FormLabel>Nombre del Evento</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: Mi Fiesta Increíble" {...field} />
+                    <Input placeholder="Ej: Mi Fiesta Increíble" {...field} disabled={isDisabled} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -223,7 +225,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 <FormItem>
                   <FormLabel>ID del Evento</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: MI-FIESTA-2024" {...field} />
+                    <Input placeholder="Ej: MI-FIESTA-2024" {...field} disabled={isDisabled} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -236,7 +238,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 <FormItem>
                   <FormLabel>Fecha y Hora</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: 25 Dic, 2024 - 21:00" {...field} />
+                    <Input placeholder="Ej: 25 Dic, 2024 - 21:00" {...field} disabled={isDisabled}/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -249,7 +251,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 <FormItem>
                   <FormLabel>Lugar</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ej: Av. Siempre Viva 123" {...field} />
+                    <Input placeholder="Ej: Av. Siempre Viva 123" {...field} disabled={isDisabled}/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -262,7 +264,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 <FormItem>
                   <FormLabel>Cantidad de Tickets</FormLabel>
                   <FormControl>
-                    <Input type="number" {...field} />
+                    <Input type="number" {...field} disabled={isDisabled}/>
                   </FormControl>
                   <FormDescription>Máximo 1000 tickets.</FormDescription>
                   <FormMessage />
@@ -283,7 +285,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                         </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                            <SelectItem value="4">4</SelectItem>
+                            <SelectItem value="8">8</SelectItem>
                         </SelectContent>
                     </Select>
                     <FormMessage />
@@ -296,7 +298,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 render={({ field }) => (
                     <FormItem>
                     <FormLabel>Tamaño de Página</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isDisabled}>
                         <FormControl>
                         <SelectTrigger>
                             <SelectValue placeholder="Seleccionar..." />
@@ -314,18 +316,18 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
             </div>
           </CardContent>
           <CardFooter className="flex-col gap-4">
-             {!user && (
+             {isUserLoading && (
               <Alert>
-                <LogIn className="h-4 w-4" />
-                <AlertTitle>¡Inicia Sesión para Continuar!</AlertTitle>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <AlertTitle>Inicializando Sesión Segura</AlertTitle>
                 <AlertDescription>
-                  Necesitas iniciar sesión para poder generar tickets. Utiliza el botón en la cabecera.
+                  Estableciendo una sesión anónima para proteger tus eventos. Por favor, espera...
                 </AlertDescription>
               </Alert>
             )}
             <div className="flex justify-end gap-4 w-full">
-                <Button type="button" variant="outline" onClick={onTestSubmit} disabled={!user}>Generar 10 Tickets de Prueba</Button>
-                <Button type="submit" disabled={!user}>Generar Tickets</Button>
+                <Button type="button" variant="outline" onClick={onTestSubmit} disabled={isDisabled}>Generar 10 Tickets de Prueba</Button>
+                <Button type="submit" disabled={isDisabled}>Generar Tickets</Button>
             </div>
           </CardFooter>
         </form>
