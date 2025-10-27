@@ -1,46 +1,71 @@
 /**
- * @fileoverview Firestore Security Rules for Ticketron.
- *
- * Core Philosophy:
- * This ruleset prioritizes security and scalability, focusing on authorization independence to eliminate the need for `get()` calls.
- * The rules are designed to support anonymous ticket generation and secure `list` operations.
+ * @fileOverview
+ * This ruleset enforces a security model based on owner-only access to events and tickets.
+ * It avoids `get()` calls in security rules by requiring the `ownerId` to be present in each document.
  *
  * Data Structure:
- * The data is structured into two top-level collections: `events` and `tickets`.
- * - `/events/{eventId}`: Stores event details, including the event name, date, time, venue, and the `secretKey` used for generating ticket signatures.
- * - `/tickets/{ticketId}`: Stores ticket information, including a denormalized `eventId` for efficient querying.
+ * - /events/{eventId}: Stores event details, accessible only to the event owner.
+ * - /event_secrets/{eventId}: Stores secret event details, accessible only to the event owner.
+ * - /tickets/{ticketId}: Stores ticket information, accessible only to the ticket owner.
  *
  * Key Security Decisions:
- * - Authorization independence is achieved by ensuring all data needed for ticket validation (except the secretKey) is stored directly within the `ticket` document.
- * - The `secretKey` is intentionally NOT stored in the `ticket` document and is handled separately on the backend.
- * - Public `list` operations are generally disallowed for collections containing sensitive user data. Instead, filtering is used to control data access.
+ * - Owner-only access: Only the owner (creator) of an event or ticket can read, update, or delete it.
+ * - No public listing: Listing of events and tickets is only allowed for the owner.
+ * - Denormalization for Authorization: The `ownerId` field is required in all event and ticket documents to avoid `get()` calls in security rules.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Manages access to event documents.
+     * @description Allows event creation, reading, updating and deleting only by the event owner.
      * @path /events/{eventId}
-     * @allow (create) - Allowed for authorized users to create events. Authorization details not defined in current scope.
-     * @deny (create) - Denied for unauthorized users.
+     * @allow (create) User A creates an event with ownerId: 'userA'
+     * @deny (create) User B tries to create an event with ownerId: 'userA'
+     * @principle Enforces document ownership for writes.
      */
     match /events/{eventId} {
-      // Placeholder rule.  Create requires custom authorization logic (e.g., checking admin role).
-      allow get, list: if false;
-      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow read: if true;
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.ownerId;
+      allow update: if isSignedIn() && request.auth.uid == resource.data.ownerId;
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.ownerId;
+      allow list: if false;
     }
 
+     /**
+      * @description Allows event secrets creation, reading, and updating only by the event owner.
+      * @path /event_secrets/{eventId}
+      * @allow (create) User A creates an event secret with ownerId: 'userA'
+      * @deny (create) User B tries to create an event secret with ownerId: 'userA'
+      * @principle Enforces document ownership for writes.
+      */
+    match /event_secrets/{eventId} {
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.ownerId;
+      allow read: if isSignedIn() && request.auth.uid == resource.data.ownerId;
+      allow update: if isSignedIn() && request.auth.uid == resource.data.ownerId;
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.ownerId;
+      allow list: if false;
+    }
+    
     /**
-     * @description Manages access to ticket documents.
+     * @description Allows ticket creation and reading only by the ticket owner.
      * @path /tickets/{ticketId}
-     * @allow (create) - Allowed for authorized users to create tickets. Authorization details not defined in current scope.
-     * @deny (create) - Denied for unauthorized users.
+     * @allow (create) User A creates a ticket with ownerId: 'userA'
+     * @deny (create) User B tries to create a ticket with ownerId: 'userA'
+     * @principle Enforces document ownership for writes.
      */
     match /tickets/{ticketId} {
-      // Placeholder rule.  Create requires custom authorization logic (e.g., checking admin role).
-      allow get, list: if false;
-      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.ownerId;
+      allow read: if isSignedIn();
+      allow update: if isSignedIn() && request.auth.uid == resource.data.ownerId;
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.ownerId;
+      allow list: if false;
     }
+
+  }
+
+  // Helper function to determine if a user is signed in
+  function isSignedIn() {
+    return request.auth != null;
   }
 }

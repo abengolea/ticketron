@@ -20,7 +20,7 @@ import type { GenerationResult, TicketData, EventParameters } from "@/lib/types"
 import { useFirestore, useUser } from "@/firebase";
 import { createHmac } from 'crypto-browserify';
 import { base32Encode } from "@/lib/utils";
-import { doc, collection, writeBatch, serverTimestamp, setDoc, getDoc, type Firestore } from "firebase/firestore";
+import { doc, collection, writeBatch, serverTimestamp, getDoc, type Firestore } from "firebase/firestore";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
 import { format } from "date-fns";
@@ -38,11 +38,6 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
-
-const chunk = <T,>(arr: T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
-    arr.slice(i * size, i * size + size)
-  );
 
 async function generateAndStoreTickets(
     firestore: Firestore, 
@@ -67,6 +62,10 @@ async function generateAndStoreTickets(
         crypto.getRandomValues(secretBytes);
         const secretKey = btoa(String.fromCharCode.apply(null, Array.from(secretBytes)));
 
+        // START BATCH
+        const batch = writeBatch(firestore);
+
+        // 1. Set Event Data
         const eventData = {
             ownerId: ownerId,
             eventName: values.event_name,
@@ -75,36 +74,20 @@ async function generateAndStoreTickets(
             ticketCount: values.quantity,
             createdAt: serverTimestamp()
         };
+        batch.set(eventRef, eventData);
 
+        // 2. Set Secret Data
         const secretData = {
-            secretKey,
             ownerId: ownerId,
+            secretKey,
             createdAt: serverTimestamp()
         };
-
-        // STEP 1: Create Event and Secret docs first.
-        await setDoc(eventRef, eventData).catch(serverError => {
-            const permissionError = new FirestorePermissionError({
-                path: eventRef.path,
-                operation: 'create',
-                requestResourceData: eventData,
-            });
-            errorEmitter.emit('permission-error', permissionError);
-            throw permissionError;
-        });
-
-        await setDoc(secretRef, secretData).catch(serverError => {
-            const permissionError = new FirestorePermissionError({
-                path: secretRef.path,
-                operation: 'create',
-                requestResourceData: secretData,
-            });
-            errorEmitter.emit('permission-error', permissionError);
-            throw permissionError;
-        });
-
-        // STEP 2: Generate ticket data locally
+        batch.set(secretRef, secretData);
+        
+        // 3. Generate and set Ticket Data
         const tickets: TicketData[] = [];
+        const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
+
         for (let i = 0; i < values.quantity; i++) {
             const ticketNumber = i + 1;
             const ticketId = crypto.randomUUID();
@@ -118,41 +101,42 @@ async function generateAndStoreTickets(
             const qrPayload = JSON.stringify({ v: version, eid: values.event_id, tid: ticketId, sig });
             const shortCodeSource = Buffer.from(ticketId.substring(0, 8) + sig.substring(0, 4));
             const shortCode = base32Encode(shortCodeSource).substring(0, 7);
+            
+            // Add ticket for the UI preview
             tickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
-        }
-        
-        // STEP 3: Save tickets to subcollection in batches.
-        const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
-        const ticketChunks = chunk(tickets, 499); // Firestore batch limit is 500 writes
-        
-        for (const ticketChunk of ticketChunks) {
-            const batch = writeBatch(firestore);
-            ticketChunk.forEach((ticket) => {
-                const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId); // Create a doc ref for each ticket
-                const ticketData = {
-                    ticketNumber: ticket.ticketNumber,
-                    shortCode: ticket.shortCode,
-                    redeemed: false,
-                    redeemedAt: null,
-                };
-                batch.set(ticketDocRef, ticketData); // Set data for that specific document
-            });
 
-            await batch.commit().catch(serverError => {
-                const permissionError = new FirestorePermissionError({
-                    path: `events/${values.event_id}/tickets`, // Path for error reporting
-                    operation: 'create',
-                    requestResourceData: {note: `Batch creation of ${ticketChunk.length} tickets failed.`}
-                });
-                errorEmitter.emit('permission-error', permissionError);
-                throw permissionError;
-            });
+            // Add ticket to the batch
+            const ticketDocRef = doc(ticketsCollectionRef, ticketId);
+            const ticketData = {
+                ownerId: ownerId, // Important for security rules
+                ticketNumber: ticketNumber,
+                shortCode: shortCode,
+                redeemed: false,
+                redeemedAt: null,
+            };
+            batch.set(ticketDocRef, ticketData);
         }
+        
+        // COMMIT BATCH
+        await batch.commit().catch(serverError => {
+            const permissionError = new FirestorePermissionError({
+                path: `events/${values.event_id} and related tickets/secrets`,
+                operation: 'create',
+                requestResourceData: {
+                  event: eventData,
+                  secret: secretData,
+                  ticketCount: tickets.length,
+                }
+            });
+            errorEmitter.emit('permission-error', permissionError);
+            throw permissionError; // Stop execution
+        });
 
         // If all steps are successful:
         onGenerate({ tickets, secretKey, eventParams: values }, null);
 
     } catch (e: any) {
+        // This will catch the pre-flight check error or any other error
         if (!(e instanceof FirestorePermissionError)) {
              onGenerate(null, `Un error ocurrió: ${e.message}`);
         }
@@ -313,11 +297,11 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 render={({ field }) => (
                     <FormItem>
                     <FormLabel>Tamaño de Página</FormLabel>
-                    <Select onValuechange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
                         <FormControl>
                         <SelectTrigger>
                             <SelectValue placeholder="Seleccionar..." />
-                        </SelectTrigger>
+                        </Trigger>
                         </FormControl>
                         <SelectContent>
                             <SelectItem value="A4">A4</SelectItem>
@@ -337,7 +321,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 <AlertTitle>¡Inicia Sesión para Continuar!</AlertTitle>
                 <AlertDescription>
                   Necesitas iniciar sesión para poder generar tickets. Utiliza el botón en la cabecera.
-                </AlertDescription>
+                </AlertDescription>勘定書
               </Alert>
             )}
             <div className="flex justify-end gap-4 w-full">
@@ -350,5 +334,3 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     </Card>
   );
 }
-
-    
