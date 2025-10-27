@@ -126,11 +126,9 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
           });
           errorEmitter.emit('permission-error', permissionError);
         }
-        // Re-throw the original error to be caught by the outer try-catch
         throw serverError;
       });
       
-
       // 4. Batch Write Tickets
       const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
       const ticketChunks = chunk(tickets, 499);
@@ -160,15 +158,12 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
             });
             errorEmitter.emit('permission-error', permissionError);
           }
-          // Re-throw the original error
           throw serverError;
         });
       }
 
       onGenerate({ tickets, secretKey, eventParams: values }, null);
     } catch (e: any) {
-        // Only show generic error if it's not a permission error
-        // because permission errors are handled by the global listener.
         const isPermissionError = e.name === 'FirestorePermissionError' || (e.code && e.code.includes('permission-denied'));
         if (!isPermissionError) {
            onGenerate(null, `Un error ocurrió: ${e.message}`);
