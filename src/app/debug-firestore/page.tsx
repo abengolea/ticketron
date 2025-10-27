@@ -32,27 +32,25 @@ export default function DebugFirestorePage() {
 
     console.log("Intentando escribir en:", testDocRef.path);
 
-    // ** IMPLEMENTACIÓN CORRECTA DEL MANEJO DE ERRORES **
-    // No usamos try/catch. Encadenamos .catch() a la promesa de Firestore.
+    // ** CORRECT ERROR HANDLING IMPLEMENTATION **
+    // We don't use try/catch. We chain .catch() to the Firestore promise.
     setDoc(testDocRef, testData)
       .then(() => {
         alert("¡Escritura exitosa! Esto no debería suceder si las reglas son restrictivas.");
       })
       .catch((serverError) => {
-        // 1. Construimos el error contextual detallado.
+        // 1. We build the detailed contextual error.
         const permissionError = new FirestorePermissionError({
           path: testDocRef.path,
           operation: 'create',
           requestResourceData: testData,
         });
 
-        // 2. Emitimos el error al listener global.
-        // Esto activará el overlay de error de Next.js con la información detallada.
+        // 2. We emit the error to the global listener.
+        // This will trigger the Next.js error overlay with the detailed information.
         errorEmitter.emit('permission-error', permissionError);
 
-        // Opcionalmente, podemos registrar el error original del servidor en la consola
-        // para una depuración adicional, pero el error emitido es el importante.
-        console.error("Error original del servidor de Firestore:", serverError);
+        // DO NOT use console.error here as it will be caught by the global listener.
       });
   };
 
