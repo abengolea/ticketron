@@ -75,6 +75,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     }
     
     let eventRefPath: string | undefined;
+
     try {
       // 1. Generate Secret Key
       const secretBytes = new Uint8Array(32);
