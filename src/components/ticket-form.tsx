@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -94,7 +95,14 @@ async function generateAndStoreTickets(
                 ticketCount: values.quantity,
                 createdAt: serverTimestamp()
             };
-            transaction.set(secretRef, { secretKey, ownerId });
+            
+            const secretData = {
+                secretKey,
+                ownerId,
+                createdAt: serverTimestamp()
+            };
+
+            transaction.set(secretRef, secretData);
             transaction.set(eventRef, eventData);
         }).catch(e => {
             if (e.code === 'permission-denied') {
