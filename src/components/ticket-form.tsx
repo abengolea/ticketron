@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -62,9 +61,8 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   });
 
   const firestore = useFirestore();
-  const { toast } = useToast();
 
-  async function handleTicketGeneration(values: z.infer<typeof formSchema>) {
+  const handleTicketGeneration = async (values: z.infer<typeof formSchema>) => {
     setIsLoading(true);
     onGenerate(null, null);
 
@@ -145,7 +143,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     } catch (e: any) {
         if (e.code === 'permission-denied') {
             const permissionError = new FirestorePermissionError({
-                path: eventRefPath || 'unknown path',
+                path: eventRefPath || `events/${values.event_id}`,
                 operation: 'create',
                 message: e.message,
             });
@@ -156,7 +154,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     } finally {
         setIsLoading(false);
     }
-  }
+  };
 
   const onSubmit = (values: z.infer<typeof formSchema>) => {
     handleTicketGeneration(values);
