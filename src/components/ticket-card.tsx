@@ -24,6 +24,7 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
             width={48}
             height={48}
             className="rounded-sm"
+            crossOrigin="anonymous"
           />
            <p className="text-[6px] text-muted-foreground text-center leading-tight">Escanear para entrar</p>
         </div>
