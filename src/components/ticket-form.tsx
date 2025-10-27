@@ -64,7 +64,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   const firestore = useFirestore();
   const { toast } = useToast();
 
-  const handleTicketGeneration = async (values: z.infer<typeof formSchema>) => {
+  async function handleTicketGeneration(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     onGenerate(null, null);
 
@@ -73,9 +73,8 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       setIsLoading(false);
       return;
     }
-    
-    let eventRefPath: string | undefined;
 
+    let eventRefPath: string | undefined;
     try {
       // 1. Generate Secret Key
       const secretBytes = new Uint8Array(32);
@@ -157,7 +156,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     } finally {
         setIsLoading(false);
     }
-  };
+  }
 
   const onSubmit = (values: z.infer<typeof formSchema>) => {
     handleTicketGeneration(values);
