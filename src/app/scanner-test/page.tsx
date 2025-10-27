@@ -1,94 +1,140 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { useToast } from '@/hooks/use-toast';
+import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { CameraOff, Loader } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { Camera, Loader2, CheckCircle, XCircle } from 'lucide-react';
+
+const readerId = "qr-reader-test";
 
 export default function ScannerTestPage() {
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    const scannerRef = useRef<Html5Qrcode | null>(null);
+    const [isScanning, setIsScanning] = useState(false);
+    const [scanResult, setScanResult] = useState<string | null>(null);
+    const [scanError, setScanError] = useState<string | null>(null);
     const { toast } = useToast();
 
     useEffect(() => {
-        let stream: MediaStream | null = null;
+        // Inicializa el objeto scanner una sola vez
+        if (!scannerRef.current) {
+            scannerRef.current = new Html5Qrcode(readerId, false);
+        }
+        const scanner = scannerRef.current;
 
-        const getCameraPermission = async () => {
-            try {
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error("La API de MediaDevices no es soportada en este navegador.");
-                }
-                
-                stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                setHasCameraPermission(true);
-                
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                }
-            } catch (err: any) {
-                console.error('Error al acceder a la cámara:', err);
-                let errorMessage = "No se pudo acceder a la cámara. Por favor, revisa los permisos en la configuración de tu navegador.";
-                if (err.name === "NotAllowedError") {
-                    errorMessage = "Has denegado el permiso para acceder a la cámara. Por favor, habilítalo en la configuración de tu navegador.";
-                } else if (err.name === "NotFoundError") {
-                    errorMessage = "No se encontró ningún dispositivo de cámara conectado.";
-                }
-
-                setError(errorMessage);
-                setHasCameraPermission(false);
-                toast({
-                    variant: 'destructive',
-                    title: 'Error de Cámara',
-                    description: errorMessage,
+        // Función de limpieza para detener el escáner al desmontar el componente
+        return () => {
+            if (scanner && scanner.isScanning) {
+                scanner.stop().catch(err => {
+                    console.error("Error al detener el escáner de prueba en el cleanup:", err);
                 });
             }
         };
+    }, []);
 
-        getCameraPermission();
+    const startScanner = async () => {
+        const scanner = scannerRef.current;
+        if (!scanner) {
+            toast({ variant: 'destructive', title: 'Error', description: 'La instancia del escáner no se ha inicializado.' });
+            return;
+        }
 
-        // Función de limpieza para detener el stream de la cámara
-        return () => {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
+        // Ya está escaneando, no hacer nada
+        if (scanner.isScanning) return;
+
+        setScanResult(null);
+        setScanError(null);
+        setIsScanning(true);
+
+        const config = {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            rememberLastUsedCamera: true,
         };
-    }, [toast]); // toast está estabilizado con useCallback
+
+        const onScanSuccess = (decodedText: string) => {
+            setScanResult(decodedText);
+            stopScanner(); // Detener después de un escaneo exitoso
+        };
+
+        const onScanFailure = (error: any) => {
+            // Se ignora porque se llama continuamente
+        };
+
+        try {
+            await scanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure);
+        } catch (err: any) {
+            console.error("Error al iniciar el escáner:", err);
+            const errorMessage = err.message || "No se pudo iniciar el escáner. Revisa los permisos de la cámara.";
+            setScanError(errorMessage);
+            setIsScanning(false);
+            toast({
+                variant: 'destructive',
+                title: 'Error de Cámara',
+                description: errorMessage,
+            });
+        }
+    };
+
+    const stopScanner = () => {
+        const scanner = scannerRef.current;
+        if (scanner && scanner.isScanning) {
+            scanner.stop()
+                .then(() => {
+                    setIsScanning(false);
+                })
+                .catch(err => {
+                    console.error("Fallo al detener el escáner:", err);
+                    setIsScanning(false); // Forzar el estado de todas formas
+                });
+        }
+    };
+
 
     return (
         <div className="max-w-2xl mx-auto">
             <Card>
                 <CardHeader>
-                    <CardTitle>Página de Prueba de Cámara</CardTitle>
+                    <CardTitle>Página de Prueba del Escáner QR</CardTitle>
                     <CardDescription>
-                        Esta página intenta acceder directamente a la cámara para diagnosticar problemas de permisos.
+                        Esta página prueba la librería <code>html5-qrcode</code> de forma aislada para depurar errores de renderizado o comunicación.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    {hasCameraPermission === null && !error && (
-                        <div className="flex flex-col items-center justify-center h-48 border-2 border-dashed rounded-lg">
-                           <Loader className="h-8 w-8 animate-spin text-muted-foreground" />
-                           <p className="mt-4 text-muted-foreground">Solicitando permiso de cámara...</p>
+                    <div id={readerId} className={cn(!isScanning && "hidden", "w-full rounded-md border aspect-video bg-muted")}></div>
+
+                    {!isScanning && (
+                        <div className="flex justify-center items-center h-48 border-2 border-dashed rounded-lg">
+                            <Button onClick={startScanner} variant="secondary" size="lg">
+                                <Camera className="mr-2 h-5 w-5" />
+                                Iniciar Escáner de Prueba
+                            </Button>
                         </div>
                     )}
                     
-                    {error && (
-                         <Alert variant="destructive">
-                            <CameraOff className="h-4 w-4" />
-                            <AlertTitle>Acceso a la Cámara Denegado</AlertTitle>
-                            <AlertDescription>
-                                {error}
-                            </AlertDescription>
-                        </Alert>
+                    {isScanning && (
+                        <Button onClick={stopScanner} variant="outline" className="w-full">
+                            Detener Escáner
+                        </Button>
                     )}
 
-                    <div className="aspect-video w-full rounded-md border bg-muted flex items-center justify-center">
-                         <video ref={videoRef} className={hasCameraPermission ? "w-full h-full object-cover" : "hidden"} autoPlay muted playsInline />
-                         {!hasCameraPermission && (
-                             <CameraOff className="w-16 h-16 text-muted-foreground/50" />
-                         )}
-                    </div>
+                    {scanResult && (
+                        <Alert variant="default" className="bg-green-100 dark:bg-green-900/50">
+                            <CheckCircle className="h-4 w-4" />
+                            <AlertTitle>Escaneo Exitoso</AlertTitle>
+                            <AlertDescription className="font-mono break-all">{scanResult}</AlertDescription>
+                        </Alert>
+                    )}
+                    
+                    {scanError && (
+                        <Alert variant="destructive">
+                            <XCircle className="h-4 w-4" />
+                            <AlertTitle>Error del Escáner</AlertTitle>
+                            <AlertDescription>{scanError}</AlertDescription>
+                        </Alert>
+                    )}
                 </CardContent>
             </Card>
         </div>
