@@ -1,0 +1,154 @@
+{
+  "entities": {
+    "Event": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Event",
+      "type": "object",
+      "description": "Represents an event for which tickets are generated.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the event.",
+          "format": "uuid"
+        },
+        "eventName": {
+          "type": "string",
+          "description": "The name of the event."
+        },
+        "eventId": {
+          "type": "string",
+          "description": "Short event identifier (e.g., SN-FIESTA-2025-12-20)."
+        },
+        "dateTime": {
+          "type": "string",
+          "description": "The date and time of the event."
+        },
+        "venue": {
+          "type": "string",
+          "description": "The location or venue of the event."
+        },
+        "secretKey": {
+          "type": "string",
+          "description": "The secret key used for generating ticket signatures. This should be stored securely and not exposed.",
+          "format": "byte"
+        }
+      },
+      "required": [
+        "id",
+        "eventName",
+        "eventId",
+        "dateTime",
+        "venue",
+        "secretKey"
+      ]
+    },
+    "Ticket": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Ticket",
+      "type": "object",
+      "description": "Represents a single ticket for an event.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the ticket (UUIDv4 or correlative number).",
+          "format": "uuid"
+        },
+        "eventId": {
+          "type": "string",
+          "description": "Reference to Event. (Relationship: Event 1:N Ticket)"
+        },
+        "ticketNumber": {
+          "type": "number",
+          "description": "The numerical identifier of the ticket (e.g., 1-1000)."
+        },
+        "version": {
+          "type": "number",
+          "description": "The version of the ticket format."
+        },
+        "sig": {
+          "type": "string",
+          "description": "HMAC-SHA256 signature of the ticket data.",
+          "format": "byte"
+        },
+        "shortCode": {
+          "type": "string",
+          "description": "Short, human-readable code derived from ticketId and signature for manual verification.",
+          "format": "byte"
+        },
+        "qrPayload": {
+          "type": "string",
+          "description": "The full QR code payload (JSON or text).",
+          "format": "byte"
+        },
+        "printedSheet": {
+          "type": "number",
+          "description": "The sheet number on which the ticket was printed."
+        },
+        "positionInSheet": {
+          "type": "number",
+          "description": "The position of the ticket on the printed sheet (1-4)."
+        },
+        "isRedeemed": {
+          "type": "boolean",
+          "description": "Indicates whether the ticket has been redeemed or not.",
+          "format": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "eventId",
+        "ticketNumber",
+        "version",
+        "sig",
+        "shortCode",
+        "qrPayload",
+        "printedSheet",
+        "positionInSheet",
+        "isRedeemed"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/events/{eventId}",
+        "definition": {
+          "entityName": "Event",
+          "schema": {
+            "$ref": "#/backend/entities/Event"
+          },
+          "description": "Stores event details, including the event name, date, time, venue and secretKey. The eventId acts as the document ID.",
+          "params": [
+            {
+              "name": "eventId",
+              "description": "Unique identifier for the event (e.g., SN-FIESTA-2025-12-20)."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/tickets/{ticketId}",
+        "definition": {
+          "entityName": "Ticket",
+          "schema": {
+            "$ref": "#/backend/entities/Ticket"
+          },
+          "description": "Stores ticket information, including eventId (denormalized from the events collection), ticket number, version, signature, short code, QR payload, and printing details. The ticketId acts as the document ID.",
+          "params": [
+            {
+              "name": "ticketId",
+              "description": "Unique identifier for the ticket."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "This Firestore structure prioritizes security and scalability for the Ticketron application, focusing on anonymous ticket generation and offline validation. The core principle is to maintain authorization independence, eliminating the need for `get()` calls in security rules and ensuring atomic operations. We achieve this using Structural Segregation and Access Modeling.\n\nThe structure is segregated into two main collections: `events` and `tickets`. Events store event-specific data like the event name, date, time, venue, and most importantly, the `secretKey` used for generating ticket signatures. Tickets are stored under the `tickets` collection. Each ticket includes the denormalized `eventId` for efficient querying and avoids the need to query the parent `events` document for security rules.\n\n**Authorization Independence**: Achieved by storing all necessary information for ticket validation directly within the `tickets` document. The `secretKey` is NOT stored within the `tickets` document. Validation logic will be implemented on the backend or offline using the separate `secret_key.txt` file generated during the ticket creation process.\n\n**QAPs (Rules are not Filters)**: The structure supports secure `list` operations because tickets for different events are stored in a flat list on the tickets collection. However, filtering for tickets of a specific event is possible via query and its eventId field. This approach works because the application logic restricts ticket creation and event creation to authorized users."
+  }
+}
