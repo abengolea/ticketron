@@ -30,7 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { createHmac, randomBytes, randomUUID } from "crypto";
+import { createHmac } from 'crypto-browserify';
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
 
@@ -183,7 +183,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
         for (let i = 0; i < moreQuantity; i++) {
             const ticketNumber = startingTicketNumber + i;
-            const ticketId = randomUUID();
+            const ticketId = crypto.randomUUID();
             const version = 1;
             const payloadToSign = `${eventId}|${ticketId}|${version}`;
             
@@ -201,8 +201,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
 
         const ticketChunks = chunk(newTickets, 499);
-        // Using Promise.all to wait for all batches and the event update
-        const allPromises = [];
+        const allPromises: Promise<void>[] = [];
 
         for (const ticketChunk of ticketChunks) {
             const batch = writeBatch(firestore);
@@ -243,8 +242,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             throw serverError; // Propagate error
         });
         allPromises.push(updatePromise);
-
-        // This will now correctly handle errors from any of the promises
+        
         await Promise.all(allPromises);
 
         toast({
@@ -255,9 +253,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         setTimeout(() => window.location.reload(), 2500);
 
     }).catch((e: any) => {
-        // This catch block will now only be triggered for genuine errors (like secret not found)
-        // or for permission errors that have already been emitted. We only show a toast for non-permission errors.
-        if (e.name !== 'FirestorePermissionError' && !e.message.includes('permission-denied')) {
+        if (e.name !== 'FirestorePermissionError' && !e.message.toLowerCase().includes('permission-denied')) {
              toast({
                 variant: "destructive",
                 title: "Falló la Generación",

@@ -20,7 +20,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
 import { useFirestore } from "@/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { createHmac, randomBytes, randomUUID } from "crypto";
+import { createHmac } from 'crypto-browserify';
 import { base32Encode } from "@/lib/utils";
 import { doc, runTransaction, collection, writeBatch, serverTimestamp } from "firebase/firestore";
 import { errorEmitter } from "@/firebase/error-emitter";
@@ -48,6 +48,10 @@ const chunk = <T,>(arr: T[], size: number): T[][] =>
     arr.slice(i * size, i * size + size)
   );
 
+// Helper to convert a Uint8Array to a Base64 string
+function toBase64(arr: Uint8Array): string {
+    return btoa(String.fromCharCode.apply(null, Array.from(arr)));
+}
 
 export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   const form = useForm<z.infer<typeof formSchema>>({
@@ -75,13 +79,16 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       setIsLoading(false);
       return;
     }
+    
+    const secretBytes = new Uint8Array(32);
+    crypto.getRandomValues(secretBytes);
+    const secretKey = toBase64(secretBytes);
 
-    const secretKey = randomBytes(32).toString('base64');
     const tickets: TicketData[] = [];
     
     for (let i = 0; i < values.quantity; i++) {
         const ticketNumber = i + 1;
-        const ticketId = randomUUID();
+        const ticketId = crypto.randomUUID();
         const version = 1;
         const payloadToSign = `${values.event_id}|${ticketId}|${version}`;
         
@@ -120,6 +127,8 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
         const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
         const ticketChunks = chunk(tickets, 499);
 
+        const allPromises: Promise<void>[] = [];
+
         for (const ticketChunk of ticketChunks) {
             const batch = writeBatch(firestore);
             const batchData: Record<string, any> = {};
@@ -135,7 +144,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 batchData[ticket.ticketId] = ticketData;
             });
 
-            await batch.commit().catch(async (serverError) => {
+            const batchPromise = batch.commit().catch(async (serverError) => {
                 const permissionError = new FirestorePermissionError({
                   path: ticketsCollectionRef.path,
                   operation: 'create',
@@ -143,22 +152,23 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                   message: serverError.message,
                 });
                 errorEmitter.emit('permission-error', permissionError);
-                throw serverError; // Propagate to be caught by the final catch
+                throw serverError; // Propagate to be caught by Promise.all
             });
+            allPromises.push(batchPromise);
         }
       
+        await Promise.all(allPromises);
         onGenerate({ tickets, secretKey, eventParams: values }, null);
     })
     .catch((e: any) => {
-        // This will catch both permission errors propagated from the batch commit,
-        // and other transaction errors like "event already exists".
-        if (e.name !== 'FirestorePermissionError' && !e.message.includes('permission-denied')) {
-            onGenerate(null, `Un error ocurrió: ${e.message}`);
-            toast({
-                variant: "destructive",
-                title: "Error en la Generación",
-                description: e.message,
-            });
+        // This will catch transaction errors like "event already exists" or permission errors.
+        if (e.name !== 'FirestorePermissionError' && !e.message.toLowerCase().includes('permission-denied')) {
+             onGenerate(null, `Un error ocurrió: ${e.message}`);
+             toast({
+                 variant: "destructive",
+                 title: "Error en la Generación",
+                 description: e.message,
+             });
         } else if (!e.name.includes('FirestorePermissionError')) {
             // This is a permission error from the transaction itself.
             const permissionError = new FirestorePermissionError({
