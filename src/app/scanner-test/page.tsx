@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
-import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import { useState, useEffect, useRef }s from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Camera, Loader2 } from 'lucide-react';
+import { Camera } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const QR_READER_ID = "qr-reader-test";
@@ -16,19 +16,20 @@ export default function ScannerTestPage() {
     const [scanResult, setScanResult] = useState<string | null>(null);
     const { toast } = useToast();
 
-    // Initialize scanner instance on mount
+    // Effect for initializing and cleaning up the scanner
     useEffect(() => {
+        // Initialize scanner instance on mount
         if (!scannerRef.current) {
             scannerRef.current = new Html5Qrcode(QR_READER_ID, { verbose: false });
         }
-        
         const scanner = scannerRef.current;
 
-        // Cleanup on component unmount
+        // Cleanup function to be called on component unmount
         return () => {
             if (scanner && scanner.isScanning) {
                 scanner.stop().catch(err => {
-                    console.error("Test Page: Failed to stop scanner on cleanup.", err);
+                    // This error is often safe to ignore, as it can happen if the camera is already closed.
+                    console.warn("Test Page: Failed to stop scanner on cleanup, it might have been already stopped.", err);
                 });
             }
         };
@@ -37,6 +38,7 @@ export default function ScannerTestPage() {
     const startScanner = async () => {
         const scanner = scannerRef.current;
         if (!scanner || scanner.isScanning) {
+            console.log("Scanner is already running or not initialized.");
             return;
         }
 
@@ -50,33 +52,43 @@ export default function ScannerTestPage() {
                 (decodedText, decodedResult) => {
                     // success callback
                     setScanResult(decodedText);
+                    // Stop scanning after a successful scan
                     stopScanner();
                 },
                 (errorMessage) => {
-                    // parse error callback, ignored
+                    // parse error callback, we can ignore it.
                 }
             );
         } catch (err: any) {
+            console.error("Error starting scanner:", err);
             toast({
                 variant: 'destructive',
                 title: 'Error de Cámara',
-                description: err.message || 'No se pudo iniciar la cámara. Revisa los permisos.'
+                description: err.message || 'No se pudo iniciar la cámara. Revisa los permisos y recarga la página.'
             });
+            // Ensure we reset the state if starting fails
             setIsScanning(false);
         }
     };
 
     const stopScanner = () => {
         const scanner = scannerRef.current;
+        // Check if scanner exists and is actually scanning
         if (scanner && scanner.isScanning) {
             scanner.stop()
-                .then(() => setIsScanning(false))
+                .then(() => {
+                    setIsScanning(false);
+                })
                 .catch(err => {
                     console.error("Test Page: Failed to stop scanner.", err);
-                    setIsScanning(false); // Force stop
+                    // Force state update even on error to avoid inconsistent UI
+                    setIsScanning(false);
                 });
         } else {
-            setIsScanning(false);
+            // If it's not scanning, just make sure the state is correct.
+             if (isScanning) {
+                setIsScanning(false);
+            }
         }
     };
 
