@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
@@ -118,9 +117,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         
         // Temporarily make the element visible for capturing
         page.classList.remove('no-print-pdf-hide');
-
-        // Wait for images to load before capturing
-        await new Promise(resolve => setTimeout(resolve, 500));
 
         const canvas = await html2canvas(page, {
             scale: 2, // Higher scale for better quality
