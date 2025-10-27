@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
@@ -129,6 +128,16 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             logging: false,
             width: page.offsetWidth,
             height: page.offsetHeight,
+            onclone: (document) => {
+              // On clone, we can ensure all images are loaded before capturing
+              const promises = Array.from(document.getElementsByTagName('img')).map(img => {
+                if (img.complete) return Promise.resolve();
+                return new Promise(resolve => {
+                  img.onload = img.onerror = resolve;
+                });
+              });
+              return Promise.all(promises);
+            }
         });
 
         // Hide it back
@@ -554,6 +563,5 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
     </div>
   );
 }
-
     
     
