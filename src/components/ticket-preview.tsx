@@ -4,7 +4,7 @@
 import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
-import { downloadFile, base32Encode } from "@/lib/utils";
+import { downloadFile, base32Encode, createHmacSha256 } from "@/lib/utils";
 import { Download, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown, PlusCircle, Pencil } from "lucide-react";
 import {
   Dialog,
@@ -30,7 +30,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { createHmac } from 'crypto-browserify';
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
 
@@ -169,7 +168,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     const eventId = eventParams.event_id;
     const secretRef = doc(firestore, 'event_secrets', eventId);
     
-    getDoc(secretRef).then(async (secretDoc) => {
+    try {
+        const secretDoc = await getDoc(secretRef);
         if (!secretDoc.exists()) {
             throw new Error("No se encontró la clave secreta para este evento. No se pueden generar más tickets.");
         }
@@ -187,13 +187,11 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             const version = 1;
             const payloadToSign = `${eventId}|${ticketId}|${version}`;
             
-            const hmac = createHmac("sha256", Buffer.from(eventSecretKey, "base64"));
-            hmac.update(payloadToSign);
-            const sig = hmac.digest().slice(0, 12).toString("base64").replace(/\+/g, '-').replace(/\//g, '_');
+            const sig = await createHmacSha256(eventSecretKey, payloadToSign);
 
             const qrPayload = JSON.stringify({ v: version, eid: eventId, tid: ticketId, sig });
-            const shortCodeSource = Buffer.from(ticketId.substring(0, 8) + sig.substring(0, 4));
-            const shortCode = base32Encode(shortCodeSource).substring(0, 7);
+            const shortCodeSource = new TextEncoder().encode(ticketId.substring(0, 8) + sig.substring(0, 4));
+            const shortCode = base32Encode(Buffer.from(shortCodeSource)).substring(0, 7);
             newTickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
         }
 
@@ -222,7 +220,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                   path: ticketsCollectionRef.path,
                   operation: 'create',
                   requestResourceData: batchData,
-                  message: serverError.message,
                 });
                 errorEmitter.emit('permission-error', permissionError);
                 throw serverError; // Propagate error
@@ -236,7 +233,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                 path: eventRef.path,
                 operation: 'update',
                 requestResourceData: updateData,
-                message: serverError.message,
             });
             errorEmitter.emit('permission-error', permissionError);
             throw serverError; // Propagate error
@@ -252,7 +248,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         
         setTimeout(() => window.location.reload(), 2500);
 
-    }).catch((e: any) => {
+    } catch(e: any) {
         if (e.name !== 'FirestorePermissionError' && !e.message.toLowerCase().includes('permission-denied')) {
              toast({
                 variant: "destructive",
@@ -261,7 +257,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             });
         }
         setIsGeneratingMore(false);
-    });
+    }
   };
 
   const handleEditEvent = async () => {
@@ -296,7 +292,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
           path: eventDocRef.path,
           operation: 'update',
           requestResourceData: updateData,
-          message: serverError.message,
         });
         errorEmitter.emit('permission-error', permissionError);
         // The listener will show the toast

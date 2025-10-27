@@ -2,7 +2,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { createHmac } from 'crypto-browserify';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card';
@@ -12,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle, Camera } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Html5Qrcode } from 'html5-qrcode';
+import { createHmacSha256 } from '@/lib/utils';
 
 type ValidationResult = {
   status: 'valid' | 'invalid' | 'redeemed';
@@ -43,7 +43,10 @@ export function TicketValidator() {
 
     // Initialize scanner instance
     if (!scannerRef.current) {
-        scannerRef.current = new Html5Qrcode(readerId);
+        scannerRef.current = new Html5Qrcode(readerId, {
+            verbose: false,
+            useBarCodeDetectorIfSupported: true,
+        });
     }
     const scanner = scannerRef.current;
 
@@ -51,7 +54,8 @@ export function TicketValidator() {
     return () => {
       if (scanner && scanner.isScanning) {
         scanner.stop().catch(err => {
-          console.error("Error al detener el escáner offline en cleanup:", err);
+          // Errors on stop are common if the camera is already closed, so we can often ignore them.
+          console.log("Error al detener el escáner offline en cleanup:", err);
         });
       }
     };
@@ -71,7 +75,7 @@ export function TicketValidator() {
     }
   };
 
-  const handleValidate = (payload: string) => {
+  const handleValidate = async (payload: string) => {
     if (isScanning) {
       stopScanner();
     }
@@ -99,9 +103,7 @@ export function TicketValidator() {
       }
 
       const payloadToSign = `${eid}|${tid}|${v}`;
-      const hmac = createHmac('sha256', Buffer.from(secretKey, 'base64'));
-      hmac.update(payloadToSign);
-      const expectedSig = hmac.digest().slice(0, 12).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+      const expectedSig = await createHmacSha256(secretKey, payloadToSign);
 
       if (expectedSig === sig) {
         setValidationResult({ status: 'valid', message: `El ticket ${tid.substring(0,8)}... es válido para ingresar.` });

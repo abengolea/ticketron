@@ -38,3 +38,37 @@ export function base32Encode(buffer: Buffer): string {
     
     return result;
 }
+
+// Helper to convert Base64 string to ArrayBuffer
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+// New HMAC function using Web Crypto API
+export async function createHmacSha256(secret: string, data: string): Promise<string> {
+    const secretKeyData = base64ToArrayBuffer(secret);
+    const dataToSign = new TextEncoder().encode(data);
+
+    const key = await window.crypto.subtle.importKey(
+        'raw',
+        secretKeyData,
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+    );
+
+    const signature = await window.crypto.subtle.sign('HMAC', key, dataToSign);
+
+    // Take the first 12 bytes of the signature
+    const truncatedSignature = signature.slice(0, 12);
+    
+    // Convert to Base64 and make it URL-safe
+    const base64Signature = btoa(String.fromCharCode(...new Uint8Array(truncatedSignature)));
+    return base64Signature.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}

@@ -18,8 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import type { GenerationResult, TicketData, EventParameters } from "@/lib/types";
 import { useFirestore, useUser } from "@/firebase";
-import { createHmac } from 'crypto-browserify';
-import { base32Encode } from "@/lib/utils";
+import { base32Encode, createHmacSha256 } from "@/lib/utils";
 import { doc, writeBatch, serverTimestamp, getDoc, type Firestore } from "firebase/firestore";
 import { format } from "date-fns";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
@@ -69,13 +68,11 @@ async function generateAndStoreTickets(
             const version = 1;
             const payloadToSign = `${eventId}|${ticketId}|${version}`;
 
-            const hmac = createHmac("sha256", Buffer.from(secretKey, "base64"));
-            hmac.update(payloadToSign);
-            const sig = hmac.digest().slice(0, 12).toString("base64").replace(/\+/g, '-').replace(/\//g, '_');
+            const sig = await createHmacSha256(secretKey, payloadToSign);
 
             const qrPayload = JSON.stringify({ v: version, eid: eventId, tid: ticketId, sig });
-            const shortCodeSource = Buffer.from(ticketId.substring(0, 8) + sig.substring(0, 4));
-            const shortCode = base32Encode(shortCodeSource).substring(0, 7);
+            const shortCodeSource = new TextEncoder().encode(ticketId.substring(0, 8) + sig.substring(0, 4));
+            const shortCode = base32Encode(Buffer.from(shortCodeSource)).substring(0, 7);
 
             tickets.push({ ticketNumber, ticketId, qrPayload, shortCode });
         }
