@@ -78,14 +78,14 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     
     // 1. Generate Secret Key (Client-side)
     const secretBytes = new Uint8Array(32);
-    crypto.getRandomValues(secretBytes);
+    window.crypto.getRandomValues(secretBytes);
     const secretKey = btoa(String.fromCharCode.apply(null, Array.from(secretBytes)));
 
     // 2. Generate Ticket Data (Client-side)
     const tickets: TicketData[] = [];
     for (let i = 0; i < values.quantity; i++) {
         const ticketNumber = i + 1;
-        const ticketId = crypto.randomUUID();
+        const ticketId = window.crypto.randomUUID();
         const version = 1;
         const payloadToSign = `${values.event_id}|${ticketId}|${version}`;
         
@@ -105,7 +105,6 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
 
     try {
-        // Run transaction to create event and secret
         await runTransaction(firestore, async (transaction) => {
             const eventDoc = await transaction.get(eventRef);
             if (eventDoc.exists()) {
@@ -123,12 +122,18 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 createdAt: serverTimestamp()
             };
             transaction.set(eventRef, eventData);
+        }).catch(serverError => {
+            const permissionError = new FirestorePermissionError({
+                path: eventRef.path,
+                operation: 'create', // or 'update' if applicable
+                message: serverError.message,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+            throw permissionError; // Re-throw to be caught by the outer try/catch
         });
 
         // Batch write tickets
         const ticketChunks = chunk(tickets, 499);
-        const batchPromises: Promise<void>[] = [];
-
         for (const ticketChunk of ticketChunks) {
             const batch = writeBatch(firestore);
             const batchData: Record<string, any> = {};
@@ -144,7 +149,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 batchData[ticket.ticketId] = ticketData;
             });
             
-            const batchPromise = batch.commit().catch(serverError => {
+            await batch.commit().catch(serverError => {
                 const permissionError = new FirestorePermissionError({
                     path: ticketsCollectionRef.path,
                     operation: 'create',
@@ -154,16 +159,12 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                 errorEmitter.emit('permission-error', permissionError);
                 throw permissionError; 
             });
-            batchPromises.push(batchPromise);
         }
-        
-        await Promise.all(batchPromises);
 
         // If all successful, show the preview
         onGenerate({ tickets, secretKey, eventParams: values }, null);
     
     } catch (e: any) {
-        // This will now catch the re-thrown permission error or the transaction error
         if (e.name !== 'FirestorePermissionError') {
              onGenerate(null, `Un error ocurrió: ${e.message}`);
              toast({
@@ -299,7 +300,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                         <FormControl>
                         <SelectTrigger>
                             <SelectValue placeholder="Seleccionar..." />
-                        </Trigger>
+                        </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                             <SelectItem value="A4">A4</SelectItem>
@@ -322,3 +323,5 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     </Card>
   );
 }
+
+    
