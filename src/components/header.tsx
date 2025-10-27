@@ -6,7 +6,7 @@ import { Ticket, ShieldCheck, History, LogIn, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { useAuth, useUser } from "@/firebase";
-import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
+import { GoogleAuthProvider, signInWithRedirect, signOut } from "firebase/auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -27,7 +27,8 @@ export function Header() {
     if (!auth) return;
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
+      // Se cambia a signInWithRedirect para evitar problemas de popup
+      await signInWithRedirect(auth, provider);
     } catch (error) {
       console.error("Error al iniciar sesión con Google", error);
     }
