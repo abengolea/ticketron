@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { Camera, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const readerId = "qr-reader-test";
 
