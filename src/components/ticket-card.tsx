@@ -25,6 +25,7 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
             height={48}
             className="rounded-sm"
             crossOrigin="anonymous"
+            unoptimized // Evita la optimización de Next.js para una carga más directa
           />
            <p className="text-[6px] text-muted-foreground text-center leading-tight">Escanear para entrar</p>
         </div>

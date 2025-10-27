@@ -45,6 +45,20 @@ type TicketPreviewProps = {
   onEventUpdate?: (updatedParams: Partial<EventParameters>) => void;
 };
 
+// Nueva función para esperar a que todas las imágenes en un contenedor se carguen
+const waitForImagesInPage = (pageElement: HTMLElement): Promise<any> => {
+    const images = Array.from(pageElement.getElementsByTagName('img'));
+    const promises = images.map(img => {
+        if (img.complete) return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+        });
+    });
+    return Promise.all(promises);
+};
+
+
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, secretKey, eventParams } = result;
   const firestore = useFirestore();
@@ -115,37 +129,39 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     for (let i = 0; i < pageElements.length; i++) {
         const page = pageElements[i] as HTMLElement;
         
-        // Temporarily make the element visible for capturing
         page.classList.remove('no-print-pdf-hide');
 
-        const canvas = await html2canvas(page, {
-            scale: 2, // Higher scale for better quality
-            useCORS: true,
-            logging: false,
-            width: page.offsetWidth,
-            height: page.offsetHeight,
-            onclone: (document) => {
-              // On clone, we can ensure all images are loaded before capturing
-              const promises = Array.from(document.getElementsByTagName('img')).map(img => {
-                if (img.complete) return Promise.resolve();
-                return new Promise(resolve => {
-                  img.onload = img.onerror = resolve;
-                });
-              });
-              return Promise.all(promises);
+        try {
+            // Esperar a que las imágenes de la página actual se carguen
+            await waitForImagesInPage(page);
+
+            const canvas = await html2canvas(page, {
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                width: page.offsetWidth,
+                height: page.offsetHeight,
+            });
+
+            const imgData = canvas.toDataURL('image/png');
+            
+            if (i > 0) {
+                pdf.addPage();
             }
-        });
-
-        // Hide it back
-        page.classList.add('no-print-pdf-hide');
-
-        const imgData = canvas.toDataURL('image/png');
-        
-        if (i > 0) {
-            pdf.addPage();
+            
+            pdf.addImage(imgData, 'PNG', 0, 0, A4_WIDTH, A4_HEIGHT);
+        } catch (error) {
+            console.error("Error al generar la página del PDF:", error);
+            toast({
+                variant: 'destructive',
+                title: 'Error al Generar PDF',
+                description: 'No se pudo procesar una de las páginas. Revisa la consola para más detalles.'
+            });
+            setIsPrinting(false);
+            return; // Detener la generación si hay un error
+        } finally {
+             page.classList.add('no-print-pdf-hide');
         }
-        
-        pdf.addImage(imgData, 'PNG', 0, 0, A4_WIDTH, A4_HEIGHT);
     }
     
     pdf.save(`tickets-${eventParams.event_id}.pdf`);
