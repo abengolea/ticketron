@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -123,7 +122,7 @@ async function generateAndStoreTickets(
           variant: "destructive",
           title: "Error al Crear el Evento",
           description: e.message || "No se pudo guardar el evento. Revisa los permisos o los datos."
-        })
+        });
     } finally {
         setIsLoading(false);
     }
