@@ -17,7 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
+import type { GenerationResult, TicketData } from "@/lib/types";
 import { useFirestore } from "@/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { createHmac } from 'crypto-browserify';
@@ -25,6 +25,7 @@ import { base32Encode } from "@/lib/utils";
 import { doc, runTransaction, collection, writeBatch, serverTimestamp } from "firebase/firestore";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
+import { format } from "date-fns";
 
 
 const formSchema = z.object({
@@ -48,20 +49,15 @@ const chunk = <T,>(arr: T[], size: number): T[][] =>
     arr.slice(i * size, i * size + size)
   );
 
-// Helper to convert a Uint8Array to a Base64 string
-function toBase64(arr: Uint8Array): string {
-    return btoa(String.fromCharCode.apply(null, Array.from(arr)));
-}
-
 export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      event_name: "Fiesta +40 — San Nicolás",
-      event_id: "SN-FIESTA-2025-12-20",
-      date_time: "Sábado 20/12/2025 – 22:00 hs",
-      venue: "A informar por WhatsApp",
-      quantity: 1000,
+      event_name: "Fiesta Privada",
+      event_id: `EVENTO-${format(new Date(), 'yyyyMMdd-HHmm')}`,
+      date_time: "Fecha y hora a confirmar",
+      venue: "Lugar a confirmar",
+      quantity: 100,
       tickets_per_page: 4,
       page_size: "A4",
     },
@@ -82,7 +78,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     
     const secretBytes = new Uint8Array(32);
     crypto.getRandomValues(secretBytes);
-    const secretKey = toBase64(secretBytes);
+    const secretKey = btoa(String.fromCharCode.apply(null, Array.from(secretBytes)));
 
     const tickets: TicketData[] = [];
     
@@ -106,79 +102,68 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     const eventRef = doc(firestore, 'events', values.event_id);
 
     runTransaction(firestore, async (transaction) => {
-      const eventDoc = await transaction.get(eventRef);
-      if (eventDoc.exists()) {
-        throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
-      }
+        const eventDoc = await transaction.get(eventRef);
+        if (eventDoc.exists()) {
+            throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
+        }
 
-      const secretData = { secretKey };
-      transaction.set(secretRef, secretData);
-      
-      const eventData = {
-        eventName: values.event_name,
-        dateTime: values.date_time,
-        venue: values.venue,
-        ticketCount: values.quantity,
-        createdAt: serverTimestamp()
-      };
-      transaction.set(eventRef, eventData);
-    })
-    .then(async () => {
-      const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
-      const ticketChunks = chunk(tickets, 499);
+        const secretData = { secretKey };
+        transaction.set(secretRef, secretData);
+        
+        const eventData = {
+            eventName: values.event_name,
+            dateTime: values.date_time,
+            venue: values.venue,
+            ticketCount: values.quantity,
+            createdAt: serverTimestamp()
+        };
+        transaction.set(eventRef, eventData);
+    }).then(async () => {
+        const ticketsCollectionRef = collection(firestore, 'events', values.event_id, 'tickets');
+        const ticketChunks = chunk(tickets, 499);
 
-      const allPromises: Promise<void>[] = [];
+        const allPromises: Promise<void>[] = [];
 
-      for (const ticketChunk of ticketChunks) {
-        const batch = writeBatch(firestore);
-        const batchData: Record<string, any> = {};
-        ticketChunk.forEach((ticket) => {
-          const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
-          const ticketData = {
-            ticketNumber: ticket.ticketNumber,
-            shortCode: ticket.shortCode,
-            redeemed: false,
-            redeemedAt: null,
-          };
-          batch.set(ticketDocRef, ticketData);
-          batchData[ticket.ticketId] = ticketData;
-        });
+        for (const ticketChunk of ticketChunks) {
+            const batch = writeBatch(firestore);
+            const batchData: Record<string, any> = {};
+            ticketChunk.forEach((ticket) => {
+                const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
+                const ticketData = {
+                    ticketNumber: ticket.ticketNumber,
+                    shortCode: ticket.shortCode,
+                    redeemed: false,
+                    redeemedAt: null,
+                };
+                batch.set(ticketDocRef, ticketData);
+                batchData[ticket.ticketId] = ticketData;
+            });
 
-        const batchPromise = batch.commit().catch(async (serverError) => {
-          const permissionError = new FirestorePermissionError({
-            path: ticketsCollectionRef.path,
-            operation: 'create',
-            requestResourceData: batchData,
-            message: serverError.message,
-          });
-          errorEmitter.emit('permission-error', permissionError);
-          throw serverError;
-        });
-        allPromises.push(batchPromise);
-      }
-    
-      await Promise.all(allPromises);
-      onGenerate({ tickets, secretKey, eventParams: values }, null);
-    })
-    .catch((e: any) => {
-      if (e.name !== 'FirestorePermissionError' && !e.message.toLowerCase().includes('permission-denied')) {
-           onGenerate(null, `Un error ocurrió: ${e.message}`);
-           toast({
-               variant: "destructive",
-               title: "Error en la Generación",
-               description: e.message,
-           });
-      } else if (!e.name.includes('FirestorePermissionError')) {
-          const permissionError = new FirestorePermissionError({
-              path: eventRef.path,
-              operation: 'create',
-              requestResourceData: { event_name: values.event_name },
-              message: e.message
-          });
-          errorEmitter.emit('permission-error', permissionError);
-      }
-    })
-    .finally(() => {
+            const batchPromise = batch.commit().catch(async (serverError) => {
+                const permissionError = new FirestorePermissionError({
+                    path: ticketsCollectionRef.path,
+                    operation: 'create',
+                    requestResourceData: batchData,
+                    message: serverError.message,
+                });
+                errorEmitter.emit('permission-error', permissionError);
+                throw permissionError;
+            });
+            allPromises.push(batchPromise);
+        }
+        
+        await Promise.all(allPromises);
+        onGenerate({ tickets, secretKey, eventParams: values }, null);
+        setIsLoading(false);
+    }).catch((e: any) => {
+        if (e.name !== 'FirestorePermissionError') {
+             onGenerate(null, `Un error ocurrió: ${e.message}`);
+             toast({
+                 variant: "destructive",
+                 title: "Error en la Generación",
+                 description: e.message,
+             });
+        }
         setIsLoading(false);
     });
   };
@@ -305,7 +290,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                         <FormControl>
                         <SelectTrigger>
                             <SelectValue placeholder="Seleccionar..." />
-                        </SelectTrigger>
+                        </Trigger>
                         </FormControl>
                         <SelectContent>
                             <SelectItem value="A4">A4</SelectItem>
@@ -328,5 +313,3 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     </Card>
   );
 }
-
-    
