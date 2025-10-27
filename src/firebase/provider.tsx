@@ -74,12 +74,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       return;
     }
 
-    // Handle redirect result on initial load
-    getRedirectResult(auth).catch(error => {
-      // Handle/log redirect errors if necessary
-      console.error("FirebaseProvider: getRedirectResult error:", error);
-      setUserAuthState(prevState => ({ ...prevState, userError: error }));
-    });
+    // No longer need getRedirectResult for popup flow
     
     setUserAuthState({ user: null, isUserLoading: true, userError: null }); // Reset on auth instance change
 
