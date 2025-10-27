@@ -21,7 +21,7 @@ import type { GenerationResult, TicketData, EventParameters } from "@/lib/types"
 import { useFirestore, useUser } from "@/firebase";
 import { createHmac } from 'crypto-browserify';
 import { base32Encode } from "@/lib/utils";
-import { doc, collection, writeBatch, serverTimestamp, getDoc, type Firestore, setDoc } from "firebase/firestore";
+import { doc, writeBatch, serverTimestamp, getDoc, type Firestore } from "firebase/firestore";
 import { format } from "date-fns";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { LogIn } from "lucide-react";
@@ -53,9 +53,8 @@ async function generateAndStoreTickets(
     try {
         const eventId = values.event_id;
         const eventRef = doc(firestore, 'events', eventId);
-        const secretRef = doc(firestore, 'event_secrets', eventId);
-        
         const eventDoc = await getDoc(eventRef);
+
         if (eventDoc.exists()) {
             throw new Error("El ID del evento ya existe. Por favor, usa uno diferente.");
         }
@@ -94,6 +93,7 @@ async function generateAndStoreTickets(
         };
         batch.set(eventRef, eventData);
 
+        const secretRef = doc(firestore, 'event_secrets', eventId);
         const secretData = {
             ownerId: ownerId,
             secretKey,
@@ -121,13 +121,14 @@ async function generateAndStoreTickets(
         onGenerate(null, `Un error ocurrió: ${e.message}`);
         toast({
           variant: "destructive",
-          title: "Error de Permisos en Firestore",
-          description: e.message || "No se pudo guardar el evento. Revisa las reglas de seguridad."
+          title: "Error al Crear el Evento",
+          description: e.message || "No se pudo guardar el evento. Revisa los permisos o los datos."
         })
     } finally {
         setIsLoading(false);
     }
 }
+
 
 type TicketFormProps = {
   onGenerate: (result: GenerationResult | null, error: string | null) => void;
