@@ -23,15 +23,14 @@ export function Header() {
   const auth = useAuth();
   const { user, loading } = useUser();
 
-  const handleLogin = async () => {
+  const handleLogin = () => {
     if (!auth) return;
     const provider = new GoogleAuthProvider();
-    try {
-      // Se cambia a signInWithPopup para compatibilidad con iframes/workstations
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Error al iniciar sesión con Google", error);
-    }
+    // No usamos try/catch para que el error se propague y sea más visible.
+    // El error 'popup-closed-by-user' suele ser un problema del entorno (bloqueador de popups).
+    signInWithPopup(auth, provider).catch(error => {
+      console.error("Error al iniciar sesión con Google (posible popup bloqueado):", error);
+    });
   };
 
   const handleLogout = async () => {
