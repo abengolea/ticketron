@@ -100,7 +100,6 @@ async function generateAndStoreTickets(
                 requestResourceData: secretData,
             });
             errorEmitter.emit('permission-error', permissionError);
-            // If this fails, we should ideally roll back the event creation, but for now we'll just error out.
             throw permissionError;
         });
 
@@ -128,25 +127,22 @@ async function generateAndStoreTickets(
         
         for (const ticketChunk of ticketChunks) {
             const batch = writeBatch(firestore);
-            const batchDataForError: Record<string, any> = {};
             ticketChunk.forEach((ticket) => {
-                const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
+                const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId); // Create a doc ref for each ticket
                 const ticketData = {
                     ticketNumber: ticket.ticketNumber,
                     shortCode: ticket.shortCode,
                     redeemed: false,
                     redeemedAt: null,
                 };
-                batch.set(ticketDocRef, ticketData);
-                batchDataForError[ticket.ticketId] = ticketData;
+                batch.set(ticketDocRef, ticketData); // Set data for that specific document
             });
 
-            // This commit is now separate and will be evaluated after the parent event exists.
             await batch.commit().catch(serverError => {
                 const permissionError = new FirestorePermissionError({
-                    path: ticketsCollectionRef.path,
+                    path: `events/${values.event_id}/tickets`, // Path for error reporting
                     operation: 'create',
-                    requestResourceData: batchDataForError,
+                    requestResourceData: {note: `Batch creation of ${ticketChunk.length} tickets failed.`}
                 });
                 errorEmitter.emit('permission-error', permissionError);
                 throw permissionError;
@@ -160,7 +156,6 @@ async function generateAndStoreTickets(
         if (!(e instanceof FirestorePermissionError)) {
              onGenerate(null, `Un error ocurrió: ${e.message}`);
         }
-        // FirestorePermissionError is thrown by the emitter, no need to call onGenerate.
     } finally {
         setIsLoading(false);
     }
@@ -355,3 +350,5 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     </Card>
   );
 }
+
+    

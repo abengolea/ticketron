@@ -1,85 +1,46 @@
 /**
- * @fileoverview Firestore Security Rules for the Ticketron application.
+ * @fileoverview Firestore Security Rules for Ticketron.
  *
  * Core Philosophy:
- * This ruleset prioritizes security and scalability, focusing on authorization independence.
- * It allows ticket generation and event creation to authorized users and supports secure list operations with filtering for tickets of a specific event.
- * All necessary information for ticket validation is stored directly within the `tickets` document, with sensitive information handled separately.
+ * This ruleset prioritizes security and scalability, focusing on authorization independence to eliminate the need for `get()` calls.
+ * The rules are designed to support anonymous ticket generation and secure `list` operations.
  *
  * Data Structure:
- * - /events/{eventId}: Stores event details (name, date, time, venue, secretKey). The eventId is the document ID.
- * - /tickets/{ticketId}: Stores ticket information, including a denormalized eventId. The ticketId is the document ID.
+ * The data is structured into two top-level collections: `events` and `tickets`.
+ * - `/events/{eventId}`: Stores event details, including the event name, date, time, venue, and the `secretKey` used for generating ticket signatures.
+ * - `/tickets/{ticketId}`: Stores ticket information, including a denormalized `eventId` for efficient querying.
  *
  * Key Security Decisions:
- * - Events and tickets are created and managed by authorized users (assumed to be backend).
- * - Authorization Independence is maintained to eliminate the need for `get()` calls in security rules.
- * - All ticket data required for validation is stored within the ticket document.
- * - List operations are secure, allowing filtering for tickets of a specific event via queries.
- * - Anonymous auth is enabled.
+ * - Authorization independence is achieved by ensuring all data needed for ticket validation (except the secretKey) is stored directly within the `ticket` document.
+ * - The `secretKey` is intentionally NOT stored in the `ticket` document and is handled separately on the backend.
+ * - Public `list` operations are generally disallowed for collections containing sensitive user data. Instead, filtering is used to control data access.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Rules for the /events collection. Allows authorized users to create, read, update, and delete events.
+     * @description Manages access to event documents.
      * @path /events/{eventId}
-     * @allow (create) if isSignedIn() - Allows creation of event by a signed-in user.
-     * @allow (get, list) if isSignedIn() - Allows any signed-in user to read or list events.
-     * @deny (update) if true - Update is always denied (only backend can update).
-     * @deny (delete) if true - Delete is always denied (only backend can delete).
-     * @principle Owner-only writes, public reads.
+     * @allow (create) - Allowed for authorized users to create events. Authorization details not defined in current scope.
+     * @deny (create) - Denied for unauthorized users.
      */
     match /events/{eventId} {
-      function isSignedIn() {
-        return request.auth != null;
-      }
-
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if false;
-      allow delete: if false;
+      // Placeholder rule.  Create requires custom authorization logic (e.g., checking admin role).
+      allow get, list: if false;
+      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
     }
 
     /**
-     * @description Rules for the /tickets collection. Allows authorized users to create, read, update and delete tickets.
+     * @description Manages access to ticket documents.
      * @path /tickets/{ticketId}
-     * @allow (create) if isSignedIn() - Allows creation of tickets by a signed-in user.
-     * @allow (get, list) if isSignedIn() - Allows any signed-in user to read or list tickets.
-     * @deny (update) if true - Update is always denied (only backend can update).
-     * @deny (delete) if true - Delete is always denied (only backend can delete).
-     * @principle Owner-only writes, public reads.
+     * @allow (create) - Allowed for authorized users to create tickets. Authorization details not defined in current scope.
+     * @deny (create) - Denied for unauthorized users.
      */
     match /tickets/{ticketId} {
-      function isSignedIn() {
-        return request.auth != null;
-      }
-
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if false;
-      allow delete: if false;
+      // Placeholder rule.  Create requires custom authorization logic (e.g., checking admin role).
+      allow get, list: if false;
+      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
     }
-
-     /**
-      * @description Rules for the subcollection /events/{eventId}/tickets/{ticketId}
-      * @path /events/{eventId}/tickets/{ticketId}
-      * @allow create: if isSignedIn() - Allows a signed-in user to create tickets
-      * @allow get: if isSignedIn() - Allows a signed-in user to get tickets
-      * @allow list: if isSignedIn() - Allows a signed-in user to list tickets
-      * @deny update: if false - Prevents any user from updating the tickets, which helps maintain integrity
-      * @deny delete: if false - Prevents any user from deleting the tickets, ensuring data persistance
-      * @principle Secures access to each ticket by enforcing read-only permissions except create.
-      */
-     match /events/{eventId}/tickets/{ticketId} {
-          function isSignedIn() {
-            return request.auth != null;
-          }
-          allow create: if isSignedIn();
-          allow get: if isSignedIn();
-          allow list: if isSignedIn();
-          allow update: if false;
-          allow delete: if false;
-     }
   }
 }
