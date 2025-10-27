@@ -20,7 +20,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import type { GenerationResult, TicketData, EventParameters } from "@/lib/types";
 import { useFirestore, useUser } from "@/firebase";
 import { base32Encode, createHmacSha256 } from "@/lib/utils";
-import { doc, writeBatch, serverTimestamp, getDoc, type Firestore } from "firebase/firestore";
+import { doc, writeBatch, serverTimestamp, getDoc, collection, type Firestore } from "firebase/firestore";
 import { format } from "date-fns";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { LogIn } from "lucide-react";
@@ -98,9 +98,9 @@ async function generateAndStoreTickets(
         };
         batch.set(secretRef, secretData);
         
-        const ticketsCollectionRef = doc(firestore, 'events', eventId);
+        const ticketsCollectionRef = collection(firestore, 'events', eventId, 'tickets');
         tickets.forEach(ticket => {
-            const ticketDocRef = doc(ticketsCollectionRef, 'tickets', ticket.ticketId);
+            const ticketDocRef = doc(ticketsCollectionRef, ticket.ticketId);
             const ticketData = {
                 ownerId: ownerId,
                 ticketNumber: ticket.ticketNumber,
