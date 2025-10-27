@@ -11,16 +11,30 @@ export async function waitForImagesInContainer(container: HTMLElement): Promise<
       return Promise.resolve();
     }
     return new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      // Si la imagen ya está en caché, 'load' puede no dispararse,
-      // así que volvemos a verificar 'complete'.
+      // Set a timeout to prevent waiting forever
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`Timeout waiting for image to load: ${img.src}`));
+      }, 10000); // 10 seconds timeout
+
+      img.onload = () => {
+        clearTimeout(timeoutId);
+        resolve();
+      };
+      
+      img.onerror = () => {
+        clearTimeout(timeoutId);
+        reject(new Error(`Failed to load image: ${img.src}`));
+      };
+
+      // Re-check in case the image loaded between the `complete` check and attaching listeners
       if (img.complete) {
-          resolve();
-          return;
+        clearTimeout(timeoutId);
+        resolve();
       }
-      img.onerror = () => reject(new Error(`Failed to load image: ${img.src}`));
     });
   });
 
   await Promise.all(promises);
 }
+
+    

@@ -90,13 +90,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     }
   }, [isRegeneration, tickets.length, toast]);
 
-
-  const handlePrint = () => {
-    document.body.classList.add('printing');
-    window.print();
-    document.body.classList.remove('printing');
-  };
-
   const handleGeneratePdf = async () => {
     setIsPrinting(true);
     toast({
@@ -116,6 +109,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   
     for (let i = 0; i < pageElements.length; i++) {
       const page = pageElements[i] as HTMLElement;
+      page.classList.remove('no-print-pdf-hide');
       
       console.log(`🔍 Verificando elemento para la página ${i + 1}...`);
       const rect = page.getBoundingClientRect();
@@ -125,6 +119,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       
       if (rect.width === 0 || rect.height === 0) {
         console.error(`  ❌ ERROR: El elemento para la página ${i + 1} no es visible o no tiene dimensiones. Saltando esta página.`);
+        page.classList.add('no-print-pdf-hide');
         continue;
       }
       
@@ -136,19 +131,15 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
           useCORS: true,
           logging: false,
           allowTaint: true,
-          width: page.offsetWidth,
-          height: page.offsetHeight,
         });
         
         const imgData = canvas.toDataURL('image/png');
   
         if (!isValidDataURL(imgData)) {
-            console.error(`Error: Generated canvas for page ${i + 1} is invalid or empty.`);
-            toast({
-              variant: 'destructive',
-              title: `Error al Generar Página ${i+1}`,
-              description: 'El canvas generado está vacío o es inválido.',
-            });
+            const errorMsg = `El canvas generado para la página ${i + 1} está vacío o es inválido.`;
+            console.error(errorMsg);
+            toast({ variant: 'destructive', title: `Error al Generar Página ${i+1}`, description: errorMsg });
+            page.classList.add('no-print-pdf-hide');
             continue; // Skip this page
         }
 
@@ -163,6 +154,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
           title: `Error en Página ${i+1}`,
           description: error.message || 'No se pudo procesar una de las páginas.',
         });
+      } finally {
+        page.classList.add('no-print-pdf-hide');
       }
     }
     
@@ -174,7 +167,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
     setIsPrinting(false);
   };
-
+  
   const handleGenerateMore = async () => {
     if (!moreQuantity || moreQuantity <= 0) {
       toast({
@@ -549,7 +542,7 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
 
       <div className="printable-area space-y-4">
         {ticketPages.map((page, pageIndex) => (
-          <div key={pageIndex} className="print-page bg-card shadow-lg rounded-lg mx-auto p-5 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm]">
+          <div key={pageIndex} className="print-page bg-card shadow-lg rounded-lg mx-auto p-5 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm] no-print-pdf-hide">
             {/* Cutting guides */}
             <div className="absolute top-1/4 left-0 right-0 h-[1px] bg-gray-300 border-b border-dashed"></div>
             <div className="absolute top-2/4 left-0 right-0 h-[1px] bg-gray-300 border-b border-dashed"></div>
@@ -578,5 +571,7 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
     </div>
   );
 }
+
+    
 
     

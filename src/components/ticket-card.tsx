@@ -1,3 +1,4 @@
+
 import Image from 'next/image';
 import { Card, CardContent } from './ui/card';
 import { Separator } from './ui/separator';
@@ -54,3 +55,5 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
     </Card>
   );
 }
+
+    
