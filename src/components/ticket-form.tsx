@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import type { GenerationResult, TicketData, EventParameters } from "@/lib/types";
-import { useFirestore, useAuth } from "@/firebase";
+import { useFirestore, useUser } from "@/firebase";
 import { createHmac } from 'crypto-browserify';
 import { base32Encode } from "@/lib/utils";
 import { doc, runTransaction, collection, writeBatch, serverTimestamp, type Firestore } from "firebase/firestore";
@@ -166,8 +166,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
   });
 
   const firestore = useFirestore();
-  const auth = useAuth();
-  const user = auth?.currentUser;
+  const { user } = useUser();
 
   const handleTicketGeneration = async (values: FormValues) => {
     if (!firestore) {

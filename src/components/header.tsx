@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { Ticket, ShieldCheck, History, LogIn, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
-import { useAuth } from "@/firebase";
+import { useAuth, useUser } from "@/firebase";
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -21,7 +21,7 @@ import {
 export function Header() {
   const pathname = usePathname();
   const auth = useAuth();
-  const user = auth?.currentUser;
+  const { user, loading } = useUser();
 
   const handleLogin = async () => {
     if (!auth) return;
@@ -82,7 +82,7 @@ export function Header() {
 
             <div className="w-px h-6 bg-border" />
 
-            {user ? (
+            {loading ? null : user ? (
                <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-8 w-8 rounded-full">
