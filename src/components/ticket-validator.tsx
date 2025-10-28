@@ -29,6 +29,7 @@ export function TicketValidator() {
   const { toast } = useToast();
 
   useEffect(() => {
+    // This effect now ONLY runs on the client.
     try {
       const storedRedeemed = localStorage.getItem('redeemedTickets');
       if (storedRedeemed) {
@@ -40,13 +41,14 @@ export function TicketValidator() {
     }
 
     return () => {
+      // Ensure scannerRef is checked before trying to stop
       if (scannerRef.current && scannerRef.current.isScanning) {
         scannerRef.current.stop().catch(err => {
           console.log("Error al detener el escáner offline en cleanup:", err);
         });
       }
     };
-  }, []);
+  }, []); // Empty dependency array ensures it runs once on mount (client-side)
 
   const stopScanner = () => {
     const scanner = scannerRef.current;
@@ -145,7 +147,7 @@ export function TicketValidator() {
   };
 
   return (
-    <Card className="max-w-2xl mx-auto">
+    <Card>
       <CardHeader>
         <CardTitle>Validador Offline</CardTitle>
         <CardDescription>Introduce la clave secreta y escanea un código QR para validar un ticket. Este método no requiere internet.</CardDescription>
