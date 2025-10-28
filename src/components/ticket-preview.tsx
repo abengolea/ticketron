@@ -24,13 +24,10 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip"
 import { useFirestore } from "@/firebase";
-import { writeBatch, doc, serverTimestamp, runTransaction, collection, updateDoc, getDoc, increment } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { errorEmitter } from "@/firebase/error-emitter";
-import { FirestorePermissionError } from "@/firebase/errors";
 import { isValidDataURL, waitForImagesInContainer } from "@/lib/image-utils";
 
 const chunk = <T,>(arr: T[], size: number): T[][] =>
@@ -55,9 +52,11 @@ async function handleGeneratePdf(
 
     const ticketChunks = chunk(ticketRefs, 8); 
 
+    // CREAR CONTENEDOR TEMPORAL VISIBLE
     tempContainer = document.createElement('div');
     tempContainer.id = 'pdf-temp-container-' + Date.now();
     
+    // ✅ CAMBIO CRÍTICO: Contenedor VISIBLE durante la captura
     tempContainer.style.cssText = `
       position: fixed !important;
       top: 0 !important;
@@ -65,40 +64,92 @@ async function handleGeneratePdf(
       width: 210mm !important; 
       height: 297mm !important;
       background-color: white !important;
-      z-index: -1 !important; 
-      visibility: hidden !important; 
-      overflow: hidden !important;
-      pointer-events: none !important;
+      z-index: 999999 !important;
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      overflow: visible !important;
+      padding: 0 !important;
+      margin: 0 !important;
     `;
     
     document.body.appendChild(tempContainer);
-    console.log('✓ Contenedor temporal creado');
+    console.log('✓ Contenedor temporal creado y VISIBLE');
 
     for (let pageIndex = 0; pageIndex < ticketChunks.length; pageIndex++) {
+        console.log(`\n📄 Procesando página ${pageIndex + 1}/${ticketChunks.length}`);
+        
         const pageTicketRefs = ticketChunks[pageIndex];
         const pageId = `print-page-temp-${pageIndex}`;
 
+        // Crear elemento de página
         const pageElement = document.createElement('div');
         pageElement.id = pageId;
-        pageElement.className = "print-page bg-white shadow-none p-0 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm]";
+        pageElement.style.cssText = `
+          display: grid !important;
+          grid-template-columns: repeat(2, 1fr) !important;
+          grid-template-rows: repeat(4, 1fr) !important;
+          gap: 0 !important;
+          width: 210mm !important;
+          height: 297mm !important;
+          background: white !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          position: relative !important;
+        `;
 
+        // Clonar tickets en la página
         pageTicketRefs.forEach(ticketRef => {
             if (ticketRef.current) {
                 const clonedTicket = ticketRef.current.cloneNode(true) as HTMLDivElement;
+                
+                // Asegurar estilos del ticket clonado
+                clonedTicket.style.cssText = `
+                  display: block !important;
+                  visibility: visible !important;
+                  opacity: 1 !important;
+                  width: 100% !important;
+                  height: 100% !important;
+                `;
+                
                 const wrapper = document.createElement('div');
-                wrapper.className = "flex items-center justify-center";
+                wrapper.style.cssText = `
+                  display: flex !important;
+                  align-items: center !important;
+                  justify-content: center !important;
+                  width: 100% !important;
+                  height: 100% !important;
+                `;
                 wrapper.appendChild(clonedTicket);
                 pageElement.appendChild(wrapper);
             }
         });
 
+        // Limpiar y añadir página al contenedor
         tempContainer.innerHTML = '';
         tempContainer.appendChild(pageElement);
         
-        console.log(`📏 Verificando página ${pageIndex + 1}...`);
+        console.log(`⏳ Esperando render de página ${pageIndex + 1}...`);
         
+        // Esperar render del navegador
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        // Esperar imágenes
+        console.log(`🖼️ Esperando imágenes...`);
         await waitForImagesInContainer(pageElement);
         await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Verificar dimensiones antes de capturar
+        console.log(`📏 Dimensiones de la página:`, {
+          width: pageElement.offsetWidth,
+          height: pageElement.offsetHeight,
+          scrollWidth: pageElement.scrollWidth,
+          scrollHeight: pageElement.scrollHeight,
+        });
+
+        if (pageElement.offsetWidth === 0 || pageElement.offsetHeight === 0) {
+          throw new Error(`La página ${pageIndex + 1} tiene dimensiones cero`);
+        }
         
         console.log(`📸 Capturando página ${pageIndex + 1}...`);
         const canvas = await html2canvas(pageElement, {
@@ -106,25 +157,47 @@ async function handleGeneratePdf(
           useCORS: true,
           allowTaint: true,
           backgroundColor: '#ffffff',
-          logging: false,
+          logging: true, // Activado para debug
           imageTimeout: 15000,
+          width: pageElement.scrollWidth,
+          height: pageElement.scrollHeight,
+          windowWidth: pageElement.scrollWidth,
+          windowHeight: pageElement.scrollHeight,
         });
 
+        console.log(`✓ Canvas capturado: ${canvas.width}x${canvas.height}px`);
+
         const imgData = canvas.toDataURL('image/png', 1.0);
+        
         if (!isValidDataURL(imgData)) {
-           throw new Error(`Generated canvas for page ${pageIndex + 1} is invalid or empty.`);
+           throw new Error(`Canvas de página ${pageIndex + 1} es inválido`);
         }
+
+        console.log(`✓ Imagen válida: ${(imgData.length / 1024).toFixed(2)} KB`);
 
         if (pageIndex > 0) {
           pdf.addPage();
         }
 
-        pdf.addImage(imgData, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
+        pdf.addImage(
+          imgData, 
+          'PNG', 
+          0, 
+          0, 
+          pdf.internal.pageSize.getWidth(), 
+          pdf.internal.pageSize.getHeight(),
+          undefined,
+          'FAST'
+        );
+        
         console.log(`✅ Página ${pageIndex + 1} añadida al PDF`);
     }
 
     const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
+    console.log(`💾 Guardando PDF: ${fileName}`);
     pdf.save(fileName);
+    
+    console.log(`✅ PDF generado exitosamente con ${ticketChunks.length} páginas`);
 
   } catch (error) {
     console.error('❌ Error fatal durante la generación del PDF:', error);
@@ -145,7 +218,6 @@ type TicketPreviewProps = {
 
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, secretKey, eventParams } = result;
-  const firestore = useFirestore();
   const { toast } = useToast();
 
   const ticketRefs = React.useMemo(() => 
@@ -196,7 +268,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       console.error("Error generating PDF:", error);
       toast({
         title: "Error",
-        description: "No se pudo generar el PDF",
+        description: `No se pudo generar el PDF: ${error instanceof Error ? error.message : String(error)}`,
         variant: "destructive",
       });
     } finally {
@@ -214,7 +286,13 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const handleEditEvent = async () => {
     setIsEditing(true);
     try {
-      // Aquí iría tu lógica de actualización
+      if (onEventUpdate) {
+        onEventUpdate({
+            event_name: editFormData.eventName,
+            date_time: editFormData.dateTime,
+            venue: editFormData.venue,
+        });
+      }
       toast({
         title: "Evento actualizado",
         description: "Los cambios se han guardado correctamente",
@@ -260,9 +338,9 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const handleDownloadCsv = () => {
     const csvContent = [
       "Ticket Number,Short Code,QR Payload,Redeemed",
-      ...tickets.map(t => `${t.ticketNumber},${t.shortCode},${t.qrPayload},false`)
+      ...tickets.map(t => `${t.ticketNumber},${t.shortCode},"${t.qrPayload.replace(/"/g, '""')}",false`)
     ].join("\n");
-    downloadFile("tickets.csv", csvContent, "text/csv");
+    downloadFile("tickets.csv", csvContent, "text/csv;charset=utf-8;");
   };
 
   const handleDownloadJson = () => {
