@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Skeleton } from "./ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { FileQuestion } from "lucide-react";
+import { FileQuestion, Ticket } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 
@@ -85,6 +85,7 @@ export function EventHistory() {
               <TableHead>Nombre del Evento</TableHead>
               <TableHead>Lugar</TableHead>
               <TableHead>Fecha y Hora</TableHead>
+              <TableHead>Tickets</TableHead>
               <TableHead>Creado el</TableHead>
             </TableRow>
           </TableHeader>
@@ -104,6 +105,14 @@ export function EventHistory() {
                   <TableCell>
                     <Link href={`/history/${event.id}`} className="block w-full h-full">
                         {event.dateTime}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/history/${event.id}`} className="block w-full h-full">
+                        <div className="flex items-center gap-2">
+                           <Ticket className="w-4 h-4 text-muted-foreground" />
+                           {event.ticketCount}
+                        </div>
                     </Link>
                   </TableCell>
                   <TableCell>
