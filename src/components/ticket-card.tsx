@@ -15,9 +15,9 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrPayload)}&qzone=1&margin=0`;
 
   return (
-    <div className="ticket-card w-[140mm] h-[65mm] flex bg-gray-900 text-white shadow-lg rounded-xl overflow-hidden">
+    <div className="ticket-card w-[180mm] h-[65mm] flex bg-gray-900 text-white shadow-lg rounded-xl overflow-hidden">
       
-      {/* Parte Izquierda - Información */}
+      {/* Sección Izquierda - Información del Evento (75%) */}
       <div className="w-3/4 p-6 flex flex-col justify-between bg-gradient-to-br from-pink-500 via-purple-600 to-indigo-700">
         <div>
           <p className="text-sm opacity-80">Entrada General</p>
@@ -38,7 +38,7 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
         </div>
       </div>
 
-      {/* Parte Derecha - QR y Código */}
+      {/* Sección Derecha - QR y Código de Verificación (25%) */}
       <div className="w-1/4 bg-gray-100 flex flex-col items-center justify-center p-3">
         <div className="w-full aspect-square p-2 bg-white rounded-lg shadow-inner">
             <Image
