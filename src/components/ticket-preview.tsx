@@ -40,150 +40,141 @@ async function handleGeneratePdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string,
 ): Promise<void> {
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  // A4 apaisado: 297 x 210 mm
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
-  const pageWidth  = pdf.internal.pageSize.getWidth();   // 210mm
-  const pageHeight = pdf.internal.pageSize.getHeight();  // 297mm
+  const pageWidth  = pdf.internal.pageSize.getWidth();   // 297
+  const pageHeight = pdf.internal.pageSize.getHeight();  // 210
 
-  // Márgenes y separación
-  const gutterX = 10;   // mm
-  const gutterY = 10;   // mm
+  // Márgenes y respiración para impresión
+  const gutterX = 14;  // mm
+  const gutterY = 10;  // mm
+  const maxW = pageWidth  - 2 * gutterX;
+  const maxH = pageHeight - 2 * gutterY;
 
-  // UNA SOLA COLUMNA (1 ticket por fila)
-  const ticketWidth = pageWidth - 2 * gutterX;
-
-  // contenedor temporal
-  let tempContainer: HTMLDivElement | null = document.createElement('div');
+  // Contenedor off-screen para forzar layout "desktop"
+  const tempContainer = document.createElement('div');
   tempContainer.id = `pdf-capture-${Date.now()}`;
-  
   tempContainer.style.cssText = `
-    position: fixed !important;
-    top: 0 !important;
-    left: -10000px !important; /* fuera de pantalla */
-    width: 420px !important; /* Approx width for a ticket */
-    height: 300px !important; /* Approx height */
-    background: white !important;
-    z-index: 999999 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 10px !important;
-    visibility: visible !important; /* Keep it visible */
-    opacity: 1 !important; /* Keep it opaque */
+    position: fixed;
+    top: 0;
+    left: -10000px;      /* fuera de pantalla */
+    width: 1200px;       /* << ancho grande para que salga el QR sí o sí */
+    background: #fff;
+    z-index: 999999;
+    display: block;
+    padding: 0;
+    margin: 0;
+    visibility: visible;
+    opacity: 1;
   `;
   document.body.appendChild(tempContainer);
 
   try {
-    let yCursor = gutterY; // posición vertical actual
+    let yCursor = gutterY;
 
-    // ya no necesitamos chunk fijo; procesamos linealmente y vamos saltando de página
-    const pageTickets = ticketRefs; 
+    for (let i = 0; i < ticketRefs.length; i++) {
+      const ref = ticketRefs[i];
+      if (!ref.current) continue;
 
-    for (let i = 0; i < pageTickets.length; i++) {
-        const ref = pageTickets[i];
-        if (!ref.current) continue;
+      // Clonar y forzar ancho "desktop"
+      const cloned = ref.current.cloneNode(true) as HTMLDivElement;
+      cloned.style.cssText = `
+        display:block;
+        width:1200px;     /* << forzamos layout ancho */
+        box-sizing:border-box;
+        margin:0; padding:0;
+      `;
 
-        // --- clonado y conversión de canvas->img, igual que ya lo tenés ---
-        const cloned = ref.current.cloneNode(true) as HTMLDivElement;
-        cloned.style.cssText = `display:block;width:100%;`;
-
-        cloned.querySelectorAll('canvas').forEach((c) => {
+      // Asegurar que los QR en <canvas> no se pierdan
+      cloned.querySelectorAll('canvas').forEach((c) => {
         const can = c as HTMLCanvasElement;
         try {
-            const img = document.createElement('img');
-            img.src = can.toDataURL('image/png');
-            img.width = can.width;
-            img.height = can.height;
-            img.style.width = `${can.width}px`;
-            img.style.height = `${can.height}px`;
-            can.replaceWith(img);
+          const img = document.createElement('img');
+          img.src = can.toDataURL('image/png');
+          img.width  = can.width;
+          img.height = can.height;
+          img.style.width  = `${can.width}px`;
+          img.style.height = `${can.height}px`;
+          can.replaceWith(img);
         } catch {}
-        });
+      });
 
-        tempContainer.innerHTML = '';
-        tempContainer.appendChild(cloned);
+      tempContainer.innerHTML = '';
+      tempContainer.appendChild(cloned);
 
-        // esperar un frame + fuentes + imágenes
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        if ((document as any).fonts?.ready) { try { await (document as any).fonts.ready; } catch {} }
+      // Esperar layout + fuentes + imágenes
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      if ((document as any).fonts?.ready) { try { await (document as any).fonts.ready; } catch {} }
 
-        await waitForImagesInContainer(cloned);
+      const imgs = Array.from(cloned.querySelectorAll('img'));
+      await Promise.all(imgs.map(img => new Promise<void>((res) => {
+        if (img.complete) return res();
+        img.onload = () => res();
+        img.onerror = () => res();
+      })));
 
-        // Captura
-        const canvas = await html2canvas(cloned, {
-        scale: Math.min(2, window.devicePixelRatio || 1),
+      // Capturar
+      const canvas = await html2canvas(cloned, {
+        scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#ffffff',
-        logging: false,
         imageTimeout: 10000,
-        windowWidth: cloned.scrollWidth,
-        windowHeight: cloned.scrollHeight,
+        logging: false,
+        // Por si html2canvas hace DOM de trabajo: convertimos canvases ahí también
         onclone: (doc) => {
-            // This is the most robust way to handle dynamic content like QR codes
-            doc.querySelectorAll('canvas').forEach((c) => {
-                try {
-                    const can = c as HTMLCanvasElement;
-                    const img = doc.createElement('img');
-                    img.src = can.toDataURL('image/png');
-                    img.width = can.width;
-                    img.height = can.height;
-                    (img.style as any).width = `${can.width}px`;
-                    (img.style as any).height = `${can.height}px`;
-                    c.replaceWith(img);
-                } catch (e) {
-                    console.warn("Could not convert canvas to image in onclone", e);
-                }
-            });
+          const root = doc.getElementById(tempContainer.id)!;
+          root.querySelectorAll('canvas').forEach((c) => {
+            try {
+              const can = c as HTMLCanvasElement;
+              const img = doc.createElement('img');
+              img.src = can.toDataURL('image/png');
+              img.width  = can.width;
+              img.height = can.height;
+              (img.style as any).width  = `${can.width}px`;
+              (img.style as any).height = `${can.height}px`;
+              c.replaceWith(img);
+            } catch {}
+          });
         }
-        });
+      });
 
-        const imgData = canvas.toDataURL('image/png', 1.0);
+      const imgData = canvas.toDataURL('image/png', 1.0);
 
-        if (!isValidDataURL(imgData)){
-            throw new Error(`Los datos del canvas para el ticket ${i + 1} son inválidos.`);
-        }
+      // Escala tipo "contain" al rectángulo imprimible
+      let targetW = maxW;
+      let targetH = (canvas.height / canvas.width) * targetW;
+      if (targetH > maxH) {
+        targetH = maxH;
+        targetW = (canvas.width / canvas.height) * targetH;
+      }
 
-        // Mantener proporción: escalamos al ancho y calculamos alto
-        const imgWidthMM = ticketWidth;
-        const imgHeightMM = (canvas.height / canvas.width) * imgWidthMM;
+      // 1 ticket por fila: si no entra, nueva página
+      if (yCursor + targetH > pageHeight - gutterY) {
+        pdf.addPage();
+        yCursor = gutterY;
+      }
 
-        // ¿Entra en la página actual? Si no, salto de página
-        if (yCursor + imgHeightMM + gutterY > pageHeight) {
-            pdf.addPage();
-            yCursor = gutterY;
-        }
+      pdf.addImage(
+        imgData,
+        'PNG',
+        gutterX,   // x
+        yCursor,   // y
+        targetW,
+        targetH,
+        undefined,
+        'FAST'
+      );
 
-        // Pintar 1 ticket por fila
-        pdf.addImage(
-            imgData,
-            'PNG',
-            gutterX,          // x (izquierda)
-            yCursor,          // y (arriba)
-            imgWidthMM,
-            imgHeightMM,
-            undefined,
-            'FAST'
-        );
-
-        // Avanzar cursor
-        yCursor += imgHeightMM + gutterY;
+      // Avanzar a la próxima fila
+      yCursor += targetH + gutterY;
     }
 
     const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
     pdf.save(fileName);
-  } catch(error) {
-    console.error('--- ERROR FATAL DURANTE LA GENERACIÓN DEL PDF ---');
-    if (error instanceof Error) {
-        console.error('Mensaje:', error.message);
-        console.error('Stack:', error.stack);
-    } else {
-        console.error('Error desconocido:', error);
-    }
-    // Propagate error to be caught by triggerPdfGeneration
-    throw error;
   } finally {
-    if (tempContainer?.parentNode) tempContainer.parentNode.removeChild(tempContainer);
+    tempContainer.remove();
   }
 }
 
@@ -394,6 +385,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     </div>
   );
 }
+
+    
 
     
 
