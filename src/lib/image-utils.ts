@@ -13,7 +13,8 @@ export async function waitForImagesInContainer(container: HTMLElement): Promise<
     return new Promise<void>((resolve, reject) => {
       // Set a timeout to prevent waiting forever
       const timeoutId = setTimeout(() => {
-        reject(new Error(`Timeout waiting for image to load: ${img.src}`));
+        console.warn(`Timeout waiting for image to load: ${img.src}`);
+        resolve(); // Resolve anyway to not block the process
       }, 10000); // 10 seconds timeout
 
       img.onload = () => {
@@ -23,7 +24,8 @@ export async function waitForImagesInContainer(container: HTMLElement): Promise<
       
       img.onerror = () => {
         clearTimeout(timeoutId);
-        reject(new Error(`Failed to load image: ${img.src}`));
+        console.warn(`Failed to load image: ${img.src}`);
+        resolve(); // Resolve anyway
       };
 
       // Re-check in case the image loaded between the `complete` check and attaching listeners
@@ -36,5 +38,3 @@ export async function waitForImagesInContainer(container: HTMLElement): Promise<
 
   await Promise.all(promises);
 }
-
-    

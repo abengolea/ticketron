@@ -55,5 +55,3 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
     </Card>
   );
 }
-
-    
