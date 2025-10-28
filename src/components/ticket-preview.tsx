@@ -61,8 +61,10 @@ async function handleGeneratePdf(
             console.log(`📄 Processing page ${i + 1}/${pageRefs.length}`);
             pageRef.current.classList.add('active-pdf-page');
 
+            // Wait a moment for styles to apply
             await new Promise(resolve => setTimeout(resolve, 50)); 
             
+            // Wait for all images inside the current page to load
             await waitForImagesInContainer(pageRef.current);
 
             const canvas = await html2canvas(pageRef.current, {
