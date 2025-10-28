@@ -52,31 +52,37 @@ async function handleGeneratePdf(
       format: 'a4',
     });
 
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
+    const pageWidth = pdf.internal.pageSize.getWidth(); // 210mm
+    const pageHeight = pdf.internal.pageSize.getHeight(); // 297mm
+
+    // Dimensiones de cada ticket en el PDF (2 columnas x 4 filas)
+    const ticketWidth = pageWidth / 2;
+    const ticketHeight = pageHeight / 4;
 
     // Dividir en páginas de 8 tickets
     const ticketsPerPage = 8;
     const ticketChunks = chunk(ticketRefs, ticketsPerPage);
-    console.log(`📄 Total de páginas a generar: ${ticketChunks.length}`);
+    console.log(`📄 Total de páginas: ${ticketChunks.length}`);
 
-    // Crear contenedor temporal VISIBLE
+    // Crear contenedor temporal PEQUEÑO (solo para 1 ticket a la vez)
     tempContainer = document.createElement('div');
     tempContainer.id = 'pdf-temp-container-' + Date.now();
     
-    // Hacer el contenedor VISIBLE pero fuera de vista
     tempContainer.style.cssText = `
       position: fixed !important;
       top: 0 !important;
       left: 0 !important;
-      width: 794px !important;
-      height: 1123px !important;
+      width: 400px !important;
+      height: 280px !important;
       background: white !important;
       z-index: 999999 !important;
-      display: block !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
       visibility: visible !important;
       opacity: 1 !important;
       overflow: hidden !important;
+      padding: 10px !important;
     `;
     
     document.body.appendChild(tempContainer);
@@ -84,150 +90,110 @@ async function handleGeneratePdf(
 
     // Procesar cada página
     for (let pageIndex = 0; pageIndex < ticketChunks.length; pageIndex++) {
-      console.log(`\n📄 Procesando página ${pageIndex + 1}/${ticketChunks.length}`);
+      console.log(`\n📄 Página ${pageIndex + 1}/${ticketChunks.length}`);
       
       const pageTickets = ticketChunks[pageIndex];
-      console.log(`  - Tickets en esta página: ${pageTickets.length}`);
 
-      // Crear el elemento de página con grid
-      const pageElement = document.createElement('div');
-      pageElement.id = `pdf-page-${pageIndex}`;
-      pageElement.style.cssText = `
-        display: grid !important;
-        grid-template-columns: repeat(2, 1fr) !important;
-        grid-template-rows: repeat(4, 1fr) !important;
-        gap: 0 !important;
-        width: 794px !important;
-        height: 1123px !important;
-        background: white !important;
-        padding: 0 !important;
-        margin: 0 !important;
-      `;
-
-      // Clonar cada ticket en esta página
-      let clonedCount = 0;
-      for (const ticketRef of pageTickets) {
-        if (ticketRef.current) {
-          const clonedTicket = ticketRef.current.cloneNode(true) as HTMLDivElement;
-          
-          clonedTicket.style.cssText = `
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            width: 100% !important;
-            height: 100% !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-          `;
-          
-          pageElement.appendChild(clonedTicket);
-          clonedCount++;
-        }
-      }
-
-      console.log(`  ✓ ${clonedCount} tickets clonados`);
-
-      // Añadir la página al contenedor
-      tempContainer.innerHTML = '';
-      tempContainer.appendChild(pageElement);
-
-      // CRÍTICO: Esperar suficiente tiempo
-      console.log(`  ⏳ Esperando render (1.5 segundos)...`);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      // Verificar imágenes
-      const images = pageElement.querySelectorAll('img');
-      console.log(`  🖼️ Imágenes encontradas: ${images.length}`);
-      
-      // Esperar que las imágenes carguen
-      if (images.length > 0) {
-        console.log(`  ⏳ Esperando carga de imágenes...`);
-        await waitForImagesInContainer(pageElement);
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-
-      // Verificar dimensiones
-      const dimensions = {
-        width: pageElement.offsetWidth,
-        height: pageElement.offsetHeight,
-      };
-      console.log(`  📏 Dimensiones:`, dimensions);
-
-      if (dimensions.width === 0 || dimensions.height === 0) {
-        throw new Error(`Página ${pageIndex + 1} tiene dimensiones cero`);
-      }
-
-      // Capturar con html2canvas
-      console.log(`  📸 Capturando página...`);
-      
-      const canvas = await html2canvas(pageElement, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        imageTimeout: 15000,
-        width: pageElement.offsetWidth,
-        height: pageElement.offsetHeight,
-      });
-
-      console.log(`  ✓ Canvas: ${canvas.width}x${canvas.height}px`);
-
-      if (canvas.width === 0 || canvas.height === 0) {
-        throw new Error(`Canvas de página ${pageIndex + 1} tiene dimensiones cero`);
-      }
-
-      // Convertir a imagen
-      console.log(`  🔄 Convirtiendo a imagen...`);
-      
-      let imgData: string;
-      try {
-        imgData = canvas.toDataURL('image/png', 1.0);
-      } catch (err) {
-        console.error(`  ❌ Error en toDataURL:`, err);
-        throw new Error(`No se pudo convertir canvas a imagen en página ${pageIndex + 1}`);
-      }
-
-      // Validar imagen
-      const imgSize = (imgData.length / 1024).toFixed(2);
-      console.log(`  📊 Imagen: ${imgSize} KB`);
-
-      if (!imgData || imgData.length < 1000) {
-        throw new Error(`Imagen de página ${pageIndex + 1} es muy pequeña (${imgData.length} chars)`);
-      }
-
-      if (!imgData.startsWith('data:image/png')) {
-        throw new Error(`Imagen de página ${pageIndex + 1} no es PNG válida`);
-      }
-
-      // Validar con la función auxiliar si existe
-      if (typeof isValidDataURL === 'function' && !isValidDataURL(imgData)) {
-        throw new Error(`Los datos del canvas para la página ${pageIndex + 1} son inválidos.`);
-      }
-
-      console.log(`  ✓ Imagen válida`);
-
-      // Añadir página al PDF
+      // Añadir nueva página si no es la primera
       if (pageIndex > 0) {
         pdf.addPage();
       }
 
-      try {
-        pdf.addImage(
-          imgData,
-          'PNG',
-          0,
-          0,
-          pageWidth,
-          pageHeight,
-          `page-${pageIndex}`,
-          'FAST'
-        );
-        console.log(`  ✅ Página ${pageIndex + 1} añadida al PDF`);
-      } catch (pdfErr) {
-        console.error(`  ❌ Error añadiendo al PDF:`, pdfErr);
-        throw new Error(`No se pudo añadir página ${pageIndex + 1} al PDF`);
+      // Procesar cada ticket de esta página individualmente
+      for (let ticketIndexInPage = 0; ticketIndexInPage < pageTickets.length; ticketIndexInPage++) {
+        const ticketRef = pageTickets[ticketIndexInPage];
+        
+        if (!ticketRef.current) {
+          console.warn(`  ⚠ Ticket ${ticketIndexInPage} es null, saltando...`);
+          continue;
+        }
+
+        const globalTicketIndex = pageIndex * ticketsPerPage + ticketIndexInPage;
+        console.log(`  📋 Procesando ticket ${globalTicketIndex + 1}/${ticketRefs.length}`);
+
+        try {
+          // Clonar el ticket
+          const clonedTicket = ticketRef.current.cloneNode(true) as HTMLDivElement;
+          
+          clonedTicket.style.cssText = `
+            display: block !important;
+            width: 100% !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+          `;
+
+          // Limpiar contenedor y añadir ticket
+          tempContainer.innerHTML = '';
+          tempContainer.appendChild(clonedTicket);
+
+          // Esperar render
+          await new Promise(resolve => setTimeout(resolve, 300));
+
+          // Esperar imágenes
+          const images = clonedTicket.querySelectorAll('img');
+          if (images.length > 0) {
+            await waitForImagesInContainer(clonedTicket);
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+
+          // Verificar dimensiones
+          if (clonedTicket.offsetWidth === 0 || clonedTicket.offsetHeight === 0) {
+            console.warn(`  ⚠ Ticket tiene dimensiones cero, saltando...`);
+            continue;
+          }
+
+          // Capturar este ticket individual
+          const canvas = await html2canvas(clonedTicket, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            logging: false,
+            imageTimeout: 10000,
+          });
+
+          if (canvas.width === 0 || canvas.height === 0) {
+            console.warn(`  ⚠ Canvas tiene dimensiones cero, saltando ticket...`);
+            continue;
+          }
+
+          // Convertir a imagen
+          const imgData = canvas.toDataURL('image/png', 1.0);
+
+          if (!imgData || imgData.length < 1000) {
+            console.warn(`  ⚠ Imagen inválida, saltando ticket...`);
+            continue;
+          }
+
+          // Calcular posición en el grid (2 columnas x 4 filas)
+          const col = ticketIndexInPage % 2;
+          const row = Math.floor(ticketIndexInPage / 2);
+          
+          const x = col * ticketWidth;
+          const y = row * ticketHeight;
+
+          // Añadir al PDF en su posición
+          pdf.addImage(
+            imgData,
+            'PNG',
+            x,
+            y,
+            ticketWidth,
+            ticketHeight,
+            `ticket-${globalTicketIndex}`,
+            'FAST'
+          );
+
+          console.log(`    ✓ Ticket añadido en posición (${col}, ${row})`);
+
+        } catch (ticketError) {
+          console.error(`  ❌ Error en ticket ${globalTicketIndex + 1}:`, ticketError);
+          // Continuar con el siguiente ticket
+          continue;
+        }
       }
+
+      console.log(`  ✅ Página ${pageIndex + 1} completada`);
     }
 
     // Guardar PDF
@@ -235,21 +201,16 @@ async function handleGeneratePdf(
     console.log(`\n💾 Guardando: ${fileName}`);
     pdf.save(fileName);
     
-    console.log(`✅ PDF generado exitosamente con ${ticketChunks.length} páginas\n`);
+    console.log(`✅ PDF generado exitosamente\n`);
 
   } catch (error) {
-    console.error('\n❌ ERROR FATAL DURANTE LA GENERACIÓN DEL PDF');
-    if (error instanceof Error) {
-        console.error('Mensaje:', error.message);
-        console.error('Stack:', error.stack);
-    } else {
-        console.error('Error:', JSON.stringify(error, null, 2));
-    }
+    console.error('\n❌ ERROR FATAL');
+    console.error('Mensaje:', error instanceof Error ? error.message : String(error));
     throw error;
   } finally {
     if (tempContainer && tempContainer.parentNode) {
       tempContainer.parentNode.removeChild(tempContainer);
-      console.log('✓ Contenedor temporal eliminado\n');
+      console.log('✓ Contenedor eliminado\n');
     }
   }
 }
@@ -479,5 +440,3 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     </div>
   );
 }
-
-    
