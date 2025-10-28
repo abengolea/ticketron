@@ -1,10 +1,9 @@
 
-
 "use client";
 
 import { useState, useEffect } from 'react';
 
-// Hook para convertir una URL de imagen a un data URI base64
+// Hook para convertir una URL de imagen a un data URI base64 usando un proxy local
 export function useQRAsBase64(imageUrl: string) {
   const [base64, setBase64] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
@@ -20,33 +19,25 @@ export function useQRAsBase64(imageUrl: string) {
       setError(null);
       
       try {
-        // Usamos un proxy si es necesario o le indicamos al fetch que puede manejar CORS.
-        const response = await fetch(imageUrl, { mode: 'cors' });
+        // Apuntamos a nuestra propia ruta API que actúa como proxy
+        const proxyUrl = `/api/qr?url=${encodeURIComponent(imageUrl)}`;
+        const response = await fetch(proxyUrl);
         
         if (!response.ok) {
-          throw new Error(`Error al obtener el QR: ${response.statusText}`);
+          const errorData = await response.json();
+          throw new Error(`Error from QR proxy: ${errorData.details || response.statusText}`);
         }
 
-        const blob = await response.blob();
-        
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (isMounted) {
-            setBase64(reader.result as string);
+        const data = await response.json();
+
+        if (isMounted) {
+            setBase64(data.base64);
             setLoading(false);
-          }
-        };
-        reader.onerror = (err) => {
-            if (isMounted) {
-                setError(err);
-                setLoading(false);
-            }
         }
-        reader.readAsDataURL(blob);
 
       } catch (err) {
         if (isMounted) {
-          console.error("Error fetching QR code as Base64:", err);
+          console.error("Error fetching QR code via proxy:", err);
           setError(err);
           setLoading(false);
         }
@@ -62,4 +53,3 @@ export function useQRAsBase64(imageUrl: string) {
 
   return { base64, loading, error };
 }
-
