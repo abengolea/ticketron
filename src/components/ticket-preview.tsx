@@ -45,26 +45,21 @@ async function handleGeneratePdf(
   const pageWidth  = pdf.internal.pageSize.getWidth();   // 210mm
   const pageHeight = pdf.internal.pageSize.getHeight();  // 297mm
 
-  const gutterX = 6;
-  const gutterY = 8;
-  const cols = 2, rows = 4;
+  // Márgenes y separación
+  const gutterX = 10;   // mm
+  const gutterY = 10;   // mm
 
-  const ticketWidth  = (pageWidth  - (cols + 1) * gutterX) / cols;
-  const ticketHeight = (pageHeight - (rows + 1) * gutterY) / rows;
+  // UNA SOLA COLUMNA (1 ticket por fila)
+  const ticketWidth = pageWidth - 2 * gutterX;
 
-  const ticketsPerPage = cols * rows;
-  const ticketChunks = chunk(ticketRefs, ticketsPerPage);
-
+  // contenedor temporal
   let tempContainer: HTMLDivElement | null = document.createElement('div');
-  // Use a unique ID for the container
-  const containerId = `pdf-capture-${Date.now()}`;
-  tempContainer.id = containerId;
+  tempContainer.id = `pdf-capture-${Date.now()}`;
   
-  // Move the container off-screen instead of hiding it
   tempContainer.style.cssText = `
     position: fixed !important;
     top: 0 !important;
-    left: -10000px !important;
+    left: -10000px !important; /* fuera de pantalla */
     width: 420px !important; /* Approx width for a ticket */
     height: 300px !important; /* Approx height */
     background: white !important;
@@ -79,73 +74,100 @@ async function handleGeneratePdf(
   document.body.appendChild(tempContainer);
 
   try {
-    for (let p = 0; p < ticketChunks.length; p++) {
-      if (p > 0) pdf.addPage();
-      const pageTickets = ticketChunks[p];
+    let yCursor = gutterY; // posición vertical actual
 
-      for (let i = 0; i < pageTickets.length; i++) {
+    // ya no necesitamos chunk fijo; procesamos linealmente y vamos saltando de página
+    const pageTickets = ticketRefs; 
+
+    for (let i = 0; i < pageTickets.length; i++) {
         const ref = pageTickets[i];
         if (!ref.current) continue;
-        
-        const cloned = ref.current; // We are not cloning here anymore, html2canvas will do it.
+
+        // --- clonado y conversión de canvas->img, igual que ya lo tenés ---
+        const cloned = ref.current.cloneNode(true) as HTMLDivElement;
+        cloned.style.cssText = `display:block;width:100%;`;
+
+        cloned.querySelectorAll('canvas').forEach((c) => {
+        const can = c as HTMLCanvasElement;
+        try {
+            const img = document.createElement('img');
+            img.src = can.toDataURL('image/png');
+            img.width = can.width;
+            img.height = can.height;
+            img.style.width = `${can.width}px`;
+            img.style.height = `${can.height}px`;
+            can.replaceWith(img);
+        } catch {}
+        });
+
         tempContainer.innerHTML = '';
-        tempContainer.appendChild(cloned.cloneNode(true)); // Append a clone just for measurement and waits
+        tempContainer.appendChild(cloned);
 
-        // Wait for rendering engine
+        // esperar un frame + fuentes + imágenes
         await new Promise(resolve => requestAnimationFrame(resolve));
+        if ((document as any).fonts?.ready) { try { await (document as any).fonts.ready; } catch {} }
 
-        // Wait for fonts if available
-        if ((document as any).fonts?.ready) {
-          try { await (document as any).fonts.ready; } catch (fontError) {
-              console.warn("Error waiting for fonts:", fontError);
-          }
-        }
-        
-        // Wait for images inside the original ref to be loaded
-        await waitForImagesInContainer(ref.current);
+        await waitForImagesInContainer(cloned);
 
-
+        // Captura
         const canvas = await html2canvas(cloned, {
-          scale: Math.min(2, window.devicePixelRatio || 1),
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-          imageTimeout: 10000,
-          windowWidth: cloned.scrollWidth,
-          windowHeight: cloned.scrollHeight,
-          onclone: (doc) => {
-              // This is the most robust way to handle dynamic content like QR codes
-              doc.querySelectorAll('canvas').forEach((c) => {
-                  try {
-                      const can = c as HTMLCanvasElement;
-                      const img = doc.createElement('img');
-                      img.src = can.toDataURL('image/png');
-                      img.width = can.width;
-                      img.height = can.height;
-                      (img.style as any).width = `${can.width}px`;
-                      (img.style as any).height = `${can.height}px`;
-                      c.replaceWith(img);
-                  } catch (e) {
-                      console.warn("Could not convert canvas to image in onclone", e);
-                  }
-              });
-          }
+        scale: Math.min(2, window.devicePixelRatio || 1),
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        imageTimeout: 10000,
+        windowWidth: cloned.scrollWidth,
+        windowHeight: cloned.scrollHeight,
+        onclone: (doc) => {
+            // This is the most robust way to handle dynamic content like QR codes
+            doc.querySelectorAll('canvas').forEach((c) => {
+                try {
+                    const can = c as HTMLCanvasElement;
+                    const img = doc.createElement('img');
+                    img.src = can.toDataURL('image/png');
+                    img.width = can.width;
+                    img.height = can.height;
+                    (img.style as any).width = `${can.width}px`;
+                    (img.style as any).height = `${can.height}px`;
+                    c.replaceWith(img);
+                } catch (e) {
+                    console.warn("Could not convert canvas to image in onclone", e);
+                }
+            });
+        }
         });
 
         const imgData = canvas.toDataURL('image/png', 1.0);
-        
+
         if (!isValidDataURL(imgData)){
             throw new Error(`Los datos del canvas para el ticket ${i + 1} son inválidos.`);
         }
 
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const x = gutterX + col * (ticketWidth + gutterX);
-        const y = gutterY + row * (ticketHeight + gutterY);
+        // Mantener proporción: escalamos al ancho y calculamos alto
+        const imgWidthMM = ticketWidth;
+        const imgHeightMM = (canvas.height / canvas.width) * imgWidthMM;
 
-        pdf.addImage(imgData, 'PNG', x, y, ticketWidth, ticketHeight, undefined, 'FAST');
-      }
+        // ¿Entra en la página actual? Si no, salto de página
+        if (yCursor + imgHeightMM + gutterY > pageHeight) {
+            pdf.addPage();
+            yCursor = gutterY;
+        }
+
+        // Pintar 1 ticket por fila
+        pdf.addImage(
+            imgData,
+            'PNG',
+            gutterX,          // x (izquierda)
+            yCursor,          // y (arriba)
+            imgWidthMM,
+            imgHeightMM,
+            undefined,
+            'FAST'
+        );
+
+        // Avanzar cursor
+        yCursor += imgHeightMM + gutterY;
     }
 
     const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
@@ -207,22 +229,17 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     }
   }, [isRegeneration]);
 
-  const triggerPdfGeneration = async (chunkIndex: number, chunkSize: number) => {
-    setPrintingChunk(chunkIndex);
+  const triggerPdfGeneration = async () => {
+    setPrintingChunk(0); // Use a single state for all chunks
     
-    const start = chunkIndex * chunkSize;
-    const end = start + chunkSize;
-    const relevantTicketRefs = ticketRefs.slice(start, end);
-    const fileNameSuffix = tickets.length > chunkSize ? `_${start + 1}-${Math.min(end, tickets.length)}` : "";
-
     try {
-      await handleGeneratePdf(relevantTicketRefs, `${eventParams.event_name}${fileNameSuffix}`);
+      await handleGeneratePdf(ticketRefs, eventParams.event_name);
       toast({
         title: "PDF Generado",
-        description: `El archivo ${eventParams.event_name}${fileNameSuffix}.pdf se ha descargado.`,
+        description: `El archivo ${eventParams.event_name}.pdf se ha descargado.`,
       });
     } catch (error) {
-      console.error("Error generating PDF chunk:", error);
+      console.error("Error generating PDF:", error);
       toast({
         title: "Error de PDF",
         description: `No se pudo generar el PDF: ${error instanceof Error ? error.message : String(error)}`,
@@ -275,11 +292,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     downloadFile("README_VALIDACION.md", readmeContent.trim(), "text/markdown");
   };
   
-  const pdfTicketChunks = Array.from({ length: Math.ceil(tickets.length / PDF_CHUNK_SIZE) }, (_, i) => i);
-
-  // Divide todos los tickets en páginas de 8
-  const pages = chunk(tickets, TICKETS_PER_PAGE);
-
   return (
     <div className="w-full">
       <div className="bg-card/80 backdrop-blur-sm border rounded-lg p-4 mb-8 flex flex-wrap justify-between items-center gap-4 sticky top-[70px] z-40 no-print">
@@ -327,18 +339,10 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
               </>
             )}
 
-            {pdfTicketChunks.map(chunkIndex => {
-              const start = chunkIndex * PDF_CHUNK_SIZE + 1;
-              const end = Math.min((chunkIndex + 1) * PDF_CHUNK_SIZE, tickets.length);
-              const label = tickets.length > PDF_CHUNK_SIZE ? `Tickets ${start}-${end}` : 'Descargar PDF';
-              
-              return (
-                <Button key={chunkIndex} onClick={() => triggerPdfGeneration(chunkIndex, PDF_CHUNK_SIZE)} disabled={printingChunk !== null}>
-                  {printingChunk === chunkIndex ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
-                  {printingChunk === chunkIndex ? 'Generando...' : label}
-                </Button>
-              )
-            })}
+            <Button onClick={triggerPdfGeneration} disabled={printingChunk !== null}>
+                {printingChunk !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+                {printingChunk !== null ? 'Generando...' : 'Descargar PDF'}
+            </Button>
 
             <TooltipProvider>
                 <Tooltip>
@@ -390,6 +394,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     </div>
   );
 }
+
+    
 
     
 
