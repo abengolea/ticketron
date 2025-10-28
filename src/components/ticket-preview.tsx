@@ -462,7 +462,7 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
               </>
             )}
 
-            {pdfChunks.length === 1 ? (
+            {pdfChunks.length <= 1 ? (
                 <Button onClick={() => triggerPdfGeneration(0, PDF_CHUNK_SIZE)} disabled={printingChunk !== null}>
                     {printingChunk === 0 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
                     {printingChunk === 0 ? 'Generando...' : 'Descargar PDF'}
