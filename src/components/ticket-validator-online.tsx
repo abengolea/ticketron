@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Button } from './ui/button';
-import { Card, CardContent, CardDescription, CardHeader } from './ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle } from 'lucide-react';
@@ -33,7 +33,6 @@ export function TicketValidatorOnline() {
   const firestore = useFirestore();
 
   useEffect(() => {
-    // El useEffect ahora está vacío, la inicialización se hace bajo demanda.
     // La función de limpieza se encarga de detener el escáner si el componente se desmonta.
     return () => {
       if (scannerRef.current && scannerRef.current.isScanning) {
