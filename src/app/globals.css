@@ -57,37 +57,51 @@
   }
 }
 
+/* --- PDF & Printing Styles --- */
+
+/* Hide everything except the printable area when generating PDF */
+body.pdf-generating > *:not(.pdf-capture-area) {
+  display: none !important;
+}
+
+/* Style for the temporary capture area */
+.pdf-capture-area {
+  position: absolute !important;
+  left: 0;
+  top: 0;
+  width: 210mm !important;
+  background-color: white !important;
+  display: none; /* Hidden by default */
+}
+
+body.pdf-generating .pdf-capture-area {
+  display: block !important; /* Shown only during PDF generation */
+}
+
+/* By default, all pages inside capture area are hidden */
+.pdf-capture-area .print-page {
+  display: none;
+}
+
+/* Only the 'active-pdf-page' is visible for capture */
+.pdf-capture-area .print-page.active-pdf-page {
+  display: grid !important; /* Use grid to match original layout */
+}
+
+
 @media print {
   .no-print {
     display: none !important;
   }
-  body.printing {
-    margin: 0;
-    padding: 0;
-    background-color: white !important;
+  body {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-  }
-  body.printing > * {
-    display: none;
-  }
-  body.printing .printable-area {
-    display: block !important;
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    margin: 0;
-    padding: 0;
   }
   
   .print-page {
     page-break-after: always;
     box-shadow: none !important;
     border: none !important;
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
   }
 
   .ticket-card {
@@ -95,9 +109,3 @@
     box-shadow: none !important;
   }
 }
-
-/* Styles for PDF generation with html2canvas */
-.printable-area .print-page:not(.no-print-pdf-hide) {
-    display: none;
-}
-
