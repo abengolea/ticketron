@@ -45,9 +45,8 @@ async function handleGeneratePdf(
   const pageWidth  = pdf.internal.pageSize.getWidth();   // 210mm
   const pageHeight = pdf.internal.pageSize.getHeight();  // 297mm
 
-  // <-- NUEVO: separaciones entre tickets
-  const gutterX = 6;   // mm
-  const gutterY = 8;   // mm
+  const gutterX = 6;
+  const gutterY = 8;
   const cols = 2, rows = 4;
 
   const ticketWidth  = (pageWidth  - (cols + 1) * gutterX) / cols;
@@ -56,14 +55,26 @@ async function handleGeneratePdf(
   const ticketsPerPage = cols * rows;
   const ticketChunks = chunk(ticketRefs, ticketsPerPage);
 
-  // contenedor temporal
   let tempContainer: HTMLDivElement | null = document.createElement('div');
+  // Use a unique ID for the container
+  const containerId = `pdf-capture-${Date.now()}`;
+  tempContainer.id = containerId;
+  
+  // Move the container off-screen instead of hiding it
   tempContainer.style.cssText = `
-    position: fixed; top: 0; left: 0;
-    width: 420px; height: 300px; /* proporción cercana a tu card */
-    background: white; z-index: 999999;
-    display: flex; align-items: center; justify-content: center;
-    padding: 10px; visibility: hidden; opacity: 0;
+    position: fixed !important;
+    top: 0 !important;
+    left: -10000px !important;
+    width: 420px !important; /* Approx width for a ticket */
+    height: 300px !important; /* Approx height */
+    background: white !important;
+    z-index: 999999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 10px !important;
+    visibility: visible !important; /* Keep it visible */
+    opacity: 1 !important; /* Keep it opaque */
   `;
   document.body.appendChild(tempContainer);
 
@@ -75,48 +86,59 @@ async function handleGeneratePdf(
       for (let i = 0; i < pageTickets.length; i++) {
         const ref = pageTickets[i];
         if (!ref.current) continue;
-
-        // clon
-        const cloned = ref.current.cloneNode(true) as HTMLDivElement;
-        cloned.style.cssText = `display:block;width:100%;`;
-
-        // <-- CLAVE: convertir canvases (QR) a imágenes antes de capturar
-        cloned.querySelectorAll('canvas').forEach((c) => {
-          const can = c as HTMLCanvasElement;
-          try {
-            const img = document.createElement('img');
-            img.src = can.toDataURL('image/png');      // copia el dibujo del canvas
-            img.width  = can.width;
-            img.height = can.height;
-            img.style.width  = `${can.width}px`;
-            img.style.height = `${can.height}px`;
-            can.replaceWith(img);
-          } catch { /* si falla, dejamos el canvas */ }
-        });
-
+        
+        const cloned = ref.current; // We are not cloning here anymore, html2canvas will do it.
         tempContainer.innerHTML = '';
-        tempContainer.appendChild(cloned);
+        tempContainer.appendChild(cloned.cloneNode(true)); // Append a clone just for measurement and waits
 
-        // esperar imágenes del clon
-        const imgs = Array.from(cloned.querySelectorAll('img'));
-        await Promise.all(imgs.map(img => new Promise<void>((res, rej) => {
-          if (img.complete) return res();
-          img.onload = () => res(); img.onerror = () => res(); // no frenamos por error
-        })));
+        // Wait for rendering engine
+        await new Promise(resolve => requestAnimationFrame(resolve));
 
-        // captura del clon
+        // Wait for fonts if available
+        if ((document as any).fonts?.ready) {
+          try { await (document as any).fonts.ready; } catch (fontError) {
+              console.warn("Error waiting for fonts:", fontError);
+          }
+        }
+        
+        // Wait for images inside the original ref to be loaded
+        await waitForImagesInContainer(ref.current);
+
+
         const canvas = await html2canvas(cloned, {
-          scale: 2,
+          scale: Math.min(2, window.devicePixelRatio || 1),
           useCORS: true,
           allowTaint: true,
           backgroundColor: '#ffffff',
           logging: false,
           imageTimeout: 10000,
+          windowWidth: cloned.scrollWidth,
+          windowHeight: cloned.scrollHeight,
+          onclone: (doc) => {
+              // This is the most robust way to handle dynamic content like QR codes
+              doc.querySelectorAll('canvas').forEach((c) => {
+                  try {
+                      const can = c as HTMLCanvasElement;
+                      const img = doc.createElement('img');
+                      img.src = can.toDataURL('image/png');
+                      img.width = can.width;
+                      img.height = can.height;
+                      (img.style as any).width = `${can.width}px`;
+                      (img.style as any).height = `${can.height}px`;
+                      c.replaceWith(img);
+                  } catch (e) {
+                      console.warn("Could not convert canvas to image in onclone", e);
+                  }
+              });
+          }
         });
 
         const imgData = canvas.toDataURL('image/png', 1.0);
+        
+        if (!isValidDataURL(imgData)){
+            throw new Error(`Los datos del canvas para el ticket ${i + 1} son inválidos.`);
+        }
 
-        // posición 2×4 con gutter
         const col = i % cols;
         const row = Math.floor(i / cols);
         const x = gutterX + col * (ticketWidth + gutterX);
@@ -128,6 +150,16 @@ async function handleGeneratePdf(
 
     const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
     pdf.save(fileName);
+  } catch(error) {
+    console.error('--- ERROR FATAL DURANTE LA GENERACIÓN DEL PDF ---');
+    if (error instanceof Error) {
+        console.error('Mensaje:', error.message);
+        console.error('Stack:', error.stack);
+    } else {
+        console.error('Error desconocido:', error);
+    }
+    // Propagate error to be caught by triggerPdfGeneration
+    throw error;
   } finally {
     if (tempContainer?.parentNode) tempContainer.parentNode.removeChild(tempContainer);
   }
@@ -358,5 +390,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     </div>
   );
 }
+
+    
 
     
