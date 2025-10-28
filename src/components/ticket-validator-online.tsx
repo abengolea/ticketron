@@ -32,9 +32,9 @@ export function TicketValidatorOnline() {
   const firestore = useFirestore();
 
   useEffect(() => {
-    // Initialize the scanner instance on component mount
-    if (!scannerRef.current) {
-        scannerRef.current = new Html5Qrcode(readerId);
+    // Initialize the scanner instance on component mount, only on the client side
+    if (typeof window !== 'undefined' && !scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(readerId, false);
     }
     const scanner = scannerRef.current;
 
@@ -113,7 +113,6 @@ export function TicketValidatorOnline() {
             const permissionError = new FirestorePermissionError({
                 path: ticketRef?.path || 'unknown path',
                 operation: 'update',
-                message: error.message
             });
             errorEmitter.emit('permission-error', permissionError);
         }
@@ -186,7 +185,7 @@ export function TicketValidatorOnline() {
                         <Alert variant={validationResult.status === 'invalid' ? 'destructive' : 'default'} className={cn({
                             'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300': validationResult.status === 'valid',
                             'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300': validationResult.status === 'redeemed',
-                        })}>
+                            })}>
                             {validationResult.status === 'valid' && <CheckCircle2 className="h-4 w-4" />}
                             {validationResult.status === 'redeemed' && <AlertTriangle className="h-4 w-4" />}
                             {validationResult.status === 'invalid' && <AlertCircle className="h-4 w-4" />}
