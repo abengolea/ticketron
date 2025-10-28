@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from './ui/label';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle, Camera } from 'lucide-react';
+import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle, Camera, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { type Html5Qrcode } from 'html5-qrcode';
 import { createHmacSha256 } from '@/lib/utils';
@@ -135,7 +135,14 @@ export function TicketValidator() {
   const clearRedeemed = () => {
     setRedeemedTickets([]);
     toast({ title: "Lista de canjeados limpiada." });
-  }
+  };
+
+  const resetValidation = () => {
+    setValidationResult(null);
+    setQrPayload('');
+    setIsScanning(false);
+    stopScanner();
+  };
 
   return (
     <Card>
@@ -144,66 +151,76 @@ export function TicketValidator() {
         <CardDescription>Introduce la clave secreta y escanea un código QR para validar un ticket. Este método no requiere internet.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="space-y-2">
-            <Label htmlFor="secret-key" className='flex items-center gap-2'>
-                <KeyRound className='w-4 h-4'/>
-                Clave Secreta
-            </Label>
-            <Textarea
-                id="secret-key"
-                placeholder="Pega la clave secreta de 32 bytes aquí"
-                value={secretKey}
-                onChange={(e) => setSecretKey(e.target.value)}
-                className="font-mono text-sm"
-            />
-        </div>
-
-        {isScanning ? (
+        {!validationResult && (
+          <div className="space-y-4">
             <div className="space-y-2">
-                <div id={readerId} className="w-full rounded-md border aspect-video bg-muted"></div>
-                <Button variant="outline" onClick={stopScanner} className="w-full">Cancelar Escaneo</Button>
-            </div>
-        ) : (
-            <div className="space-y-2">
-                <Label htmlFor="qr-payload" className='flex items-center gap-2'>
-                    <ScanLine className='w-4 h-4' />
-                    Contenido del Código QR
+                <Label htmlFor="secret-key" className='flex items-center gap-2'>
+                    <KeyRound className='w-4 h-4'/>
+                    Clave Secreta
                 </Label>
                 <Textarea
-                    id="qr-payload"
-                    placeholder="Pega los datos del código QR escaneado aquí"
-                    value={qrPayload}
-                    onChange={(e) => setQrPayload(e.target.value)}
+                    id="secret-key"
+                    placeholder="Pega la clave secreta de 32 bytes aquí"
+                    value={secretKey}
+                    onChange={(e) => setSecretKey(e.target.value)}
                     className="font-mono text-sm"
                 />
             </div>
+
+            {isScanning ? (
+                <div className="space-y-2">
+                    <div id={readerId} className="w-full rounded-md border aspect-video bg-muted"></div>
+                    <Button variant="outline" onClick={stopScanner} className="w-full">Cancelar Escaneo</Button>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    <Label htmlFor="qr-payload" className='flex items-center gap-2'>
+                        <ScanLine className='w-4 h-4' />
+                        Contenido del Código QR
+                    </Label>
+                    <Textarea
+                        id="qr-payload"
+                        placeholder="Pega los datos del código QR escaneado aquí"
+                        value={qrPayload}
+                        onChange={(e) => setQrPayload(e.target.value)}
+                        className="font-mono text-sm"
+                    />
+                </div>
+            )}
+          </div>
         )}
 
         {validationResult && (
-          <Alert variant={validationResult.status === 'invalid' ? 'destructive' : 'default'} className={cn({
-            'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300': validationResult.status === 'valid',
-            'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300': validationResult.status === 'redeemed',
-          })}>
-            {validationResult.status === 'valid' && <CheckCircle2 className="h-4 w-4" />}
-            {validationResult.status === 'redeemed' && <AlertTriangle className="h-4 w-4" />}
-            {validationResult.status === 'invalid' && <XCircle className="h-4 w-4" />}
-            <AlertTitle className='capitalize'>{validationResult.status === 'valid' ? 'Válido' : (validationResult.status === 'invalid' ? 'Inválido' : 'Canjeado')}</AlertTitle>
-            <AlertDescription>{validationResult.message}</AlertDescription>
-          </Alert>
+          <div className="space-y-4">
+            <Alert variant={validationResult.status === 'invalid' ? 'destructive' : 'default'} className={cn({
+              'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300': validationResult.status === 'valid',
+              'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300': validationResult.status === 'redeemed',
+            })}>
+              {validationResult.status === 'valid' && <CheckCircle2 className="h-4 w-4" />}
+              {validationResult.status === 'redeemed' && <AlertTriangle className="h-4 w-4" />}
+              {validationResult.status === 'invalid' && <XCircle className="h-4 w-4" />}
+              <AlertTitle className='capitalize'>{validationResult.status === 'valid' ? 'Válido' : (validationResult.status === 'invalid' ? 'Inválido' : 'Canjeado')}</AlertTitle>
+              <AlertDescription>{validationResult.message}</AlertDescription>
+            </Alert>
+             <Button onClick={resetValidation} className="w-full">
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Validar Otro Ticket
+            </Button>
+          </div>
         )}
       </CardContent>
-      <CardFooter className='flex-col items-stretch gap-4'>
-        <div className="flex gap-2">
-          {!isScanning && <Button onClick={startScanner} variant="secondary" className="w-full"><Camera className="mr-2"/> Escanear QR</Button>}
-          <Button onClick={() => handleValidate(qrPayload)} className='w-full' disabled={isScanning}>Validar Ticket</Button>
-        </div>
-        <div className="text-xs text-muted-foreground flex items-center gap-4 bg-muted p-3 rounded-lg">
-            <p>Tickets canjeados: <span className="font-bold">{redeemedTickets.length}</span></p>
-            <Button variant="outline" size="sm" className="ml-auto" onClick={clearRedeemed}>Limpiar Lista</Button>
-        </div>
-      </CardFooter>
+      {!validationResult && (
+        <CardFooter className='flex-col items-stretch gap-4'>
+          <div className="flex gap-2">
+            {!isScanning && <Button onClick={startScanner} variant="secondary" className="w-full"><Camera className="mr-2"/> Escanear QR</Button>}
+            <Button onClick={() => handleValidate(qrPayload)} className='w-full' disabled={isScanning}>Validar Ticket</Button>
+          </div>
+          <div className="text-xs text-muted-foreground flex items-center gap-4 bg-muted p-3 rounded-lg">
+              <p>Tickets canjeados: <span className="font-bold">{redeemedTickets.length}</span></p>
+              <Button variant="outline" size="sm" className="ml-auto" onClick={clearRedeemed}>Limpiar Lista</Button>
+          </div>
+        </CardFooter>
+      )}
     </Card>
   );
 }
-
-    

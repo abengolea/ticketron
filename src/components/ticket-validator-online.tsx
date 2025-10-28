@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { type Html5Qrcode } from 'html5-qrcode';
 import { useFirestore } from '@/firebase';
@@ -146,6 +146,12 @@ export function TicketValidatorOnline() {
     }
   };
 
+  const resetValidation = () => {
+    setValidationResult(null);
+    setIsScanning(false);
+    stopScanner();
+  };
+
   return (
     <Tabs defaultValue="online" className="max-w-2xl mx-auto">
         <TabsList className="grid w-full grid-cols-2">
@@ -165,28 +171,36 @@ export function TicketValidatorOnline() {
                             <Button variant="outline" onClick={stopScanner} className="w-full">Cancelar Escaneo</Button>
                         </div>
                     ) : (
-                         <div className="flex justify-center items-center h-48 border-2 border-dashed rounded-lg">
-                            <Button onClick={startScanner} variant="secondary" size="lg" disabled={isLoading}>
-                                {isLoading ? (
-                                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                ) : (
-                                    <Camera className="mr-2 h-5 w-5" />
-                                )}
-                                {isLoading ? 'Validando...' : 'Escanear Código QR'}
-                            </Button>
-                        </div>
+                        !validationResult && (
+                            <div className="flex justify-center items-center h-48 border-2 border-dashed rounded-lg">
+                                <Button onClick={startScanner} variant="secondary" size="lg" disabled={isLoading}>
+                                    {isLoading ? (
+                                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                    ) : (
+                                        <Camera className="mr-2 h-5 w-5" />
+                                    )}
+                                    {isLoading ? 'Validando...' : 'Escanear Código QR'}
+                                </Button>
+                            </div>
+                        )
                     )}
                      {validationResult && (
-                        <Alert variant={validationResult.status === 'invalid' ? 'destructive' : 'default'} className={cn({
-                            'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300': validationResult.status === 'valid',
-                            'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300': validationResult.status === 'redeemed',
-                            })}>
-                            {validationResult.status === 'valid' && <CheckCircle2 className="h-4 w-4" />}
-                            {validationResult.status === 'redeemed' && <AlertTriangle className="h-4 w-4" />}
-                            {validationResult.status === 'invalid' && <AlertCircle className="h-4 w-4" />}
-                            <AlertTitle className='capitalize'>{validationResult.status === 'valid' ? 'Válido' : (validationResult.status === 'invalid' ? 'Inválido' : 'Canjeado')}</AlertTitle>
-                            <AlertDescription>{validationResult.message}</AlertDescription>
-                        </Alert>
+                        <div className="space-y-4">
+                            <Alert variant={validationResult.status === 'invalid' ? 'destructive' : 'default'} className={cn({
+                                'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300': validationResult.status === 'valid',
+                                'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300': validationResult.status === 'redeemed',
+                                })}>
+                                {validationResult.status === 'valid' && <CheckCircle2 className="h-4 w-4" />}
+                                {validationResult.status === 'redeemed' && <AlertTriangle className="h-4 w-4" />}
+                                {validationResult.status === 'invalid' && <AlertCircle className="h-4 w-4" />}
+                                <AlertTitle className='capitalize'>{validationResult.status === 'valid' ? 'Válido' : (validationResult.status === 'invalid' ? 'Inválido' : 'Canjeado')}</AlertTitle>
+                                <AlertDescription>{validationResult.message}</AlertDescription>
+                            </Alert>
+                            <Button onClick={resetValidation} className="w-full">
+                                <RotateCcw className="mr-2 h-4 w-4" />
+                                Validar Otro Ticket
+                            </Button>
+                        </div>
                     )}
                 </CardContent>
             </Card>
@@ -197,5 +211,3 @@ export function TicketValidatorOnline() {
     </Tabs>
   );
 }
-
-    
