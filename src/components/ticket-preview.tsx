@@ -49,9 +49,6 @@ type TicketPreviewProps = {
 };
 
 
-// ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-// ULTRA-DEBUG PDF GENERATION FUNCTION
-// ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 interface TicketRef {
   current: HTMLDivElement | null;
 }
@@ -59,29 +56,23 @@ interface TicketRef {
 async function waitForImages(element: HTMLElement): Promise<void> {
   const images = Array.from(element.querySelectorAll('img'));
   if (images.length === 0) {
-    console.log('  - No images found to wait for.');
     return;
   }
 
   await Promise.all(
     images.map((img, idx) => {
-      console.log(`    - Waiting for image ${idx}: ${img.src.substring(0, 50)}...`);
       if (img.complete && img.naturalHeight !== 0) {
-        console.log(`      ✓ Image ${idx} already loaded.`);
         return Promise.resolve();
       }
       return new Promise<void>((resolve) => {
-        img.onload = () => {
-          console.log(`      ✓ Image ${idx} loaded successfully.`);
-          resolve();
-        };
+        img.onload = () => resolve();
         img.onerror = () => {
-          console.warn(`      ⚠️ Image ${idx} failed to load.`);
-          resolve(); // Resolve anyway to not block the process
+          console.warn(`⚠️ Image ${idx} failed to load, continuing anyway.`);
+          resolve(); 
         };
         // Failsafe timeout
         setTimeout(() => {
-          console.warn(`      ⏳ Timeout for image ${idx}.`);
+          console.warn(`⏳ Timeout for image ${idx}.`);
           resolve();
         }, 10000);
       });
@@ -93,19 +84,9 @@ export async function handleGeneratePdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string
 ): Promise<void> {
-  console.log('═══════════════════════════════════════');
-  console.log('🎫 INICIANDO GENERACIÓN DE PDF');
-  console.log('═══════════════════════════════════════');
-  console.log('Evento:', eventName);
-  console.log('Tickets a procesar:', ticketRefs.length);
+  console.log('🎫 Iniciando generación de PDF');
   
   let tempContainer: HTMLDivElement | null = null;
-  const { toast } = useToast();
-
-  toast({
-    title: 'Iniciando generación de PDF...',
-    description: 'Este proceso puede tardar. Revisa la consola para ver el progreso.'
-  })
 
   try {
     const pdf = new jsPDF({
@@ -114,17 +95,10 @@ export async function handleGeneratePdf(
       format: 'a4',
     });
 
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
+    const ticketsPerPage = 8;
+    const ticketChunks = chunk(ticketRefs, ticketsPerPage);
     let processedTickets = 0;
 
-    // ═══════════════════════════════════════
-    // PASO 1: CREAR CONTENEDOR TEMPORAL
-    // ═══════════════════════════════════════
-    console.log('\n┌─────────────────────────────────────┐');
-    console.log('│ PASO 1: Creando contenedor temporal│');
-    console.log('└─────────────────────────────────────┘');
-    
     tempContainer = document.createElement('div');
     tempContainer.id = 'pdf-temp-container-' + Date.now();
     
@@ -132,118 +106,78 @@ export async function handleGeneratePdf(
       position: fixed !important;
       top: 0 !important;
       left: 0 !important;
-      width: 105mm !important;
-      height: 74.25mm !important;
+      width: 210mm !important;
+      height: 297mm !important;
       background-color: white !important;
-      z-index: 999999 !important;
-      padding: 0 !important;
-      display: block !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      overflow: visible !important;
+      z-index: -1 !important;
+      opacity: 0 !important;
       pointer-events: none !important;
     `;
     
     document.body.appendChild(tempContainer);
-    
-    console.log('✓ Contenedor creado:', tempContainer.id);
-    console.log('✓ Contenedor en DOM:', document.body.contains(tempContainer));
-    console.log('✓ Estilos aplicados:', tempContainer.style.position, tempContainer.style.zIndex);
-
-    // ═══════════════════════════════════════
-    // PASO 2: PROCESAR CADA TICKET
-    // ═══════════════════════════════════════
-    const ticketsPerPage = 8;
-    const ticketChunks = chunk(ticketRefs, ticketsPerPage);
+    console.log('✓ Contenedor temporal creado');
 
     for (let pageIndex = 0; pageIndex < ticketChunks.length; pageIndex++) {
-        const pageTicketRefs = ticketChunks[pageIndex];
-        console.log(`\n\n📄 Procesando página de PDF ${pageIndex + 1}/${ticketChunks.length}`);
+      const pageTicketRefs = ticketChunks[pageIndex];
+      console.log(`\n📄 Procesando página de PDF ${pageIndex + 1}/${ticketChunks.length}`);
 
-        // Create a page element to hold the tickets
-        const pageElement = document.createElement('div');
-        pageElement.className = "print-page bg-card shadow-lg rounded-lg mx-auto p-5 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm]";
+      const pageElement = document.createElement('div');
+      pageElement.className = "print-page bg-white shadow-none p-0 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm]";
 
-        pageTicketRefs.forEach(ticketRef => {
-            if (ticketRef.current) {
-                const clonedTicket = ticketRef.current.cloneNode(true) as HTMLDivElement;
-                const wrapper = document.createElement('div');
-                wrapper.className = "flex items-center justify-center";
-                wrapper.appendChild(clonedTicket);
-                pageElement.appendChild(wrapper);
-            }
-        });
-        
-        // Fill empty slots on the last page
-        const emptySlots = ticketsPerPage - pageTicketRefs.length;
-        for (let i = 0; i < emptySlots; i++) {
-             pageElement.appendChild(document.createElement('div'));
+      pageTicketRefs.forEach(ticketRef => {
+        if (ticketRef.current) {
+          const clonedTicket = ticketRef.current.cloneNode(true) as HTMLDivElement;
+          const wrapper = document.createElement('div');
+          wrapper.className = "flex items-center justify-center";
+          wrapper.appendChild(clonedTicket);
+          pageElement.appendChild(wrapper);
         }
+      });
+      
+      const emptySlots = ticketsPerPage - pageTicketRefs.length;
+      for (let i = 0; i < emptySlots; i++) {
+        pageElement.appendChild(document.createElement('div'));
+      }
 
-        tempContainer.innerHTML = '';
-        tempContainer.appendChild(pageElement);
-        console.log(`  ✓ Página ${pageIndex + 1} clonada y añadida a contenedor temporal`);
+      tempContainer.innerHTML = '';
+      tempContainer.appendChild(pageElement);
+      
+      await new Promise(resolve => setTimeout(resolve, 500));
 
-        await new Promise(resolve => setTimeout(resolve, 500)); // wait for render
+      const rect = pageElement.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) {
+        console.error(`❌ ERROR: Página ${pageIndex + 1} tiene dimensiones cero. Saltando.`);
+        continue;
+      }
 
-        const rect = pageElement.getBoundingClientRect();
-        console.log(`  ✓ Dimensiones de la página clonada: ${rect.width}x${rect.height}`);
+      console.log(`⏳ Esperando imágenes en página ${pageIndex + 1}...`);
+      await waitForImages(pageElement);
+      console.log(`✓ Imágenes cargadas en página ${pageIndex + 1}.`);
+      await new Promise(resolve => setTimeout(resolve, 300));
 
-        if (rect.width === 0 || rect.height === 0) {
-            console.error(`❌ ERROR: Página ${pageIndex + 1} tiene dimensiones cero. Saltando.`);
-            continue;
-        }
+      const canvas = await html2canvas(pageElement, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: true,
+      });
 
-        console.log(`  ⏳ Esperando imágenes en página ${pageIndex + 1}...`);
-        await waitForImages(pageElement);
-        console.log(`  ✓ Imágenes cargadas en página ${pageIndex + 1}.`);
-        await new Promise(resolve => setTimeout(resolve, 300)); // extra buffer
-
-        try {
-            console.log(`  📸 Capturando canvas para página ${pageIndex + 1}...`);
-            const canvas = await html2canvas(pageElement, {
-                scale: 2,
-                useCORS: true,
-                allowTaint: true, // Crucial for external images
-                backgroundColor: '#ffffff',
-                logging: true,
-            });
-
-            console.log(`  ✓ Canvas capturado: ${canvas.width}x${canvas.height}`);
-            if (canvas.width === 0 || canvas.height === 0) throw new Error("Canvas is empty");
-
-            const imgData = canvas.toDataURL('image/png', 1.0);
-            const sizeKB = (imgData.length / 1024).toFixed(2);
-            console.log(`  ✓ Imagen generada: ${sizeKB} KB`);
-
-            if (!isValidDataURL(imgData)) throw new Error("Invalid Data URL");
-            
-            if (pageIndex > 0) {
-                pdf.addPage();
-            }
-            pdf.addImage(imgData, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
-            console.log(`  ✅ Página ${pageIndex + 1} añadida al PDF.`);
-            processedTickets += pageTicketRefs.length;
-
-        } catch (pageError: any) {
-             console.error(`❌ ERROR al procesar la página de PDF ${pageIndex + 1}:`, pageError);
-        }
+      const imgData = canvas.toDataURL('image/png', 1.0);
+      if (!isValidDataURL(imgData)) {
+        throw new Error(`Generated canvas for page ${pageIndex + 1} is invalid or empty.`);
+      }
+      
+      if (pageIndex > 0) {
+        pdf.addPage();
+      }
+      pdf.addImage(imgData, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
+      console.log(`✅ Página ${pageIndex + 1} añadida al PDF.`);
+      processedTickets += pageTicketRefs.length;
     }
 
 
-    // ═══════════════════════════════════════
-    // PASO 3: FINALIZAR Y GUARDAR
-    // ═══════════════════════════════════════
-    console.log('\n╔═══════════════════════════════════════╗');
-    console.log('║         FINALIZANDO PDF              ║');
-    console.log('╚═══════════════════════════════════════╝');
-    
     if (processedTickets === 0) {
-      toast({
-        variant: "destructive",
-        title: "Error al generar PDF",
-        description: "No se pudo procesar ningún ticket. Revisa la consola para más detalles."
-      })
       throw new Error('No se pudo procesar ningún ticket');
     }
 
@@ -251,24 +185,7 @@ export async function handleGeneratePdf(
     console.log('💾 Guardando:', fileName);
     pdf.save(fileName);
     
-    toast({
-        title: "PDF Generado",
-        description: `${processedTickets} tickets guardados en ${fileName}`
-    });
-    console.log('\n═══════════════════════════════════════');
     console.log(`✅ PDF GENERADO: ${processedTickets} tickets`);
-    console.log('═══════════════════════════════════════\n');
-
-  } catch (error: any) {
-    console.error('\n═══════════════════════════════════════');
-    console.error('❌ ERROR FATAL');
-    console.error('═══════════════════════════════════════');
-    console.error(error);
-    toast({
-        variant: "destructive",
-        title: "Error Fatal",
-        description: error.message || "Ocurrió un error inesperado. Revisa la consola."
-    })
   } finally {
     if (tempContainer && tempContainer.parentNode) {
       tempContainer.parentNode.removeChild(tempContainer);
@@ -306,13 +223,11 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       venue: eventParams.venue,
   });
 
-  // This effect is now only for showing the initial save state on new event creation.
   useEffect(() => {
     if (isRegeneration) {
         setIsSaving(false);
         setIsSaved(true);
     } else {
-        // This is a new event, show "saving" for a moment then "saved"
         setIsSaving(true);
         const timer1 = setTimeout(() => {
             setIsSaving(false);
@@ -321,7 +236,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                 title: "Tickets guardados online",
                 description: `${tickets.length} tickets han sido creados y guardados en la base de datos.`,
             });
-        }, 1500); // Simulate saving delay
+        }, 1500);
 
         return () => clearTimeout(timer1);
     }
@@ -329,8 +244,27 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
   const triggerPdfGeneration = async () => {
     setIsPrinting(true);
-    await handleGeneratePdf(ticketRefs, eventParams.event_id);
-    setIsPrinting(false);
+    toast({
+      title: 'Iniciando generación de PDF...',
+      description: 'Este proceso puede tardar unos segundos.'
+    });
+
+    try {
+        await handleGeneratePdf(ticketRefs, eventParams.event_id);
+        toast({
+            title: "PDF Generado",
+            description: `Tu archivo de tickets se ha descargado.`
+        });
+    } catch (error: any) {
+        console.error("Error fatal durante la generación de PDF:", error);
+        toast({
+            variant: "destructive",
+            title: "Error al Generar PDF",
+            description: error.message || "Ocurrió un error inesperado. Revisa la consola."
+        });
+    } finally {
+        setIsPrinting(false);
+    }
   };
   
   const handleGenerateMore = async () => {
@@ -480,7 +414,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
           requestResourceData: updateData,
         });
         errorEmitter.emit('permission-error', permissionError);
-        // The listener will show the toast
         setIsEditing(false);
       });
   };
@@ -622,7 +555,7 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
                         <DialogDescription>
                             ¿Cuántos tickets adicionales quieres generar para "{eventParams.event_name}"?
                         </DialogDescription>
-                        </DialogHeader>
+                        </Header>
                         <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="quantity" className="text-right">
