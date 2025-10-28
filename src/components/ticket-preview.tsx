@@ -40,33 +40,31 @@ async function handleGeneratePdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string,
 ): Promise<void> {
-  // A4 apaisado: 297 x 210 mm
-  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  // A4 vertical
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-  const pageWidth  = pdf.internal.pageSize.getWidth();   // 297
-  const pageHeight = pdf.internal.pageSize.getHeight();  // 210
+  const pageWidth  = pdf.internal.pageSize.getWidth();   // 210 mm
+  const pageHeight = pdf.internal.pageSize.getHeight();  // 297 mm
 
-  // Márgenes y respiración para impresión
+  // Márgenes y separación entre tarjetas
   const gutterX = 14;  // mm
-  const gutterY = 10;  // mm
+  const gutterY = 12;  // mm
   const maxW = pageWidth  - 2 * gutterX;
   const maxH = pageHeight - 2 * gutterY;
 
-  // Contenedor off-screen para forzar layout "desktop"
+  // Contenedor oculto para renderizar el ticket con ancho fijo "de escritorio"
   const tempContainer = document.createElement('div');
-  tempContainer.id = `pdf-capture-${Date.now()}`;
   tempContainer.style.cssText = `
     position: fixed;
     top: 0;
-    left: -10000px;      /* fuera de pantalla */
-    width: 1200px;       /* << ancho grande para que salga el QR sí o sí */
-    background: #fff;
+    left: -9999px;
+    width: 1200px;           /* ancho grande: evita layout móvil */
+    background: white;
     z-index: 999999;
     display: block;
-    padding: 0;
     margin: 0;
+    padding: 0;
     visibility: visible;
-    opacity: 1;
   `;
   document.body.appendChild(tempContainer);
 
@@ -77,24 +75,24 @@ async function handleGeneratePdf(
       const ref = ticketRefs[i];
       if (!ref.current) continue;
 
-      // Clonar y forzar ancho "desktop"
       const cloned = ref.current.cloneNode(true) as HTMLDivElement;
       cloned.style.cssText = `
-        display:block;
-        width:1200px;     /* << forzamos layout ancho */
-        box-sizing:border-box;
-        margin:0; padding:0;
+        width: 1200px;
+        display: block;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
       `;
 
-      // Asegurar que los QR en <canvas> no se pierdan
+      // Convertir QR canvas → img
       cloned.querySelectorAll('canvas').forEach((c) => {
         const can = c as HTMLCanvasElement;
         try {
           const img = document.createElement('img');
           img.src = can.toDataURL('image/png');
-          img.width  = can.width;
+          img.width = can.width;
           img.height = can.height;
-          img.style.width  = `${can.width}px`;
+          img.style.width = `${can.width}px`;
           img.style.height = `${can.height}px`;
           can.replaceWith(img);
         } catch {}
@@ -103,10 +101,9 @@ async function handleGeneratePdf(
       tempContainer.innerHTML = '';
       tempContainer.appendChild(cloned);
 
-      // Esperar layout + fuentes + imágenes
+      // Esperar fuentes e imágenes
       await new Promise(resolve => requestAnimationFrame(resolve));
       if ((document as any).fonts?.ready) { try { await (document as any).fonts.ready; } catch {} }
-
       const imgs = Array.from(cloned.querySelectorAll('img'));
       await Promise.all(imgs.map(img => new Promise<void>((res) => {
         if (img.complete) return res();
@@ -114,35 +111,18 @@ async function handleGeneratePdf(
         img.onerror = () => res();
       })));
 
-      // Capturar
+      // Capturar como imagen
       const canvas = await html2canvas(cloned, {
         scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#ffffff',
         imageTimeout: 10000,
-        logging: false,
-        // Por si html2canvas hace DOM de trabajo: convertimos canvases ahí también
-        onclone: (doc) => {
-          const root = doc.getElementById(tempContainer.id)!;
-          root.querySelectorAll('canvas').forEach((c) => {
-            try {
-              const can = c as HTMLCanvasElement;
-              const img = doc.createElement('img');
-              img.src = can.toDataURL('image/png');
-              img.width  = can.width;
-              img.height = can.height;
-              (img.style as any).width  = `${can.width}px`;
-              (img.style as any).height = `${can.height}px`;
-              c.replaceWith(img);
-            } catch {}
-          });
-        }
       });
 
       const imgData = canvas.toDataURL('image/png', 1.0);
 
-      // Escala tipo "contain" al rectángulo imprimible
+      // Escalar proporcionalmente ("contain") sin cortar
       let targetW = maxW;
       let targetH = (canvas.height / canvas.width) * targetW;
       if (targetH > maxH) {
@@ -150,24 +130,16 @@ async function handleGeneratePdf(
         targetW = (canvas.width / canvas.height) * targetH;
       }
 
-      // 1 ticket por fila: si no entra, nueva página
+      // Nueva página si no entra el siguiente ticket
       if (yCursor + targetH > pageHeight - gutterY) {
         pdf.addPage();
         yCursor = gutterY;
       }
 
-      pdf.addImage(
-        imgData,
-        'PNG',
-        gutterX,   // x
-        yCursor,   // y
-        targetW,
-        targetH,
-        undefined,
-        'FAST'
-      );
+      // Agregar imagen centrada horizontalmente
+      const x = (pageWidth - targetW) / 2;
+      pdf.addImage(imgData, 'PNG', x, yCursor, targetW, targetH, undefined, 'FAST');
 
-      // Avanzar a la próxima fila
       yCursor += targetH + gutterY;
     }
 
@@ -385,6 +357,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     </div>
   );
 }
+
+    
 
     
 
