@@ -195,7 +195,16 @@ async function handleGeneratePdf(
   } catch (error) {
     console.error('\n═══════════════════════════════════');
     console.error('❌ ERROR FATAL EN GENERACIÓN DE PDF');
-    console.error(error);
+    console.error('═══════════════════════════════════');
+    
+    // Imprimir el mensaje del error
+    if (error instanceof Error) {
+      console.error('Mensaje:', error.message);
+      console.error('Stack:', error.stack);
+    } else {
+      console.error('Error:', JSON.stringify(error, null, 2));
+    }
+    
     console.error('═══════════════════════════════════\n');
     throw error;
   } finally {
