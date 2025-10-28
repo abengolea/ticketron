@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -72,10 +73,12 @@ body.pdf-generating > *:not(.pdf-capture-area) {
   width: 210mm !important;
   background-color: white !important;
   display: none; /* Hidden by default */
+  z-index: -1; /* Keep it out of the way */
 }
 
 body.pdf-generating .pdf-capture-area {
   display: block !important; /* Shown only during PDF generation */
+  z-index: 9999 !important; /* Bring to front */
 }
 
 /* By default, all pages inside capture area are hidden */
@@ -109,3 +112,5 @@ body.pdf-generating .pdf-capture-area {
     box-shadow: none !important;
   }
 }
+
+    
