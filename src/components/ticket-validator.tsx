@@ -178,7 +178,7 @@ export function TicketValidator() {
 
         {isScanning ? (
             <div className="space-y-2">
-                <div id={readerId} className="w-full rounded-md border aspect-video"></div>
+                <div id={readerId} className="w-full rounded-md border aspect-video bg-muted"></div>
                 <Button variant="outline" onClick={stopScanner} className="w-full">Cancelar Escaneo</Button>
             </div>
         ) : (
