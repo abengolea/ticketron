@@ -1,11 +1,10 @@
-
 "use client";
 
 import React, { useRef, createRef, useEffect, useState } from "react";
 import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
-import { downloadFile, base32Encode, createHmacSha256 } from "@/lib/utils";
+import { downloadFile } from "@/lib/utils";
 import { Download, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown, PlusCircle, Pencil } from "lucide-react";
 import {
   Dialog,
@@ -34,6 +33,10 @@ import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
 import { isValidDataURL, waitForImagesInContainer } from "@/lib/image-utils";
 
+const chunk = <T,>(arr: T[], size: number): T[][] =>
+  Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
+    arr.slice(i * size, i * size + size)
+  );
 
 async function handleGeneratePdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
@@ -50,9 +53,7 @@ async function handleGeneratePdf(
       format: 'a4',
     });
 
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    let processedTickets = 0;
+    const ticketChunks = chunk(ticketRefs, 8); 
 
     tempContainer = document.createElement('div');
     tempContainer.id = 'pdf-temp-container-' + Date.now();
@@ -61,26 +62,24 @@ async function handleGeneratePdf(
       position: fixed !important;
       top: 0 !important;
       left: 0 !important;
-      width: 800px !important;
-      min-height: 200px !important;
+      width: 210mm !important; 
+      height: 297mm !important;
       background-color: white !important;
-      z-index: 999999 !important;
-      padding: 40px !important;
-      display: block !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      overflow: visible !important;
+      z-index: -1 !important; 
+      visibility: hidden !important; 
+      overflow: hidden !important;
+      pointer-events: none !important;
     `;
     
     document.body.appendChild(tempContainer);
     console.log('✓ Contenedor temporal creado');
 
-    const ticketChunks = chunk(ticketRefs, 8); // 8 tickets per page
-
     for (let pageIndex = 0; pageIndex < ticketChunks.length; pageIndex++) {
         const pageTicketRefs = ticketChunks[pageIndex];
+        const pageId = `print-page-temp-${pageIndex}`;
 
         const pageElement = document.createElement('div');
+        pageElement.id = pageId;
         pageElement.className = "print-page bg-white shadow-none p-0 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm]";
 
         pageTicketRefs.forEach(ticketRef => {
@@ -95,15 +94,9 @@ async function handleGeneratePdf(
 
         tempContainer.innerHTML = '';
         tempContainer.appendChild(pageElement);
-
-        await new Promise(resolve => setTimeout(resolve, 500));
         
-        console.log(`📏 Verificando página ${pageIndex + 1}: ${pageElement.offsetWidth}x${pageElement.offsetHeight}`);
-        if (pageElement.offsetWidth === 0 || pageElement.offsetHeight === 0) {
-            console.warn(`⚠️ Página ${pageIndex + 1} tiene dimensiones cero. Saltando.`);
-            continue;
-        }
-
+        console.log(`📏 Verificando página ${pageIndex + 1}...`);
+        
         await waitForImagesInContainer(pageElement);
         await new Promise(resolve => setTimeout(resolve, 300));
         
@@ -117,37 +110,25 @@ async function handleGeneratePdf(
           imageTimeout: 15000,
         });
 
-        console.log(`✓ Canvas de página ${pageIndex + 1}: ${canvas.width}x${canvas.height}px`);
-
         const imgData = canvas.toDataURL('image/png', 1.0);
         if (!isValidDataURL(imgData)) {
            throw new Error(`Generated canvas for page ${pageIndex + 1} is invalid or empty.`);
         }
-        console.log(`✓ Imagen de página ${pageIndex + 1} generada`);
 
         if (pageIndex > 0) {
           pdf.addPage();
         }
 
         pdf.addImage(imgData, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
-        processedTickets += pageTicketRefs.length;
         console.log(`✅ Página ${pageIndex + 1} añadida al PDF`);
     }
 
-
-    if (processedTickets === 0) {
-      throw new Error('No se pudo procesar ningún ticket');
-    }
-
     const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
-    console.log(`💾 Guardando: ${fileName}`);
     pdf.save(fileName);
-    
-    console.log(`✅ PDF generado: ${processedTickets} tickets`);
 
   } catch (error) {
     console.error('❌ Error fatal durante la generación del PDF:', error);
-    throw error; // Re-lanza el error para que el componente lo capture
+    throw error;
   } finally {
     if (tempContainer && tempContainer.parentNode) {
       tempContainer.parentNode.removeChild(tempContainer);
@@ -155,13 +136,6 @@ async function handleGeneratePdf(
     }
   }
 }
-
-
-// Helper to chunk array
-const chunk = <T,>(arr: T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
-    arr.slice(i * size, i * size + size)
-  );
 
 type TicketPreviewProps = {
   result: GenerationResult;
@@ -618,21 +592,23 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
         )}
 
       <div className="printable-area space-y-4">
-        {tickets.map((ticket, index) => (
-          <div key={ticket.ticketId} ref={ticketRefs[index]}>
-            <TicketCard
-              eventName={eventParams.event_name}
-              dateTime={eventParams.date_time}
-              venue={eventParams.venue}
-              ticketNumber={ticket.ticketNumber}
-              qrPayload={ticket.qrPayload}
-              shortCode={ticket.shortCode}
-            />
-          </div>
+        {chunk(tickets, eventParams.tickets_per_page).map((pageTickets, pageIndex) => (
+            <div key={pageIndex} className="print-page bg-white shadow-lg p-5 grid grid-cols-2 grid-rows-4 gap-0 w-[210mm] h-[297mm] mx-auto my-4">
+              {pageTickets.map((ticket) => (
+                <div key={ticket.ticketId} ref={ticketRefs[ticket.ticketNumber - 1]} className="flex items-center justify-center">
+                    <TicketCard
+                    eventName={eventParams.event_name}
+                    dateTime={eventParams.date_time}
+                    venue={eventParams.venue}
+                    ticketNumber={ticket.ticketNumber}
+                    qrPayload={ticket.qrPayload}
+                    shortCode={ticket.shortCode}
+                    />
+                </div>
+              ))}
+            </div>
         ))}
       </div>
     </div>
   );
 }
-
-    
