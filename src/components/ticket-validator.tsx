@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -9,58 +10,50 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle, Camera } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Html5Qrcode } from 'html5-qrcode';
+import { type Html5Qrcode } from 'html5-qrcode';
 import { createHmacSha256 } from '@/lib/utils';
+import { useLocalStorage } from '@/hooks/use-local-storage';
 
 type ValidationResult = {
   status: 'valid' | 'invalid' | 'redeemed';
   message: string;
 };
 
+const readerId = "qr-reader-offline";
+
 export function TicketValidator() {
   const [secretKey, setSecretKey] = useState('');
   const [qrPayload, setQrPayload] = useState('');
-  const [redeemedTickets, setRedeemedTickets] = useState<Set<string>>(new Set());
+  const [redeemedTickets, setRedeemedTickets] = useLocalStorage<string[]>('redeemedTickets', []);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const readerId = "qr-reader";
 
   const { toast } = useToast();
+  
+  const redeemedTicketsSet = new Set(redeemedTickets);
 
   useEffect(() => {
-    // This effect now ONLY runs on the client.
-    try {
-      const storedRedeemed = localStorage.getItem('redeemedTickets');
-      if (storedRedeemed) {
-        setRedeemedTickets(new Set(JSON.parse(storedRedeemed)));
-      }
-    } catch (error) {
-        console.error("No se pudieron parsear los tickets canjeados desde localStorage", error);
-        localStorage.removeItem('redeemedTickets');
-    }
-
+    // La función de limpieza se encarga de detener el escáner si el componente se desmonta.
     return () => {
-      // Ensure scannerRef is checked before trying to stop
       if (scannerRef.current && scannerRef.current.isScanning) {
         scannerRef.current.stop().catch(err => {
-          console.log("Error al detener el escáner offline en cleanup:", err);
+          console.error("Error al detener el escáner offline en cleanup:", err);
         });
       }
     };
-  }, []); // Empty dependency array ensures it runs once on mount (client-side)
+  }, []); // Array vacío para que solo se ejecute al montar y desmontar.
 
   const stopScanner = () => {
-    const scanner = scannerRef.current;
-    if (scanner && scanner.isScanning) {
-      scanner.stop()
+    if (scannerRef.current && scannerRef.current.isScanning) {
+      scannerRef.current.stop()
         .then(() => setIsScanning(false))
         .catch(err => {
           console.error("Error al detener el escáner offline:", err);
           setIsScanning(false);
         });
     } else {
-        setIsScanning(false);
+      setIsScanning(false);
     }
   };
 
@@ -86,7 +79,7 @@ export function TicketValidator() {
         return;
       }
       
-      if (redeemedTickets.has(tid)) {
+      if (redeemedTicketsSet.has(tid)) {
         setValidationResult({ status: 'redeemed', message: `El ticket ${tid.substring(0,8)}... ya ha sido canjeado.` });
         return;
       }
@@ -96,9 +89,8 @@ export function TicketValidator() {
 
       if (expectedSig === sig) {
         setValidationResult({ status: 'valid', message: `El ticket ${tid.substring(0,8)}... es válido para ingresar.` });
-        const newRedeemed = new Set(redeemedTickets).add(tid);
+        const newRedeemed = [...redeemedTickets, tid];
         setRedeemedTickets(newRedeemed);
-        localStorage.setItem('redeemedTickets', JSON.stringify(Array.from(newRedeemed)));
       } else {
         setValidationResult({ status: 'invalid', message: 'Firma inválida. El ticket es una falsificación o la clave es incorrecta.' });
       }
@@ -110,11 +102,13 @@ export function TicketValidator() {
   };
 
   const startScanner = async () => {
+    setIsScanning(true);
+    setValidationResult(null);
+
+    // Importación dinámica y creación bajo demanda.
+    const { Html5Qrcode } = await import('html5-qrcode');
     if (!scannerRef.current) {
-        scannerRef.current = new Html5Qrcode(readerId, {
-            verbose: false,
-            useBarCodeDetectorIfSupported: true,
-        });
+        scannerRef.current = new Html5Qrcode(readerId, false);
     }
     const scanner = scannerRef.current;
     
@@ -122,29 +116,26 @@ export function TicketValidator() {
         return;
     }
 
-    setIsScanning(true);
-    setValidationResult(null);
-
     try {
         await scanner.start(
             { facingMode: "environment" },
-            {
-                fps: 10,
-                qrbox: { width: 250, height: 250 }
-            },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
             async (decodedText) => {
                 setQrPayload(decodedText);
                 await handleValidate(decodedText);
             },
-            (errorMessage) => {
-                // ignore errors
-            }
+            (errorMessage) => { /* ignore */ }
         )
     } catch (err: any) {
         toast({ variant: 'destructive', title: 'Error de Cámara', description: "No se pudo obtener permisos de cámara. Por favor, permite el acceso a la cámara." });
         setIsScanning(false);
     }
   };
+  
+  const clearRedeemed = () => {
+    setRedeemedTickets([]);
+    toast({ title: "Lista de canjeados limpiada." });
+  }
 
   return (
     <Card>
@@ -207,14 +198,12 @@ export function TicketValidator() {
           <Button onClick={() => handleValidate(qrPayload)} className='w-full' disabled={isScanning}>Validar Ticket</Button>
         </div>
         <div className="text-xs text-muted-foreground flex items-center gap-4 bg-muted p-3 rounded-lg">
-            <p>Tickets canjeados: <span className="font-bold">{redeemedTickets.size}</span></p>
-            <Button variant="outline" size="sm" className="ml-auto" onClick={() => {
-                setRedeemedTickets(new Set());
-                localStorage.removeItem('redeemedTickets');
-                toast({ title: "Lista de canjeados limpiada." });
-            }}>Limpiar Lista</Button>
+            <p>Tickets canjeados: <span className="font-bold">{redeemedTickets.length}</span></p>
+            <Button variant="outline" size="sm" className="ml-auto" onClick={clearRedeemed}>Limpiar Lista</Button>
         </div>
       </CardFooter>
     </Card>
   );
 }
+
+    

@@ -3,12 +3,12 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Button } from './ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent, CardDescription, CardHeader } from './ui/card';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, XCircle, AlertTriangle, Camera, Loader2, KeyRound, AlertCircle } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import { type Html5Qrcode } from 'html5-qrcode';
 import { useFirestore } from '@/firebase';
 import { doc, runTransaction } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,41 +21,36 @@ type ValidationResult = {
   message: string;
 };
 
+const readerId = "qr-reader-online";
+
 export function TicketValidatorOnline() {
   const [isScanning, setIsScanning] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const readerId = "qr-reader-online";
 
   const { toast } = useToast();
   const firestore = useFirestore();
 
   useEffect(() => {
-    // Initialize the scanner instance on component mount, only on the client side
-    if (typeof window !== 'undefined' && !scannerRef.current) {
-        scannerRef.current = new Html5Qrcode(readerId, false);
-    }
-    const scanner = scannerRef.current;
-
-    // Cleanup function to stop the scanner when the component unmounts
+    // El useEffect ahora está vacío, la inicialización se hace bajo demanda.
+    // La función de limpieza se encarga de detener el escáner si el componente se desmonta.
     return () => {
-      if (scanner && scanner.isScanning) {
-        scanner.stop().catch(err => {
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch(err => {
           console.error("Error al detener el escáner online en cleanup:", err);
         });
       }
     };
-  }, []);
+  }, []); // El array vacío asegura que la limpieza se ejecute solo al desmontar.
 
   const stopScanner = () => {
-    const scanner = scannerRef.current;
-    if (scanner && scanner.isScanning) {
-      scanner.stop()
+    if (scannerRef.current && scannerRef.current.isScanning) {
+      scannerRef.current.stop()
         .then(() => setIsScanning(false))
         .catch(err => {
           console.error("Error al detener el escáner online:", err);
-          setIsScanning(false); // Force state update even on error
+          setIsScanning(false);
         });
     } else {
         setIsScanning(false);
@@ -123,18 +118,19 @@ export function TicketValidatorOnline() {
   };
 
   const startScanner = async () => {
-    const scanner = scannerRef.current;
-    if (!scanner) {
-        toast({ variant: 'destructive', title: 'Error de Escáner', description: 'La instancia del escáner no está lista.' });
-        return;
+    setIsScanning(true);
+    setValidationResult(null);
+    
+    // Importación dinámica y creación de la instancia solo cuando se necesita.
+    const { Html5Qrcode } = await import('html5-qrcode');
+    if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(readerId, false);
     }
+    const scanner = scannerRef.current;
     
     if (scanner.isScanning) {
         return;
     }
-    
-    setIsScanning(true);
-    setValidationResult(null);
     
     try {
         await scanner.start(
@@ -203,3 +199,4 @@ export function TicketValidatorOnline() {
   );
 }
 
+    
