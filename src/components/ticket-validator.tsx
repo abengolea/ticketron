@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -30,7 +29,6 @@ export function TicketValidator() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Load redeemed tickets from local storage on mount
     try {
       const storedRedeemed = localStorage.getItem('redeemedTickets');
       if (storedRedeemed) {
@@ -41,20 +39,9 @@ export function TicketValidator() {
         localStorage.removeItem('redeemedTickets');
     }
 
-    // Initialize scanner instance
-    if (!scannerRef.current) {
-        scannerRef.current = new Html5Qrcode(readerId, {
-            verbose: false,
-            useBarCodeDetectorIfSupported: true,
-        });
-    }
-    const scanner = scannerRef.current;
-
-    // Cleanup function to stop the scanner on unmount
     return () => {
-      if (scanner && scanner.isScanning) {
-        scanner.stop().catch(err => {
-          // Errors on stop are common if the camera is already closed, so we can often ignore them.
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch(err => {
           console.log("Error al detener el escáner offline en cleanup:", err);
         });
       }
@@ -68,7 +55,7 @@ export function TicketValidator() {
         .then(() => setIsScanning(false))
         .catch(err => {
           console.error("Error al detener el escáner offline:", err);
-          setIsScanning(false); // Force state update
+          setIsScanning(false);
         });
     } else {
         setIsScanning(false);
@@ -121,12 +108,14 @@ export function TicketValidator() {
   };
 
   const startScanner = async () => {
-    const scanner = scannerRef.current;
-    if (!scanner) {
-        toast({ variant: 'destructive', title: 'Error de Escáner', description: 'La instancia del escáner no está lista.' });
-        return;
+    if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(readerId, {
+            verbose: false,
+            useBarCodeDetectorIfSupported: true,
+        });
     }
-
+    const scanner = scannerRef.current;
+    
     if (scanner.isScanning) {
         return;
     }
