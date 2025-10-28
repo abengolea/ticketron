@@ -40,178 +40,96 @@ async function handleGeneratePdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string,
 ): Promise<void> {
-  console.log('🎫 Iniciando generación de PDF...');
-  console.log(`📊 Total de tickets: ${ticketRefs.length}`);
-  
-  let tempContainer: HTMLDivElement | null = null;
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const pageWidth  = pdf.internal.pageSize.getWidth();   // 210mm
+  const pageHeight = pdf.internal.pageSize.getHeight();  // 297mm
+
+  // <-- NUEVO: separaciones entre tickets
+  const gutterX = 6;   // mm
+  const gutterY = 8;   // mm
+  const cols = 2, rows = 4;
+
+  const ticketWidth  = (pageWidth  - (cols + 1) * gutterX) / cols;
+  const ticketHeight = (pageHeight - (rows + 1) * gutterY) / rows;
+
+  const ticketsPerPage = cols * rows;
+  const ticketChunks = chunk(ticketRefs, ticketsPerPage);
+
+  // contenedor temporal
+  let tempContainer: HTMLDivElement | null = document.createElement('div');
+  tempContainer.style.cssText = `
+    position: fixed; top: 0; left: 0;
+    width: 420px; height: 300px; /* proporción cercana a tu card */
+    background: white; z-index: 999999;
+    display: flex; align-items: center; justify-content: center;
+    padding: 10px; visibility: hidden; opacity: 0;
+  `;
+  document.body.appendChild(tempContainer);
 
   try {
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    });
+    for (let p = 0; p < ticketChunks.length; p++) {
+      if (p > 0) pdf.addPage();
+      const pageTickets = ticketChunks[p];
 
-    const pageWidth = pdf.internal.pageSize.getWidth(); // 210mm
-    const pageHeight = pdf.internal.pageSize.getHeight(); // 297mm
+      for (let i = 0; i < pageTickets.length; i++) {
+        const ref = pageTickets[i];
+        if (!ref.current) continue;
 
-    // Dimensiones de cada ticket en el PDF (2 columnas x 4 filas)
-    const ticketWidth = pageWidth / 2;
-    const ticketHeight = pageHeight / 4;
+        // clon
+        const cloned = ref.current.cloneNode(true) as HTMLDivElement;
+        cloned.style.cssText = `display:block;width:100%;`;
 
-    // Dividir en páginas de 8 tickets
-    const ticketsPerPage = 8;
-    const ticketChunks = chunk(ticketRefs, ticketsPerPage);
-    console.log(`📄 Total de páginas: ${ticketChunks.length}`);
+        // <-- CLAVE: convertir canvases (QR) a imágenes antes de capturar
+        cloned.querySelectorAll('canvas').forEach((c) => {
+          const can = c as HTMLCanvasElement;
+          try {
+            const img = document.createElement('img');
+            img.src = can.toDataURL('image/png');      // copia el dibujo del canvas
+            img.width  = can.width;
+            img.height = can.height;
+            img.style.width  = `${can.width}px`;
+            img.style.height = `${can.height}px`;
+            can.replaceWith(img);
+          } catch { /* si falla, dejamos el canvas */ }
+        });
 
-    // Crear contenedor temporal PEQUEÑO (solo para 1 ticket a la vez)
-    tempContainer = document.createElement('div');
-    tempContainer.id = 'pdf-temp-container-' + Date.now();
-    
-    tempContainer.style.cssText = `
-      position: fixed !important;
-      top: 0 !important;
-      left: 0 !important;
-      width: 400px !important;
-      height: 280px !important;
-      background: white !important;
-      z-index: 999999 !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      overflow: hidden !important;
-      padding: 10px !important;
-    `;
-    
-    document.body.appendChild(tempContainer);
-    console.log('✓ Contenedor temporal creado');
+        tempContainer.innerHTML = '';
+        tempContainer.appendChild(cloned);
 
-    // Procesar cada página
-    for (let pageIndex = 0; pageIndex < ticketChunks.length; pageIndex++) {
-      console.log(`\n📄 Página ${pageIndex + 1}/${ticketChunks.length}`);
-      
-      const pageTickets = ticketChunks[pageIndex];
+        // esperar imágenes del clon
+        const imgs = Array.from(cloned.querySelectorAll('img'));
+        await Promise.all(imgs.map(img => new Promise<void>((res, rej) => {
+          if (img.complete) return res();
+          img.onload = () => res(); img.onerror = () => res(); // no frenamos por error
+        })));
 
-      // Añadir nueva página si no es la primera
-      if (pageIndex > 0) {
-        pdf.addPage();
+        // captura del clon
+        const canvas = await html2canvas(cloned, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+          imageTimeout: 10000,
+        });
+
+        const imgData = canvas.toDataURL('image/png', 1.0);
+
+        // posición 2×4 con gutter
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const x = gutterX + col * (ticketWidth + gutterX);
+        const y = gutterY + row * (ticketHeight + gutterY);
+
+        pdf.addImage(imgData, 'PNG', x, y, ticketWidth, ticketHeight, undefined, 'FAST');
       }
-
-      // Procesar cada ticket de esta página individualmente
-      for (let ticketIndexInPage = 0; ticketIndexInPage < pageTickets.length; ticketIndexInPage++) {
-        const ticketRef = pageTickets[ticketIndexInPage];
-        
-        if (!ticketRef.current) {
-          console.warn(`  ⚠ Ticket ${ticketIndexInPage} es null, saltando...`);
-          continue;
-        }
-
-        const globalTicketIndex = pageIndex * ticketsPerPage + ticketIndexInPage;
-        console.log(`  📋 Procesando ticket ${globalTicketIndex + 1}/${ticketRefs.length}`);
-
-        try {
-          // Clonar el ticket
-          const clonedTicket = ticketRef.current.cloneNode(true) as HTMLDivElement;
-          
-          clonedTicket.style.cssText = `
-            display: block !important;
-            width: 100% !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-          `;
-
-          // Limpiar contenedor y añadir ticket
-          tempContainer.innerHTML = '';
-          tempContainer.appendChild(clonedTicket);
-
-          // Esperar render
-          await new Promise(resolve => setTimeout(resolve, 300));
-
-          // Esperar imágenes
-          const images = clonedTicket.querySelectorAll('img');
-          if (images.length > 0) {
-            await waitForImagesInContainer(clonedTicket);
-            await new Promise(resolve => setTimeout(resolve, 200));
-          }
-
-          // Verificar dimensiones
-          if (clonedTicket.offsetWidth === 0 || clonedTicket.offsetHeight === 0) {
-            console.warn(`  ⚠ Ticket tiene dimensiones cero, saltando...`);
-            continue;
-          }
-
-          // Capturar este ticket individual
-          const canvas = await html2canvas(clonedTicket, {
-            scale: 2,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: '#ffffff',
-            logging: false,
-            imageTimeout: 10000,
-          });
-
-          if (canvas.width === 0 || canvas.height === 0) {
-            console.warn(`  ⚠ Canvas tiene dimensiones cero, saltando ticket...`);
-            continue;
-          }
-
-          // Convertir a imagen
-          const imgData = canvas.toDataURL('image/png', 1.0);
-
-          if (!imgData || imgData.length < 1000) {
-            console.warn(`  ⚠ Imagen inválida, saltando ticket...`);
-            continue;
-          }
-
-          // Calcular posición en el grid (2 columnas x 4 filas)
-          const col = ticketIndexInPage % 2;
-          const row = Math.floor(ticketIndexInPage / 2);
-          
-          const x = col * ticketWidth;
-          const y = row * ticketHeight;
-
-          // Añadir al PDF en su posición
-          pdf.addImage(
-            imgData,
-            'PNG',
-            x,
-            y,
-            ticketWidth,
-            ticketHeight,
-            `ticket-${globalTicketIndex}`,
-            'FAST'
-          );
-
-          console.log(`    ✓ Ticket añadido en posición (${col}, ${row})`);
-
-        } catch (ticketError) {
-          console.error(`  ❌ Error en ticket ${globalTicketIndex + 1}:`, ticketError);
-          // Continuar con el siguiente ticket
-          continue;
-        }
-      }
-
-      console.log(`  ✅ Página ${pageIndex + 1} completada`);
     }
 
-    // Guardar PDF
     const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
-    console.log(`\n💾 Guardando: ${fileName}`);
     pdf.save(fileName);
-    
-    console.log(`✅ PDF generado exitosamente\n`);
-
-  } catch (error) {
-    console.error('\n❌ ERROR FATAL');
-    console.error('Mensaje:', error instanceof Error ? error.message : String(error));
-    throw error;
   } finally {
-    if (tempContainer && tempContainer.parentNode) {
-      tempContainer.parentNode.removeChild(tempContainer);
-      console.log('✓ Contenedor eliminado\n');
-    }
+    if (tempContainer?.parentNode) tempContainer.parentNode.removeChild(tempContainer);
   }
 }
 
