@@ -1,7 +1,5 @@
 
 import Image from 'next/image';
-import { Card, CardContent } from './ui/card';
-import { Separator } from './ui/separator';
 
 type TicketCardProps = {
   eventName: string;
@@ -14,58 +12,51 @@ type TicketCardProps = {
 
 export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload, shortCode }: TicketCardProps) {
   const formattedTicketNumber = `#${String(ticketNumber).padStart(4, '0')}`;
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrPayload)}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrPayload)}&qzone=1&margin=0`;
 
   return (
-    <div className="ticket-card w-[105mm] h-[74mm] flex flex-col p-4 bg-white text-black shadow-lg border-dashed border-gray-300 border relative">
-      {/* Main Content */}
-      <div className="flex-grow flex items-center gap-4">
-        {/* QR Code Section */}
-        <div className="flex flex-col items-center justify-center gap-1 w-2/5">
+    <div className="ticket-card w-[140mm] h-[65mm] flex bg-gray-900 text-white shadow-lg rounded-xl overflow-hidden">
+      
+      {/* Parte Izquierda - Información */}
+      <div className="w-3/4 p-6 flex flex-col justify-between bg-gradient-to-br from-pink-500 via-purple-600 to-indigo-700">
+        <div>
+          <p className="text-sm opacity-80">Entrada General</p>
+          <h2 className="text-4xl font-extrabold text-white leading-tight tracking-tighter mt-1">{eventName}</h2>
+        </div>
+        
+        <div className="flex justify-between items-end">
+          <div>
+            <p className="text-xs opacity-80 font-semibold">Fecha y Hora</p>
+            <p className="text-base font-bold">{dateTime}</p>
+            <p className="text-xs opacity-80 font-semibold mt-2">Lugar</p>
+            <p className="text-base font-bold">{venue}</p>
+          </div>
+           <div className="text-right">
+              <p className="text-xs opacity-80 font-semibold">Nº Ticket</p>
+              <p className="text-3xl font-bold tracking-tighter">{formattedTicketNumber}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Parte Derecha - QR y Código */}
+      <div className="w-1/4 bg-gray-100 flex flex-col items-center justify-center p-3">
+        <div className="w-full aspect-square p-2 bg-white rounded-lg shadow-inner">
             <Image
               src={qrUrl}
               alt={`Código QR para el ticket ${formattedTicketNumber}`}
-              width={150}
-              height={150}
-              className="rounded-md"
+              width={200}
+              height={200}
+              className="w-full h-full"
               crossOrigin="anonymous"
               unoptimized
               priority
             />
-            <p className="text-[9px] text-gray-600 text-center leading-tight mt-1">Escanear para validar la entrada</p>
         </div>
-        
-        {/* Separator */}
-        <div className="w-px h-full bg-gray-200 border-l border-dashed border-gray-300"></div>
-
-        {/* Info Section */}
-        <div className="flex-grow flex flex-col justify-between w-3/5 pl-2">
-          <div className="text-right">
-              <h2 className="text-xl font-headline text-black leading-tight">{eventName}</h2>
-              <p className="text-[10px] text-gray-700">{dateTime} @ {venue}</p>
-          </div>
-
-          <div className="flex items-end justify-between gap-2 mt-4">
-              <div className="text-left">
-                  <p className="text-[10px] text-gray-600">Nº Ticket</p>
-                  <p className="text-3xl font-bold tracking-tighter">{formattedTicketNumber}</p>
-              </div>
-              <div className="text-right">
-                  <p className="text-[10px] text-gray-600">Verificación</p>
-                  <p className="font-mono text-base tracking-widest">{shortCode}</p>
-              </div>
-          </div>
+        <div className="mt-3 text-center">
+            <p className="text-[9px] text-gray-500 font-semibold">Verificación Manual</p>
+            <p className="font-mono text-lg tracking-widest text-gray-800 font-bold">{shortCode}</p>
         </div>
-      </div>
-
-      {/* Footer Disclaimer */}
-      <div className="mt-2 pt-2 border-t border-dashed border-gray-300">
-        <p className="text-[7px] text-gray-500 text-center leading-tight">
-          Este ticket es válido para un único ingreso. Prohibida su reventa o duplicación.
-        </p>
       </div>
     </div>
   );
 }
-
-    
