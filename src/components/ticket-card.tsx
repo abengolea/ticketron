@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useQRAsBase64 } from '@/hooks/useQRAsBase64';
@@ -48,7 +49,7 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
         <div className="w-full aspect-square p-2 bg-white rounded-lg shadow-inner flex items-center justify-center">
             {qrLoading && <Skeleton className="w-full h-full" />}
             {qrError && <div className="text-xs text-red-500 text-center">Error QR</div>}
-            {!qrLoading && !qrError && (
+            {!qrLoading && !qrError && qrBase64 && (
                  <img
                     src={qrBase64}
                     alt={`Código QR para el ticket ${formattedTicketNumber}`}
@@ -65,3 +66,4 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
     </div>
   );
 }
+

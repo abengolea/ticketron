@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -19,7 +20,8 @@ export function useQRAsBase64(imageUrl: string) {
       setError(null);
       
       try {
-        const response = await fetch(imageUrl);
+        // Usamos un proxy si es necesario o le indicamos al fetch que puede manejar CORS.
+        const response = await fetch(imageUrl, { mode: 'cors' });
         
         if (!response.ok) {
           throw new Error(`Error al obtener el QR: ${response.statusText}`);
@@ -44,6 +46,7 @@ export function useQRAsBase64(imageUrl: string) {
 
       } catch (err) {
         if (isMounted) {
+          console.error("Error fetching QR code as Base64:", err);
           setError(err);
           setLoading(false);
         }
@@ -59,3 +62,4 @@ export function useQRAsBase64(imageUrl: string) {
 
   return { base64, loading, error };
 }
+
