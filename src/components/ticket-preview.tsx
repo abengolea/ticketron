@@ -23,7 +23,6 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip"
-import { useFirestore } from "@/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import jsPDF from "jspdf";
@@ -38,8 +37,9 @@ const chunk = <T,>(arr: T[], size: number): T[][] =>
 async function handleGeneratePdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string,
+  fileNameSuffix: string = ""
 ): Promise<void> {
-  console.log('🎫 Iniciando generación de PDF...');
+  console.log(`🎫 Iniciando generación de PDF para: ${eventName}${fileNameSuffix}`);
   
   let tempContainer: HTMLDivElement | null = null;
 
@@ -52,11 +52,9 @@ async function handleGeneratePdf(
 
     const ticketChunks = chunk(ticketRefs, 8); 
 
-    // CREAR CONTENEDOR TEMPORAL VISIBLE
     tempContainer = document.createElement('div');
     tempContainer.id = 'pdf-temp-container-' + Date.now();
     
-    // ✅ CAMBIO CRÍTICO: Contenedor VISIBLE durante la captura
     tempContainer.style.cssText = `
       position: fixed !important;
       top: 0 !important;
@@ -82,7 +80,6 @@ async function handleGeneratePdf(
         const pageTicketRefs = ticketChunks[pageIndex];
         const pageId = `print-page-temp-${pageIndex}`;
 
-        // Crear elemento de página
         const pageElement = document.createElement('div');
         pageElement.id = pageId;
         pageElement.style.cssText = `
@@ -98,12 +95,10 @@ async function handleGeneratePdf(
           position: relative !important;
         `;
 
-        // Clonar tickets en la página
         pageTicketRefs.forEach(ticketRef => {
             if (ticketRef.current) {
                 const clonedTicket = ticketRef.current.cloneNode(true) as HTMLDivElement;
                 
-                // Asegurar estilos del ticket clonado
                 clonedTicket.style.cssText = `
                   display: block !important;
                   visibility: visible !important;
@@ -125,21 +120,17 @@ async function handleGeneratePdf(
             }
         });
 
-        // Limpiar y añadir página al contenedor
         tempContainer.innerHTML = '';
         tempContainer.appendChild(pageElement);
         
         console.log(`⏳ Esperando render de página ${pageIndex + 1}...`);
         
-        // Esperar render del navegador
         await new Promise(resolve => setTimeout(resolve, 800));
         
-        // Esperar imágenes
         console.log(`🖼️ Esperando imágenes...`);
         await waitForImagesInContainer(pageElement);
         await new Promise(resolve => setTimeout(resolve, 300));
         
-        // Verificar dimensiones antes de capturar
         console.log(`📏 Dimensiones de la página:`, {
           width: pageElement.offsetWidth,
           height: pageElement.offsetHeight,
@@ -157,7 +148,7 @@ async function handleGeneratePdf(
           useCORS: true,
           allowTaint: true,
           backgroundColor: '#ffffff',
-          logging: true, // Activado para debug
+          logging: true,
           imageTimeout: 15000,
           width: pageElement.scrollWidth,
           height: pageElement.scrollHeight,
@@ -193,7 +184,8 @@ async function handleGeneratePdf(
         console.log(`✅ Página ${pageIndex + 1} añadida al PDF`);
     }
 
-    const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
+    const cleanEventName = eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const fileName = `${cleanEventName}_tickets${fileNameSuffix}.pdf`;
     console.log(`💾 Guardando PDF: ${fileName}`);
     pdf.save(fileName);
     
@@ -216,6 +208,8 @@ type TicketPreviewProps = {
   onEventUpdate?: (updatedParams: Partial<EventParameters>) => void;
 };
 
+const PDF_CHUNK_SIZE = 100;
+
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, secretKey, eventParams } = result;
   const { toast } = useToast();
@@ -228,7 +222,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const [isSaving, setIsSaving] = useState(!isRegeneration);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(isRegeneration);
-  const [isPrinting, setIsPrinting] = useState(false);
+  const [printingChunk, setPrintingChunk] = useState<number | null>(null);
   
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
   const [moreQuantity, setMoreQuantity] = useState(10);
@@ -256,23 +250,28 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     }
   }, [isRegeneration]);
 
-  const triggerPdfGeneration = async () => {
-    setIsPrinting(true);
+  const triggerPdfGeneration = async (chunkIndex: number, chunkSize: number) => {
+    setPrintingChunk(chunkIndex);
+    const start = chunkIndex * chunkSize;
+    const end = start + chunkSize;
+    const ticketChunkRefs = ticketRefs.slice(start, end);
+    const fileNameSuffix = `_${start + 1}-${Math.min(end, tickets.length)}`;
+
     try {
-      await handleGeneratePdf(ticketRefs, eventParams.event_name);
+      await handleGeneratePdf(ticketChunkRefs, eventParams.event_name, fileNameSuffix);
       toast({
         title: "PDF Generado",
-        description: "El PDF se ha descargado correctamente",
+        description: `El lote de tickets ${start + 1}-${end} se ha descargado.`,
       });
     } catch (error) {
-      console.error("Error generating PDF:", error);
+      console.error("Error generating PDF chunk:", error);
       toast({
-        title: "Error",
-        description: `No se pudo generar el PDF: ${error instanceof Error ? error.message : String(error)}`,
+        title: "Error de PDF",
+        description: `No se pudo generar el lote ${start + 1}-${end}: ${error instanceof Error ? error.message : String(error)}`,
         variant: "destructive",
       });
     } finally {
-      setIsPrinting(false);
+      setPrintingChunk(null);
     }
   };
 
@@ -370,6 +369,9 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
     downloadFile("README_VALIDACION.md", readmeContent.trim(), "text/markdown");
   };
 
+  const pdfChunks = Array.from({ length: Math.ceil(tickets.length / PDF_CHUNK_SIZE) }, (_, i) => i);
+
+
   return (
     <div className="w-full">
       <div className="bg-card/80 backdrop-blur-sm border rounded-lg p-4 mb-8 flex flex-wrap justify-between items-center gap-4 sticky top-[70px] z-40 no-print">
@@ -384,7 +386,6 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
              
             {isRegeneration && (
               <>
-                {/* Edit Event Dialog */}
                 <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
                     <DialogTrigger asChild>
                         <Button variant="outline">
@@ -422,7 +423,6 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
                     </DialogContent>
                 </Dialog>
 
-                {/* Generate More Tickets Dialog */}
                 <Dialog open={showGenerateMoreDialog} onOpenChange={setShowGenerateMoreDialog}>
                     <DialogTrigger asChild>
                         <Button>
@@ -462,10 +462,23 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
               </>
             )}
 
-            <Button onClick={triggerPdfGeneration} disabled={isPrinting}>
-                {isPrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
-                {isPrinting ? 'Generando...' : 'Descargar PDF'}
-            </Button>
+            {pdfChunks.length === 1 ? (
+                <Button onClick={() => triggerPdfGeneration(0, PDF_CHUNK_SIZE)} disabled={printingChunk !== null}>
+                    {printingChunk === 0 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+                    {printingChunk === 0 ? 'Generando...' : 'Descargar PDF'}
+                </Button>
+            ) : (
+              pdfChunks.map(chunkIndex => {
+                const start = chunkIndex * PDF_CHUNK_SIZE + 1;
+                const end = Math.min((chunkIndex + 1) * PDF_CHUNK_SIZE, tickets.length);
+                return (
+                  <Button key={chunkIndex} onClick={() => triggerPdfGeneration(chunkIndex, PDF_CHUNK_SIZE)} disabled={printingChunk !== null}>
+                    {printingChunk === chunkIndex ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+                    {printingChunk === chunkIndex ? 'Generando...' : `Tickets ${start}-${end}`}
+                  </Button>
+                )
+              })
+            )}
 
             <TooltipProvider>
                 <Tooltip>
