@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useRef, createRef } from "react";
+import React, { useRef, createRef, useEffect, useState } from "react";
 import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
@@ -26,14 +26,135 @@ import {
 } from "@/components/ui/tooltip"
 import { useFirestore } from "@/firebase";
 import { writeBatch, doc, serverTimestamp, runTransaction, collection, updateDoc, getDoc, FieldValue, increment } from "firebase/firestore";
-import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError } from "@/firebase/errors";
-import { isValidDataURL } from "@/lib/image-utils";
+import { isValidDataURL, waitForImagesInContainer } from "@/lib/image-utils";
+
+
+async function handleGeneratePdf(
+  ticketRefs: React.RefObject<HTMLDivElement>[],
+  eventName: string,
+): Promise<void> {
+  console.log('🎫 Iniciando generación de PDF...');
+  
+  let tempContainer: HTMLDivElement | null = null;
+
+  try {
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    let processedTickets = 0;
+
+    tempContainer = document.createElement('div');
+    tempContainer.id = 'pdf-temp-container-' + Date.now();
+    
+    tempContainer.style.cssText = `
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 800px !important;
+      min-height: 200px !important;
+      background-color: white !important;
+      z-index: 999999 !important;
+      padding: 40px !important;
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      overflow: visible !important;
+    `;
+    
+    document.body.appendChild(tempContainer);
+    console.log('✓ Contenedor temporal creado');
+
+    const ticketChunks = chunk(ticketRefs, 8); // 8 tickets per page
+
+    for (let pageIndex = 0; pageIndex < ticketChunks.length; pageIndex++) {
+        const pageTicketRefs = ticketChunks[pageIndex];
+
+        const pageElement = document.createElement('div');
+        pageElement.className = "print-page bg-white shadow-none p-0 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm]";
+
+        pageTicketRefs.forEach(ticketRef => {
+            if (ticketRef.current) {
+                const clonedTicket = ticketRef.current.cloneNode(true) as HTMLDivElement;
+                const wrapper = document.createElement('div');
+                wrapper.className = "flex items-center justify-center";
+                wrapper.appendChild(clonedTicket);
+                pageElement.appendChild(wrapper);
+            }
+        });
+
+        tempContainer.innerHTML = '';
+        tempContainer.appendChild(pageElement);
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        console.log(`📏 Verificando página ${pageIndex + 1}: ${pageElement.offsetWidth}x${pageElement.offsetHeight}`);
+        if (pageElement.offsetWidth === 0 || pageElement.offsetHeight === 0) {
+            console.warn(`⚠️ Página ${pageIndex + 1} tiene dimensiones cero. Saltando.`);
+            continue;
+        }
+
+        await waitForImagesInContainer(pageElement);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        console.log(`📸 Capturando página ${pageIndex + 1}...`);
+        const canvas = await html2canvas(pageElement, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+          imageTimeout: 15000,
+        });
+
+        console.log(`✓ Canvas de página ${pageIndex + 1}: ${canvas.width}x${canvas.height}px`);
+
+        const imgData = canvas.toDataURL('image/png', 1.0);
+        if (!isValidDataURL(imgData)) {
+           throw new Error(`Generated canvas for page ${pageIndex + 1} is invalid or empty.`);
+        }
+        console.log(`✓ Imagen de página ${pageIndex + 1} generada`);
+
+        if (pageIndex > 0) {
+          pdf.addPage();
+        }
+
+        pdf.addImage(imgData, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
+        processedTickets += pageTicketRefs.length;
+        console.log(`✅ Página ${pageIndex + 1} añadida al PDF`);
+    }
+
+
+    if (processedTickets === 0) {
+      throw new Error('No se pudo procesar ningún ticket');
+    }
+
+    const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
+    console.log(`💾 Guardando: ${fileName}`);
+    pdf.save(fileName);
+    
+    console.log(`✅ PDF generado: ${processedTickets} tickets`);
+
+  } catch (error) {
+    console.error('❌ Error fatal durante la generación del PDF:', error);
+    throw error; // Re-lanza el error para que el componente lo capture
+  } finally {
+    if (tempContainer && tempContainer.parentNode) {
+      tempContainer.parentNode.removeChild(tempContainer);
+      console.log('✓ Contenedor temporal eliminado');
+    }
+  }
+}
 
 
 // Helper to chunk array
@@ -47,154 +168,6 @@ type TicketPreviewProps = {
   isRegeneration?: boolean;
   onEventUpdate?: (updatedParams: Partial<EventParameters>) => void;
 };
-
-
-interface TicketRef {
-  current: HTMLDivElement | null;
-}
-
-async function waitForImages(element: HTMLElement): Promise<void> {
-  const images = Array.from(element.querySelectorAll('img'));
-  if (images.length === 0) {
-    return;
-  }
-
-  await Promise.all(
-    images.map((img, idx) => {
-      if (img.complete && img.naturalHeight !== 0) {
-        return Promise.resolve();
-      }
-      return new Promise<void>((resolve) => {
-        img.onload = () => resolve();
-        img.onerror = () => {
-          console.warn(`⚠️ Image ${idx} failed to load, continuing anyway.`);
-          resolve(); 
-        };
-        // Failsafe timeout
-        setTimeout(() => {
-          console.warn(`⏳ Timeout for image ${idx}.`);
-          resolve();
-        }, 10000);
-      });
-    })
-  );
-}
-
-export async function handleGeneratePdf(
-  ticketRefs: React.RefObject<HTMLDivElement>[],
-  eventName: string
-): Promise<void> {
-  console.log('🎫 Iniciando generación de PDF');
-  
-  let tempContainer: HTMLDivElement | null = null;
-
-  try {
-    const pdf = new jsPDF({
-      orientation: 'p',
-      unit: 'mm',
-      format: 'a4',
-    });
-
-    const ticketsPerPage = 8;
-    const ticketChunks = chunk(ticketRefs, ticketsPerPage);
-    let processedTickets = 0;
-
-    tempContainer = document.createElement('div');
-    tempContainer.id = 'pdf-temp-container-' + Date.now();
-    
-    tempContainer.style.cssText = `
-      position: fixed !important;
-      top: 0 !important;
-      left: 0 !important;
-      width: 210mm !important;
-      height: 297mm !important;
-      background-color: white !important;
-      z-index: -1 !important;
-      opacity: 0 !important;
-      pointer-events: none !important;
-    `;
-    
-    document.body.appendChild(tempContainer);
-    console.log('✓ Contenedor temporal creado');
-
-    for (let pageIndex = 0; pageIndex < ticketChunks.length; pageIndex++) {
-      const pageTicketRefs = ticketChunks[pageIndex];
-      console.log(`\n📄 Procesando página de PDF ${pageIndex + 1}/${ticketChunks.length}`);
-
-      const pageElement = document.createElement('div');
-      pageElement.className = "print-page bg-white shadow-none p-0 grid grid-cols-2 grid-rows-4 gap-0 relative w-[210mm] h-[297mm]";
-
-      pageTicketRefs.forEach(ticketRef => {
-        if (ticketRef.current) {
-          const clonedTicket = ticketRef.current.cloneNode(true) as HTMLDivElement;
-          const wrapper = document.createElement('div');
-          wrapper.className = "flex items-center justify-center";
-          wrapper.appendChild(clonedTicket);
-          pageElement.appendChild(wrapper);
-        }
-      });
-      
-      const emptySlots = ticketsPerPage - pageTicketRefs.length;
-      for (let i = 0; i < emptySlots; i++) {
-        pageElement.appendChild(document.createElement('div'));
-      }
-
-      tempContainer.innerHTML = '';
-      tempContainer.appendChild(pageElement);
-      
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      const rect = pageElement.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) {
-        console.error(`❌ ERROR: Página ${pageIndex + 1} tiene dimensiones cero. Saltando.`);
-        continue;
-      }
-
-      console.log(`⏳ Esperando imágenes en página ${pageIndex + 1}...`);
-      await waitForImages(pageElement);
-      console.log(`✓ Imágenes cargadas en página ${pageIndex + 1}.`);
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      const canvas = await html2canvas(pageElement, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: true,
-      });
-
-      const imgData = canvas.toDataURL('image/png', 1.0);
-      if (!isValidDataURL(imgData)) {
-        throw new Error(`Generated canvas for page ${pageIndex + 1} is invalid or empty.`);
-      }
-      
-      if (pageIndex > 0) {
-        pdf.addPage();
-      }
-      pdf.addImage(imgData, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
-      console.log(`✅ Página ${pageIndex + 1} añadida al PDF.`);
-      processedTickets += pageTicketRefs.length;
-    }
-
-
-    if (processedTickets === 0) {
-      throw new Error('No se pudo procesar ningún ticket');
-    }
-
-    const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
-    console.log('💾 Guardando:', fileName);
-    pdf.save(fileName);
-    
-    console.log(`✅ PDF GENERADO: ${processedTickets} tickets`);
-  } finally {
-    if (tempContainer && tempContainer.parentNode) {
-      tempContainer.parentNode.removeChild(tempContainer);
-      console.log('✓ Contenedor temporal eliminado');
-    }
-  }
-}
-
-
 
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, secretKey, eventParams } = result;
@@ -256,7 +229,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             description: `Tu archivo de tickets se ha descargado.`
         });
     } catch (error: any) {
-        console.error("Error fatal durante la generación de PDF:", error);
+        console.error("Fallo la generacion de PDF en el componente:", error);
         toast({
             variant: "destructive",
             title: "Error al Generar PDF",
@@ -434,27 +407,35 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const handleDownloadCsv = () => {
     const header = "ticket_number,ticket_id,event_id,version,sig,short_code,qr_payload,printed_sheet,position_in_sheet\n";
     const rows = tickets.map((ticket, index) => {
-      try {
-        const qrData = JSON.parse(ticket.qrPayload);
-        const sheetNumber = Math.floor(index / eventParams.tickets_per_page) + 1;
-        const position = (index % eventParams.tickets_per_page) + 1;
-        return `${ticket.ticketNumber},${qrData.tid},${qrData.eid},${qrData.v},${qrData.sig},${ticket.shortCode},"${ticket.qrPayload.replace(/"/g, '""')}",${sheetNumber},${position}`;
-      } catch (e) {
-        return "";
-      }
+        try {
+            const qrData = JSON.parse(ticket.qrPayload);
+            const sheetNumber = Math.floor(index / eventParams.tickets_per_page) + 1;
+            const position = (index % eventParams.tickets_per_page) + 1;
+            return `${ticket.ticketNumber},${qrData.tid},${qrData.eid},${qrData.v},${qrData.sig},${ticket.shortCode},"${ticket.qrPayload.replace(/"/g, '""')}",${sheetNumber},${position}`;
+        } catch (e) {
+            console.error('Error parsing QR payload for CSV', e);
+            return "";
+        }
     }).filter(Boolean);
     downloadFile("tickets.csv", header + rows.join("\n"), "text/csv");
   };
 
   const handleDownloadJson = () => {
-     const validTickets = tickets.reduce((acc, ticket) => {
-        try {
-            const qrData = JSON.parse(ticket.qrPayload);
-            acc[qrData.tid] = qrData.sig;
-        } catch(e) {}
-        return acc;
-     }, {} as Record<string, string>);
-    downloadFile("valid_tickets.json", JSON.stringify(validTickets, null, 2), "application/json");
+    try {
+      const validTickets = tickets.reduce((acc, ticket) => {
+          const qrData = JSON.parse(ticket.qrPayload);
+          acc[qrData.tid] = qrData.sig;
+          return acc;
+      }, {} as Record<string, string>);
+      downloadFile("valid_tickets.json", JSON.stringify(validTickets, null, 2), "application/json");
+    } catch(e) {
+      console.error('Error creating JSON file', e);
+      toast({
+        variant: "destructive",
+        title: "Error al Crear JSON",
+        description: "No se pudo generar el archivo JSON de tickets válidos."
+      });
+    }
   };
 
   const handleDownloadReadme = () => {
@@ -653,3 +634,5 @@ Usa el archivo \`tickets.csv\` para una búsqueda manual si todo lo demás falla
     </div>
   );
 }
+
+    
