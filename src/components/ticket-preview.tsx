@@ -131,7 +131,7 @@ type TicketPreviewProps = {
 };
 
 const PDF_CHUNK_SIZE = 100;
-const TICKETS_PER_PAGE = 4;
+const TICKETS_PER_PAGE = 8; // Changed from 4 to 8
 
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, eventParams } = result;
@@ -170,7 +170,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     setPrintingChunk(chunkIndex);
     
     const pageStart = Math.floor(chunkIndex * chunkSize / TICKETS_PER_PAGE);
-    const pageEnd = Math.ceil((chunkIndex + 1) * chunkSize / TICKETS_PER_PAGE);
+    const pageEnd = Math.ceil(((chunkIndex + 1) * chunkSize) / TICKETS_PER_PAGE);
     const relevantPageRefs = pageRefs.slice(pageStart, pageEnd);
 
     const startTicketNum = chunkIndex * chunkSize + 1;
@@ -332,8 +332,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       {/* This area is for VISIBLE preview of the first page */}
       <div className="visible-preview space-y-4 no-print">
         <p className="text-sm text-muted-foreground text-center">A continuación se muestra una vista previa de la primera página.</p>
-        <div className="print-page bg-white shadow-lg p-5 grid grid-cols-2 grid-rows-2 gap-0 w-[210mm] h-[148.5mm] mx-auto my-4">
-            {tickets.slice(0, 4).map((ticket) => (
+        <div className="print-page bg-white shadow-lg p-5 grid grid-cols-2 grid-rows-4 gap-0 w-[210mm] h-[297mm] mx-auto my-4">
+            {tickets.slice(0, 8).map((ticket) => (
               <div key={`preview-ticket-${ticket.ticketId}`} className="flex items-center justify-center">
                   <TicketCard
                   eventName={eventParams.event_name}
@@ -351,7 +351,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       {/* This area is for PDF generation, it's hidden off-screen */}
       <div className="pdf-capture-area">
         {ticketPages.map((pageOfTickets, pageIndex) => (
-           <div key={`capture-page-${pageIndex}`} ref={pageRefs[pageIndex]} className="print-page bg-white p-5 grid grid-cols-2 grid-rows-2 gap-0 w-[210mm] h-[297mm]">
+           <div key={`capture-page-${pageIndex}`} ref={pageRefs[pageIndex]} className="print-page bg-white p-5 grid grid-cols-2 grid-rows-4 gap-0 w-[210mm] h-[297mm]">
                {pageOfTickets.map(ticket => (
                   <div key={`capture-ticket-${ticket.ticketId}`} className="flex items-center justify-center">
                     <TicketCard
@@ -370,3 +370,4 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     </div>
   );
 }
+

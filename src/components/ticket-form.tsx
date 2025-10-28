@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -180,7 +181,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
 
   function onTestSubmit() {
     const values = form.getValues();
-    const testValues = { ...values, quantity: 10 };
+    const testValues = { ...values, quantity: 16 };
     
     const validation = formSchema.safeParse(testValues);
     if (!validation.success) {
@@ -326,7 +327,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
               </Alert>
             )}
             <div className="flex justify-end gap-4 w-full">
-                <Button type="button" variant="outline" onClick={onTestSubmit} disabled={isDisabled}>Generar 10 Tickets de Prueba</Button>
+                <Button type="button" variant="outline" onClick={onTestSubmit} disabled={isDisabled}>Generar 16 Tickets de Prueba</Button>
                 <Button type="submit" disabled={isDisabled}>Generar Tickets</Button>
             </div>
           </CardFooter>

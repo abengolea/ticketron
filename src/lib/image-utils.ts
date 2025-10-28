@@ -22,9 +22,9 @@ export async function waitForImagesInContainer(container: HTMLElement): Promise<
         resolve();
       };
       
-      img.onerror = () => {
+      img.onerror = (err) => {
         clearTimeout(timeoutId);
-        console.warn(`Failed to load image: ${img.src}`);
+        console.warn(`Failed to load image: ${img.src}`, err);
         resolve(); // Resolve anyway
       };
 
