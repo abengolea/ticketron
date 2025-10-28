@@ -6,14 +6,19 @@ export async function GET(request: NextRequest) {
   const imageUrl = searchParams.get('url');
 
   if (!imageUrl) {
-    return new NextResponse('Missing image URL', { status: 400 });
+    return new NextResponse(JSON.stringify({ error: 'Missing image URL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
   }
 
   // Validate that the URL is from qrserver.com to prevent abuse
-  const urlObject = new URL(imageUrl);
-  if (urlObject.hostname !== 'api.qrserver.com') {
-    return new NextResponse('Invalid image source', { status: 403 });
+  try {
+    const urlObject = new URL(imageUrl);
+    if (urlObject.hostname !== 'api.qrserver.com') {
+      return new NextResponse(JSON.stringify({ error: 'Invalid image source' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+    }
+  } catch (e) {
+    return new NextResponse(JSON.stringify({ error: 'Invalid URL format' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
   }
+
 
   try {
     const response = await fetch(imageUrl);
@@ -33,6 +38,6 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('QR Proxy Error:', message);
-    return new NextResponse(JSON.stringify({ error: 'Failed to fetch QR code', details: message }), { status: 500 });
+    return new NextResponse(JSON.stringify({ error: 'Failed to fetch QR code', details: message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }

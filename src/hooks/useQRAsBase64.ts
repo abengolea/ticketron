@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 
 // Hook para convertir una URL de imagen a un data URI base64 usando un proxy local
-export function useQRAsBase64(imageUrl: string) {
+export function useQRAsBase64(imageUrl: string | null) {
   const [base64, setBase64] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<any>(null);
@@ -13,7 +13,11 @@ export function useQRAsBase64(imageUrl: string) {
     let isMounted = true;
 
     async function fetchAsBase64() {
-      if (!imageUrl) return;
+      if (!imageUrl) {
+        setLoading(false);
+        setError(new Error("Image URL is null or empty."));
+        return;
+      }
 
       setLoading(true);
       setError(null);
@@ -24,22 +28,28 @@ export function useQRAsBase64(imageUrl: string) {
         const response = await fetch(proxyUrl);
         
         if (!response.ok) {
-          const errorData = await response.json();
+          const errorData = await response.json().catch(() => ({ details: response.statusText }));
           throw new Error(`Error from QR proxy: ${errorData.details || response.statusText}`);
         }
 
         const data = await response.json();
 
         if (isMounted) {
-            setBase64(data.base64);
-            setLoading(false);
+            if (data.base64) {
+                setBase64(data.base64);
+            } else {
+                throw new Error("Proxy response did not contain base64 data.");
+            }
         }
 
       } catch (err) {
         if (isMounted) {
           console.error("Error fetching QR code via proxy:", err);
           setError(err);
-          setLoading(false);
+        }
+      } finally {
+        if (isMounted) {
+            setLoading(false);
         }
       }
     }
