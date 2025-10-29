@@ -1,118 +1,123 @@
 
 "use client";
 
-import React, { useRef } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
-import { Download, ArrowLeft, PlusCircle, Pencil } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Tooltip,
-  TooltipProvider,
-  TooltipTrigger,
-  TooltipContent,
-} from "@/components/ui/tooltip";
+import { Download, ArrowLeft, Loader2, FileDown } from "lucide-react";
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/utils";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
-// Imprime en NUEVA VENTANA usando Blob URL + copia de CSS del documento
-export async function printWithBlobURL(containerRef: React.RefObject<HTMLElement>) {
-  const src = containerRef.current;
-  if (!src) {
-    alert('No hay contenido para imprimir');
-    return;
-  }
+async function handleGeneratePdf(
+  ticketRefs: React.RefObject<HTMLDivElement>[],
+  eventName: string,
+): Promise<void> {
 
-  // Esperar imágenes del DOM original (para no imprimir vacíos)
-  const imgs = Array.from(src.querySelectorAll('img'));
-  await Promise.all(imgs.map(img => new Promise<void>(res => {
-    if (img.complete) return res();
-    img.onload = () => res();
-    img.onerror = () => res();
-  })));
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-  const inner = src.innerHTML;
+  const pageWidth  = pdf.internal.pageSize.getWidth();    // 210
+  const pageHeight = pdf.internal.pageSize.getHeight();   // 297
 
-  // Copiar CSS de la página actual (Tailwind/Next)
-  const headPieces: string[] = [];
+  const gutterX = 10;   // márgenes laterales
+  const gutterY = 10;   // separación vertical entre tarjetas
+  const SAFE = 0.8;     // ? colchón anti-corte en mm (~3 px)
 
-  // <link rel="stylesheet" ...>
-  document.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
-    const href = (link as HTMLLinkElement).href; // href absoluto
-    if (href) headPieces.push(`<link rel="stylesheet" href="${href}">`);
-  });
+  const ticketWidthMM = pageWidth - 2 * gutterX;
 
-  // <style> inline
-  document.querySelectorAll('style').forEach(style => {
-    headPieces.push(`<style>${style.innerHTML}</style>`);
-  });
+  // contenedor temporal para capturas
+  const temp = document.createElement('div');
+  temp.style.cssText = `
+    position: fixed; left: -10000px; top: 0;
+    width: 420px; height: 300px;
+    background: #fff; z-index: 999999;
+    display: flex; align-items: center; justify-content: center;
+    padding: 10px;
+  `;
+  document.body.appendChild(temp);
 
-  // CSS mínimo para A4 y evitar cortes
-  headPieces.push(`
-    <style>
-      @page { size: A4; margin: 12mm; }
-      @media print {
-        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .ticket-print { width: 100%; break-inside: avoid; page-break-inside: avoid; margin: 0 0 12mm 0; }
-        .ticket-card { box-shadow: none !important; border-radius: 0 !important; }
+  try {
+    let y = gutterY;
+
+    for (let i = 0; i < ticketRefs.length; i++) {
+      const ref = ticketRefs[i];
+      if (!ref.current) continue;
+
+      // ? clonar y preparar
+      const cloned = ref.current.cloneNode(true) as HTMLDivElement;
+      cloned.style.cssText = `display:block;width:100%;padding-bottom:8px;`; // ? colchón visual
+
+      // convertir QR <canvas> ? <img> (si quedara alguno)
+      cloned.querySelectorAll('canvas').forEach((c) => {
+        try {
+          const can = c as HTMLCanvasElement;
+          const img = document.createElement('img');
+          img.src = can.toDataURL('image/png');
+          img.style.width = `${can.width}px`;
+          img.style.height = `${can.height}px`;
+          can.replaceWith(img);
+        } catch {}
+      });
+
+      temp.innerHTML = '';
+      temp.appendChild(cloned);
+
+      // esperar imágenes del clon
+      const imgs = [...cloned.querySelectorAll('img')];
+      await Promise.all(imgs.map(img => new Promise<void>(res => {
+        if (img.complete) return res();
+        img.onload = () => res();
+        img.onerror = () => res();
+      })));
+
+      // ?? capturar
+      const canvas = await html2canvas(cloned, {
+        scale: Math.min(2, window.devicePixelRatio || 1),
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        imageTimeout: 10000,
+        logging: false,
+      });
+
+      const imgData = canvas.toDataURL('image/png', 1.0);
+
+      // mantener proporción
+      const imgHeightMM = (canvas.height / canvas.width) * ticketWidthMM;
+
+      // ?? SALTO con margen de seguridad
+      const contentBottom = pageHeight - gutterY;
+      if (y + imgHeightMM + SAFE > contentBottom) {
+        pdf.addPage();
+        y = gutterY;
       }
-      html,body{margin:0;padding:0;background:#fff;}
-    </style>
-  `);
 
-  // Documento HTML completo que se auto-imprime
-  const htmlDoc = `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<base href="${window.location.origin}">
-${headPieces.join('\n')}
-</head>
-<body>
-<div id="print-root">
-${inner}
-</div>
-<script>
-  // Esperar a que el CSS cargue y luego imprimir
-  (function() {
-    function ready(fn){ if (document.readyState!=='loading'){ fn(); } else { document.addEventListener('DOMContentLoaded', fn); } }
-    ready(function(){
-      try { window.focus(); window.print(); } catch(e){}
-      setTimeout(function(){ try{ window.close(); }catch(e){} }, 300);
-    });
-  })();
-</script>
-</body>
-</html>`;
+      // ???️ agregar imagen
+      pdf.addImage(
+        imgData,
+        'PNG',
+        gutterX,  // x
+        y,        // y
+        ticketWidthMM,
+        imgHeightMM,
+        undefined,
+        'FAST'
+      );
 
-  // Crear Blob URL
-  const blob = new Blob([htmlDoc], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
+      // avanzar cursor con separación
+      y += imgHeightMM + gutterY;
+    }
 
-  // Abrir popup con el Blob URL
-  const win = window.open(url, '_blank', 'noopener,noreferrer,width=1000,height=800');
-  if (!win) {
-    URL.revokeObjectURL(url);
-    alert('El navegador bloqueó la ventana emergente. Permití los pop-ups para este sitio e intentá de nuevo.');
-    return;
+    const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
+    pdf.save(fileName);
+
+  } finally {
+    temp.remove();
   }
-
-  // Revocar cuando termine
-  const revoke = () => { try { URL.revokeObjectURL(url); } catch {} };
-  // por si el usuario cancela o se cierra
-  const t = setInterval(() => {
-    if (win.closed) { clearInterval(t); revoke(); }
-  }, 1000);
 }
-
 
 type TicketPreviewProps = {
   result: GenerationResult;
@@ -122,7 +127,14 @@ type TicketPreviewProps = {
 
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, eventParams, secretKey } = result;
-  const printRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+  
+  const ticketRefs = React.useMemo(
+    () => Array.from({ length: tickets.length }, () => React.createRef<HTMLDivElement>()),
+    [tickets]
+  );
+  
+  const [printing, setPrinting] = useState(false);
 
   const handleDownloadSecret = () => {
     if (secretKey) {
@@ -148,6 +160,26 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     downloadFile("README_VALIDACION.md", readmeContent.trim(), "text/markdown");
   };
 
+  const triggerPdfGeneration = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (printing) return;
+    setPrinting(true);
+    try {
+      await handleGeneratePdf(ticketRefs, eventParams.event_name);
+      toast({ title: "PDF Generado", description: `Se descargó ${eventParams.event_name}.pdf` });
+    } catch (error) {
+      console.error("[PDF] error:", error);
+      toast({
+        title: "Error de PDF",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "destructive",
+      });
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+
   return (
     <div className="w-full">
         <div className="no-print bg-card/80 backdrop-blur-sm border rounded-lg p-4 mb-8 flex flex-wrap justify-between items-center gap-4 sticky top-[70px] z-40">
@@ -160,8 +192,9 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                     <ArrowLeft className="mr-2 h-4 w-4" /> {isRegeneration ? 'Volver al Historial' : 'Empezar de Nuevo'}
                 </Button>
                 
-                <Button onClick={(e) => { e.preventDefault(); printWithBlobURL(printRef); }}>
-                    Imprimir / Guardar PDF
+                <Button onClick={triggerPdfGeneration} disabled={printing}>
+                    {printing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+                    {printing ? 'Generando...' : 'Descargar PDF'}
                 </Button>
 
                 <TooltipProvider>
@@ -179,19 +212,17 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         </div>
       
       {/* Contenido para impresion y vista en pantalla */}
-      <div ref={printRef}>
+      <div>
         {tickets.map((ticket, i) => (
-          <div key={ticket.ticketId} className="ticket-print">
-            <div className="ticket-card">
-                 <TicketCard
-                    eventName={eventParams.event_name}
-                    dateTime={eventParams.date_time}
-                    venue={eventParams.venue}
-                    ticketNumber={ticket.ticketNumber}
-                    qrPayload={ticket.qrPayload}
-                    shortCode={ticket.shortCode}
-                  />
-            </div>
+          <div key={ticket.ticketId} ref={ticketRefs[i]} className="ticket-print mb-4 flex justify-center">
+             <TicketCard
+                eventName={eventParams.event_name}
+                dateTime={eventParams.date_time}
+                venue={eventParams.venue}
+                ticketNumber={ticket.ticketNumber}
+                qrPayload={ticket.qrPayload}
+                shortCode={ticket.shortCode}
+              />
           </div>
         ))}
       </div>
