@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
@@ -7,7 +8,7 @@ import { doc, getDoc, collection, getDocs, writeBatch, query, where, serverTimes
 import { TicketPreview } from "@/components/ticket-preview";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, PlusCircle, MinusCircle } from "lucide-react";
+import { Loader2, PlusCircle, MinusCircle, Ticket, Activity, CheckCheck, XCircle } from "lucide-react";
 import type { GenerationResult, EventParameters, TicketData, TicketStatus } from "@/lib/types";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,13 @@ type TicketDoc = {
     redeemedAt: any;
 }
 
+type EventStats = {
+  total: number;
+  active: number;
+  redeemed: number;
+  voided: number;
+};
+
 export default function EventDetailPage() {
   const params = useParams();
   const eventId = params.eventId as string;
@@ -41,6 +49,7 @@ export default function EventDetailPage() {
   const router = useRouter();
 
   const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
+  const [stats, setStats] = useState<EventStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -71,9 +80,18 @@ export default function EventDetailPage() {
 
       const ticketsRef = collection(firestore, 'events', eventId, 'tickets');
       const ticketsSnap = await getDocs(ticketsRef);
+
+      const eventStats: EventStats = { total: 0, active: 0, redeemed: 0, voided: 0 };
       
       const tickets: TicketData[] = ticketsSnap.docs.map(docSnap => {
           const ticketDocData = docSnap.data() as TicketDoc;
+
+          // Update stats
+          eventStats.total++;
+          if (ticketDocData.status === 'redeemed') eventStats.redeemed++;
+          else if (ticketDocData.status === 'voided') eventStats.voided++;
+          else eventStats.active++;
+
           const qrPayload = JSON.stringify({
               v: 1,
               eid: eventId,
@@ -90,6 +108,7 @@ export default function EventDetailPage() {
       });
       
       tickets.sort((a,b) => a.ticketNumber - b.ticketNumber);
+      setStats(eventStats);
 
       const eventParams: EventParameters = {
           event_name: eventData.eventName,
@@ -247,6 +266,42 @@ export default function EventDetailPage() {
   if (generationResult) {
     return (
       <>
+        {stats && (
+            <div className="mb-8 no-print">
+                <h2 className="text-2xl font-headline mb-4">Dashboard del Evento</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Total de Tickets</CardTitle>
+                            <Ticket className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent><div className="text-2xl font-bold">{stats.total}</div></CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Activos (Sin canjear)</CardTitle>
+                            <Activity className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent><div className="text-2xl font-bold">{stats.active}</div></CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Canjeados</CardTitle>
+                            <CheckCheck className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent><div className="text-2xl font-bold">{stats.redeemed}</div></CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Anulados</CardTitle>
+                            <XCircle className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent><div className="text-2xl font-bold">{stats.voided}</div></CardContent>
+                    </Card>
+                </div>
+            </div>
+        )}
+
         <div className="grid md:grid-cols-2 gap-8 mb-8 no-print">
           <Card>
             <CardHeader>
@@ -317,3 +372,5 @@ export default function EventDetailPage() {
 
   return null;
 }
+
+    
