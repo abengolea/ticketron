@@ -54,7 +54,7 @@ async function pngToJpegDataUrl(pngDataUrl: string, quality = 0.95): Promise<str
 export async function captureTicketPNG(node: HTMLElement): Promise<string> {
   const { default: domtoimage } = await import('dom-to-image-more');
   const removedLinks = detachCrossOriginStyleLinks();
-  const SCALE = 2; // factor 2x
+  const SCALE = 3; // factor 3x para mayor nitidez
 
   try {
     const cloned = node.cloneNode(true) as HTMLElement;
@@ -113,6 +113,7 @@ export async function captureTicketPNG(node: HTMLElement): Promise<string> {
   }
 }
 
+
 function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
@@ -134,11 +135,11 @@ export async function buildPdfFromPngs(
   const { default: jsPDF } = await import('jspdf');
 
   const options: GridOptions = opts ?? {
-    cols: 1,
-    rows: 4,
-    marginMm: 5,
-    gutterXmm: 0,
-    gutterYmm: 4,
+    cols: 2,
+    rows: 3,
+    marginMm: 6,
+    gutterXmm: 5,
+    gutterYmm: 6,
     orientation: "portrait",
   };
 
@@ -226,12 +227,12 @@ export async function generateOneBatchPdf(
     const fileName = `${base}_${humanStart}-${humanEnd}.pdf`;
     
     await buildPdfFromPngs(images, fileName, {
-        cols: 2,
-        rows: 3,
-        marginMm: 6,
-        gutterXmm: 5,
-        gutterYmm: 6,
-        orientation: "portrait",
+      cols: 3,
+      rows: 2,
+      orientation: "landscape",
+      marginMm: 4,
+      gutterXmm: 3.5,
+      gutterYmm: 5,
     });
 
   } catch (error) {
