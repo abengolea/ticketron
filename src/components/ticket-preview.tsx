@@ -129,13 +129,28 @@ async function handleGeneratePdf(
         targetH = maxH;
         targetW = (canvas.width / canvas.height) * targetH;
       }
-      targetH *= 0.985; // ajuste fino para evitar corte
+      
+      const bottomSafety = 4; // mm extra para evitar corte visual
+      let availableH = pageHeight - yCursor - gutterY - bottomSafety;
 
-      // Salto de página si no entra completo
-      if (yCursor + targetH + safeBottomMargin > pageHeight) {
+      // Si no entra Y no estamos al comienzo de la página, pasamos a la siguiente
+      if (targetH > availableH && yCursor > gutterY) {
         pdf.addPage();
         yCursor = gutterY;
+        availableH = pageHeight - yCursor - gutterY - bottomSafety;
       }
+
+      // Si aún así no entra, lo encogemos proporcionalmente
+      if (targetH > availableH) {
+        const ratio = availableH / targetH;
+        targetH = Math.max(availableH - 0.5, 0); // -0.5mm colchón anti-corte
+        targetW = targetW * ratio;
+      }
+
+      // Redondeo hacia abajo para evitar excedentes por flotantes
+      targetW = Math.floor(targetW * 10) / 10;
+      targetH = Math.floor(targetH * 10) / 10;
+      
 
       // Centrar horizontalmente
       const x = (pageWidth - targetW) / 2;
@@ -359,3 +374,5 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     </div>
   );
 }
+
+    
