@@ -27,105 +27,100 @@ function applyCaptureStyles(el: HTMLElement) {
     n.style.boxShadow = 'none';
     n.style.textShadow = 'none';
     n.style.outline = 'none';
+    n.style.border = '0'; // quitar cualquier borde
     n.style.borderImage = 'initial';
+    n.style.backgroundClip = 'padding-box'; // evita “sangrado” de fondos
   });
 }
 
-/** Restaura estilos (por si capturás el DOM original en lugar del clon) */
-function removeCaptureStyles(el: HTMLElement) {
-  el.querySelectorAll<HTMLElement>('*').forEach(n => {
-    n.style.boxShadow = '';
-    n.style.textShadow = '';
-    n.style.outline = '';
-    n.style.borderImage = '';
-  });
+async function pngToJpegDataUrl(pngDataUrl: string, quality = 0.95): Promise<string> {
+    const { default: domtoimage } = await import('dom-to-image-more');
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            const c = document.createElement('canvas');
+            c.width = img.width;
+            c.height = img.height;
+            const ctx = c.getContext('2d')!;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, c.width, c.height);
+            ctx.drawImage(img, 0, 0);
+            resolve(c.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = reject;
+        img.src = pngDataUrl;
+    });
 }
 
 /** Captura segura, sin CORS y sin hairlines alrededor */
 export async function captureTicketPNG(node: HTMLElement): Promise<string> {
     const { default: domtoimage } = await import('dom-to-image-more');
-  // Asegura que las fuentes estén listas
-  try {
-    await (document as any).fonts?.ready;
-  } catch (e) {
-    console.warn("Error esperando a document.fonts.ready", e);
-  }
+    try { await (document as any).fonts?.ready; } catch { }
 
-  const removedLinks = detachCrossOriginStyleLinks();
-  try {
-    // CLON limpio
-    const cloned = node.cloneNode(true) as HTMLElement;
+    const removedLinks = detachCrossOriginStyleLinks();
+    const SCALE = 2; // factor 2x
 
-    // Reemplazo de canvas → img (ej.: QR)
-    cloned.querySelectorAll('canvas').forEach((c) => {
-      try {
-        const can = c as HTMLCanvasElement;
-        const img = document.createElement('img');
-        img.src = can.toDataURL('image/png');
-        img.width = can.width;
-        img.height = can.height;
-        img.style.width = `${can.width}px`;
-        img.style.height = `${can.height}px`;
-        can.replaceWith(img);
-      } catch {}
-    });
+    try {
+        const cloned = node.cloneNode(true) as HTMLElement;
 
-    // Wrapper con fondo blanco y 1px de padding (bleed) para “comerse” el borde
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = `
-      background:#ffffff; 
-      padding:1px;                /* ← bleed */
-      border-radius:18px;         /* opcional: acompaña tu card */
-      display:inline-block;
-    `;
-    wrapper.appendChild(cloned);
+        // Canvas → IMG (QR)
+        cloned.querySelectorAll('canvas').forEach((c) => {
+            try {
+                const can = c as HTMLCanvasElement;
+                const img = document.createElement('img');
+                img.src = can.toDataURL('image/png');
+                img.width = can.width;
+                img.height = can.height;
+                img.style.width = `${can.width}px`;
+                img.style.height = `${can.height}px`;
+                can.replaceWith(img);
+            } catch { }
+        });
 
-    // Contenedor offscreen
-    const temp = document.createElement('div');
-    temp.style.cssText = `
-      position:fixed; left:-99999px; top:0; z-index:-1;
-    `;
-    temp.appendChild(wrapper);
-    document.body.appendChild(temp);
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = `
+          background:#ffffff;
+          padding:1px;          /* bleed anti-borde */
+          border-radius:18px;
+          display:inline-block;
+        `;
+        wrapper.appendChild(cloned);
 
-    // Estilos de captura (sin sombras/bordes)
-    applyCaptureStyles(wrapper);
+        const temp = document.createElement('div');
+        temp.style.cssText = `position:fixed; left:-99999px; top:0; z-index:-1;`;
+        temp.appendChild(wrapper);
+        document.body.appendChild(temp);
 
-    const dataUrl = await domtoimage.toPng(wrapper, {
-      cacheBust: true,
-      quality: 1,
-      bgcolor: '#ffffff',   // fondo sólido (evita halos)
-      copyStyles: false,    // no intentar inlinar CSS externo (evita CORS)
-      filter: (n) => {
-        // Ignorá Google Fonts y cualquier <link> externo
-        if (n instanceof HTMLLinkElement) {
-          const href = n.getAttribute('href') || '';
-          return !href.includes('fonts.googleapis.com') && !href.includes('fonts.gstatic.com');
-        }
-        return true;
-      },
-      style: {
-        background: '#ffffff',
-        transform: 'scale(1)',
-        transformOrigin: 'top left',
-      },
-    });
+        applyCaptureStyles(wrapper);
 
-    // Limpieza final del DOM
-    removeCaptureStyles(wrapper);
-    temp.remove();
+        // Dimensiones reales del wrapper
+        const { width, height } = wrapper.getBoundingClientRect();
 
-    return dataUrl;
+        const dataUrl = await domtoimage.toPng(wrapper, {
+            cacheBust: true,
+            bgcolor: '#ffffff',
+            copyStyles: false,
+            filter: (n) => !(n instanceof HTMLLinkElement),
+            width: Math.max(1, Math.round(width * SCALE)),
+            height: Math.max(1, Math.round(height * SCALE)),
+            style: {
+                transform: `scale(${SCALE})`,
+                transformOrigin: 'top left',
+                background: '#ffffff',
+            },
+        });
 
-  } catch (error) {
-    console.error("Error al generar imagen del ticket:", error);
-    // Relanzar el error para que el llamador lo pueda capturar
-    throw new Error("Error generando la imagen del ticket. Revisa la consola.");
-  } finally {
-    // Siempre re-adjuntar los estilos
-    reattachStyleLinks(removedLinks);
-  }
+        temp.remove();
+        return dataUrl;
+
+    } catch (error) {
+        console.error("Error al generar imagen del ticket:", error);
+        throw new Error("Error generando imagen del ticket");
+    } finally {
+        reattachStyleLinks(removedLinks);
+    }
 }
+
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
@@ -136,11 +131,11 @@ export async function buildPdfFromPngs(
   fileName: string,
   opts?: { marginXmm?: number; marginYmm?: number; spacingMm?: number }
 ) {
-  const { default: jsPDF } = await import("jspdf");
+  const { default: jsPDF } = await import('jspdf');
   const marginX = opts?.marginXmm ?? 10;
   const marginY = opts?.marginYmm ?? 10;
-  const spacing = opts?.spacingMm ?? 10;  // tu separación entre tickets
-  const overlap = 0.2;                    // ← solape anti-hairline en mm
+  const spacing = opts?.spacingMm ?? 10;
+  const overlap = 0.2; // solape anti-hairline
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = pdf.internal.pageSize.getWidth();
@@ -150,26 +145,22 @@ export async function buildPdfFromPngs(
   let y = marginY;
 
   for (let i = 0; i < pngs.length; i++) {
-    const img = pngs[i];
-
-    // Medidas reales del PNG
-    const imgProps = pdf.getImageProperties(img);
+    const png = pngs[i];
+    const jpeg = await pngToJpegDataUrl(png, 0.95);
+    
+    const imgProps = pdf.getImageProperties(jpeg);
     const drawH = round2((imgProps.height / imgProps.width) * drawW);
 
-    // ¿Cabe en esta página?
     if (y + drawH + marginY > pageH) {
       pdf.addPage();
       y = marginY;
     }
+    
+    const xPos = Math.round(marginX);
+    const yPos = Math.round(y);
 
-    // Coordenadas redondeadas
-    const x = round2(marginX);
-    const yPos = round2(y);
+    pdf.addImage(jpeg, 'JPEG', xPos, yPos, drawW, drawH, undefined, 'FAST');
 
-    // Colocar imagen
-    pdf.addImage(img, 'PNG', x, yPos, drawW, drawH);
-
-    // Avanza con un pequeño solape negativo para “tapar” cualquier hairline
     y = y + drawH + spacing - overlap;
   }
 
@@ -180,13 +171,7 @@ const pad = (n: number) => String(n).padStart(4, "0");
 const slugify = (s: string) =>
   s.normalize("NFKD").replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
 
-/**
- * Genera un PDF de un lote específico.
- * @param ticketRefs refs de TODAS las tarjetas
- * @param eventName  nombre del evento para el archivo
- * @param perFile    tamaño del lote (100)
- * @param batchIndex índice del lote (0-based). Ej: 0 => 0001-0100
- */
+
 export async function generateOneBatchPdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string,
@@ -197,23 +182,27 @@ export async function generateOneBatchPdf(
   const end = Math.min(start + perFile, ticketRefs.length);
 
   const images: string[] = [];
-  for (let i = start; i < end; i++) {
-    const ref = ticketRefs[i];
-    if (!ref?.current) continue;
-    
-    // El try/catch aquí es crucial por si una sola imagen falla
-    // El error se propaga desde captureTicketPNG
-    const png = await captureTicketPNG(ref.current);
-    images.push(png);
+  try {
+    for (let i = start; i < end; i++) {
+      const ref = ticketRefs[i];
+      if (!ref?.current) continue;
+      
+      const png = await captureTicketPNG(ref.current);
+      images.push(png);
+      
+      if ((i - start + 1) % 10 === 0) await new Promise(r => setTimeout(r, 50));
+    }
 
-    // Ceder el hilo para no congelar el navegador
-    if ((i - start + 1) % 10 === 0) await new Promise(r => setTimeout(r, 50));
+    const base = slugify(eventName);
+    const humanStart = pad(start + 1);
+    const humanEnd = pad(end);
+    const fileName = `${base}_${humanStart}-${humanEnd}.pdf`;
+
+    await buildPdfFromPngs(images, fileName, { spacingMm: 3.5, marginXmm: 5, marginYmm: 5 });
+
+  } catch (error) {
+    console.error(`Error generando lote ${batchIndex}:`, error);
+    // Re-throw para que la UI pueda manejarlo.
+    throw error;
   }
-
-  const base = slugify(eventName);
-  const humanStart = pad(start + 1);
-  const humanEnd = pad(end);
-  const fileName = `${base}_${humanStart}-${humanEnd}.pdf`;
-
-  await buildPdfFromPngs(images, fileName, { spacingMm: 3.5, marginXmm: 5, marginYmm: 5 });
 }
