@@ -17,10 +17,8 @@ type TicketCardProps = {
 export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload, shortCode }: TicketCardProps) {
   const formattedTicketNumber = `#${String(ticketNumber).padStart(4, '0')}`;
   
-  // The QR URL is constructed, but might not be used if qrPayload is empty
-  const qrUrl = qrPayload ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrPayload)}&qzone=1&margin=0` : null;
-  const { base64: qrBase64, loading: qrLoading, error: qrError } = useQRAsBase64(qrUrl);
-
+  const { dataUrl: qrBase64, error: qrError } = useQRAsBase64(qrPayload, { size: 200, margin: 1 });
+  const qrLoading = !qrBase64 && !qrError;
 
   return (
     <div className="ticket-card w-[180mm] h-[65mm] flex bg-gray-900 text-white shadow-lg rounded-xl overflow-hidden">
