@@ -17,7 +17,7 @@ type TicketPreviewProps = {
   onEventUpdate?: (updatedParams: Partial<EventParameters>) => void;
 };
 
-const PER_FILE = 100; // tamaño del lote
+const PER_FILE = 50; // tamaño del lote
 
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, eventParams, secretKey } = result;
