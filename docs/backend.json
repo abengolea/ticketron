@@ -91,11 +91,15 @@
         "status": {
           "type": "string",
           "description": "The current status of the ticket.",
-          "enum": ["active", "redeemed", "voided"]
+          "enum": [
+            "active",
+            "redeemed",
+            "voided"
+          ]
         },
         "voidedReason": {
-            "type": "string",
-            "description": "Reason for the ticket being voided, e.g., 'Anulado por el administrador'."
+          "type": "string",
+          "description": "Reason for the ticket being voided, e.g., 'Anulado por el administrador'."
         }
       },
       "required": [
@@ -114,7 +118,8 @@
   },
   "auth": {
     "providers": [
-      "password"
+      "password",
+      "google.com"
     ]
   },
   "firestore": {
