@@ -34,7 +34,7 @@ const formSchema = z.object({
   date_time: z.string().min(5, "La fecha y hora son requeridas."),
   venue: z.string().min(3, "El lugar es requerido."),
   quantity: z.coerce.number().int().positive().max(1000, "La cantidad no puede exceder los 1000."),
-  tickets_per_page: z.literal(8),
+  tickets_per_page: z.literal(4),
   page_size: z.enum(["A4", "Letter"]),
 });
 
@@ -158,7 +158,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       date_time: "Fecha y hora a confirmar",
       venue: "Lugar a confirmar",
       quantity: 100,
-      tickets_per_page: 8,
+      tickets_per_page: 4,
       page_size: "A4",
     },
   });
@@ -286,7 +286,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                         </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                            <SelectItem value="8">8</SelectItem>
+                            <SelectItem value="4">4</SelectItem>
                         </SelectContent>
                     </Select>
                     <FormMessage />

@@ -2,25 +2,6 @@
 
 import type { jsPDF } from "jspdf";
 
-// --- Helpers para manejar las fuentes cross-origin ---
-function detachCrossOriginStyleLinks(): HTMLLinkElement[] {
-  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
-  const detached: HTMLLinkElement[] = [];
-  for (const l of links) {
-    const href = l.getAttribute("href") || "";
-    if (/^https?:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)/i.test(href)) {
-      l.parentElement?.removeChild(l);
-      detached.push(l);
-    }
-  }
-  return detached;
-}
-
-function reattachStyleLinks(links: HTMLLinkElement[]) {
-  const head = document.head || document.getElementsByTagName("head")[0];
-  for (const l of links) head.appendChild(l);
-}
-
 /** Quita sombras/bordes durante la captura */
 function applyCaptureStyles(el: HTMLElement) {
   el.querySelectorAll<HTMLElement>('*').forEach(n => {
@@ -33,8 +14,26 @@ function applyCaptureStyles(el: HTMLElement) {
   });
 }
 
+function reattachStyleLinks(links: HTMLLinkElement[]) {
+  const head = document.head || document.getElementsByTagName("head")[0];
+  for (const l of links) head.appendChild(l);
+}
+
+function detachCrossOriginStyleLinks(): HTMLLinkElement[] {
+    const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
+    const detached: HTMLLinkElement[] = [];
+    for (const l of links) {
+        const href = l.getAttribute("href") || "";
+        if (/^https?:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)/i.test(href)) {
+        l.parentElement?.removeChild(l);
+        detached.push(l);
+        }
+    }
+    return detached;
+}
+
+
 async function pngToJpegDataUrl(pngDataUrl: string, quality = 0.95): Promise<string> {
-    const { default: domtoimage } = await import('dom-to-image-more');
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
@@ -52,116 +51,144 @@ async function pngToJpegDataUrl(pngDataUrl: string, quality = 0.95): Promise<str
     });
 }
 
-/** Captura segura, sin CORS y sin hairlines alrededor */
 export async function captureTicketPNG(node: HTMLElement): Promise<string> {
-    const { default: domtoimage } = await import('dom-to-image-more');
-    try { await (document as any).fonts?.ready; } catch { }
+  const { default: domtoimage } = await import('dom-to-image-more');
+  const removedLinks = detachCrossOriginStyleLinks();
+  const SCALE = 2; // factor 2x
 
-    const removedLinks = detachCrossOriginStyleLinks();
-    const SCALE = 2; // factor 2x
+  try {
+    const cloned = node.cloneNode(true) as HTMLElement;
 
-    try {
-        const cloned = node.cloneNode(true) as HTMLElement;
+    // Canvas → IMG (QR)
+    cloned.querySelectorAll('canvas').forEach((c) => {
+      try {
+        const can = c as HTMLCanvasElement;
+        const img = document.createElement('img');
+        img.src = can.toDataURL('image/png');
+        img.width = can.width;
+        img.height = can.height;
+        img.style.width = `${can.width}px`;
+        img.style.height = `${can.height}px`;
+        can.replaceWith(img);
+      } catch {}
+    });
 
-        // Canvas → IMG (QR)
-        cloned.querySelectorAll('canvas').forEach((c) => {
-            try {
-                const can = c as HTMLCanvasElement;
-                const img = document.createElement('img');
-                img.src = can.toDataURL('image/png');
-                img.width = can.width;
-                img.height = can.height;
-                img.style.width = `${can.width}px`;
-                img.style.height = `${can.height}px`;
-                can.replaceWith(img);
-            } catch { }
-        });
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = `
+      background:#ffffff;
+      padding:1px;          /* bleed anti-borde */
+      border-radius:18px;
+      display:inline-block;
+    `;
+    wrapper.appendChild(cloned);
 
-        const wrapper = document.createElement('div');
-        wrapper.style.cssText = `
-          background:#ffffff;
-          padding:1px;          /* bleed anti-borde */
-          border-radius:18px;
-          display:inline-block;
-        `;
-        wrapper.appendChild(cloned);
+    const temp = document.createElement('div');
+    temp.style.cssText = `position:fixed; left:-99999px; top:0; z-index:-1;`;
+    temp.appendChild(wrapper);
+    document.body.appendChild(temp);
 
-        const temp = document.createElement('div');
-        temp.style.cssText = `position:fixed; left:-99999px; top:0; z-index:-1;`;
-        temp.appendChild(wrapper);
-        document.body.appendChild(temp);
+    applyCaptureStyles(wrapper);
 
-        applyCaptureStyles(wrapper);
+    // Dimensiones reales del wrapper
+    const { width, height } = wrapper.getBoundingClientRect();
 
-        // Dimensiones reales del wrapper
-        const { width, height } = wrapper.getBoundingClientRect();
+    const dataUrl = await domtoimage.toPng(wrapper, {
+      cacheBust: true,
+      bgcolor: '#ffffff',
+      copyStyles: false,
+      filter: (n) => !(n instanceof HTMLLinkElement),
+      width: Math.max(1, Math.round(width * SCALE)),
+      height: Math.max(1, Math.round(height * SCALE)),
+      style: {
+        transform: `scale(${SCALE})`,
+        transformOrigin: 'top left',
+        background: '#ffffff',
+      },
+    });
 
-        const dataUrl = await domtoimage.toPng(wrapper, {
-            cacheBust: true,
-            bgcolor: '#ffffff',
-            copyStyles: false,
-            filter: (n) => !(n instanceof HTMLLinkElement),
-            width: Math.max(1, Math.round(width * SCALE)),
-            height: Math.max(1, Math.round(height * SCALE)),
-            style: {
-                transform: `scale(${SCALE})`,
-                transformOrigin: 'top left',
-                background: '#ffffff',
-            },
-        });
-
-        temp.remove();
-        return dataUrl;
-
-    } catch (error) {
-        console.error("Error al generar imagen del ticket:", error);
-        throw new Error("Error generando imagen del ticket");
-    } finally {
-        reattachStyleLinks(removedLinks);
-    }
+    temp.remove();
+    return dataUrl;
+  } finally {
+    reattachStyleLinks(removedLinks);
+  }
 }
-
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
+type GridOptions = {
+    cols: number;
+    rows: number;
+    marginMm: number;
+    gutterXmm: number;
+    gutterYmm: number;
+    orientation: "portrait" | "landscape";
+}
+
 export async function buildPdfFromPngs(
   pngs: string[],
   fileName: string,
-  opts?: { marginXmm?: number; marginYmm?: number; spacingMm?: number }
+  opts?: GridOptions
 ) {
   const { default: jsPDF } = await import('jspdf');
-  const marginX = opts?.marginXmm ?? 10;
-  const marginY = opts?.marginYmm ?? 10;
-  const spacing = opts?.spacingMm ?? 10;
-  const overlap = 0.2; // solape anti-hairline
 
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const options: GridOptions = opts ?? {
+    cols: 1,
+    rows: 4,
+    marginMm: 5,
+    gutterXmm: 0,
+    gutterYmm: 4,
+    orientation: "portrait",
+  };
+
+  const pdf = new jsPDF({ orientation: options.orientation, unit: 'mm', format: 'a4' });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
-  const drawW = pageW - marginX * 2;
+  const ticketsPerPage = options.cols * options.rows;
 
-  let y = marginY;
+  const contentW = pageW - options.marginMm * 2;
+  const contentH = pageH - options.marginMm * 2;
+  
+  const cellW = (contentW - (options.cols - 1) * options.gutterXmm) / options.cols;
+  const cellH = (contentH - (options.rows - 1) * options.gutterYmm) / options.rows;
 
-  for (let i = 0; i < pngs.length; i++) {
-    const png = pngs[i];
-    const jpeg = await pngToJpegDataUrl(png, 0.95);
+  let ticketIndex = 0;
+
+  for (let page = 0; page < Math.ceil(pngs.length / ticketsPerPage); page++) {
+    if (page > 0) pdf.addPage();
     
-    const imgProps = pdf.getImageProperties(jpeg);
-    const drawH = round2((imgProps.height / imgProps.width) * drawW);
+    for (let i = 0; i < ticketsPerPage; i++) {
+      if (ticketIndex >= pngs.length) break;
 
-    if (y + drawH + marginY > pageH) {
-      pdf.addPage();
-      y = marginY;
+      const row = Math.floor(i / options.cols);
+      const col = i % options.cols;
+      
+      const x = options.marginMm + col * (cellW + options.gutterXmm);
+      const y = options.marginMm + row * (cellH + options.gutterYmm);
+
+      const pngData = pngs[ticketIndex];
+      const jpegData = await pngToJpegDataUrl(pngData, 0.95);
+      const imgProps = pdf.getImageProperties(jpegData);
+      
+      const imgAspect = imgProps.width / imgProps.height;
+      
+      let imgW = cellW;
+      let imgH = imgW / imgAspect;
+
+      if (imgH > cellH) {
+          imgH = cellH;
+          imgW = imgH * imgAspect;
+      }
+
+      // Centrar imagen en la celda
+      const imgX = x + (cellW - imgW) / 2;
+      const imgY = y + (cellH - imgH) / 2;
+
+      pdf.addImage(jpegData, 'JPEG', round2(imgX), round2(imgY), round2(imgW), round2(imgH), undefined, 'FAST');
+      
+      ticketIndex++;
     }
-    
-    const xPos = Math.round(marginX);
-    const yPos = Math.round(y);
-
-    pdf.addImage(jpeg, 'JPEG', xPos, yPos, drawW, drawH, undefined, 'FAST');
-
-    y = y + drawH + spacing - overlap;
   }
 
   pdf.save(fileName);
@@ -197,8 +224,15 @@ export async function generateOneBatchPdf(
     const humanStart = pad(start + 1);
     const humanEnd = pad(end);
     const fileName = `${base}_${humanStart}-${humanEnd}.pdf`;
-
-    await buildPdfFromPngs(images, fileName, { spacingMm: 3.5, marginXmm: 5, marginYmm: 5 });
+    
+    await buildPdfFromPngs(images, fileName, {
+        cols: 2,
+        rows: 3,
+        marginMm: 6,
+        gutterXmm: 5,
+        gutterYmm: 6,
+        orientation: "portrait",
+    });
 
   } catch (error) {
     console.error(`Error generando lote ${batchIndex}:`, error);
