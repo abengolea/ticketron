@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -10,10 +9,8 @@ import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle, Camera, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-// Importamos el tipo solo como type para no romper SSR
 import type { Html5Qrcode } from "html5-qrcode";
 import { createHmacSha256 } from "@/lib/utils";
-// ⚠️ Reemplaza tu hook por el de más abajo o asegúrate de que cumpla esas mismas garantías
 import { useLocalStorage } from "@/hooks/use-local-storage";
 
 type ValidationResult = {
@@ -30,10 +27,14 @@ export function TicketValidator() {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
 
-  // refs
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const mountedRef = useRef(true);
-  const validatingRef = useRef(false); // candado de validación
+  const validatingRef = useRef(false);
+  const redeemedRef = useRef<Set<string>>(new Set(redeemedTickets));
+
+  useEffect(() => {
+    redeemedRef.current = new Set(redeemedTickets);
+  }, [redeemedTickets]);
 
   const { toast } = useToast();
 
@@ -41,12 +42,10 @@ export function TicketValidator() {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      // detener escáner si sigue activo
       const stop = async () => {
         try {
           if (scannerRef.current && (scannerRef.current as any).isScanning) {
             await scannerRef.current.stop();
-            // limpiar contenedor del reader
             const el = document.getElementById(readerId);
             if (el) el.innerHTML = "";
           }
@@ -62,7 +61,6 @@ export function TicketValidator() {
     try {
       if (scannerRef.current && (scannerRef.current as any).isScanning) {
         await scannerRef.current.stop();
-        // limpiar contenedor (evita overlays)
         const el = document.getElementById(readerId);
         if (el) el.innerHTML = "";
       }
@@ -73,9 +71,21 @@ export function TicketValidator() {
     }
   }, []);
 
+  const markRedeemedOnce = useCallback((tid: string): boolean => {
+    if (redeemedRef.current.has(tid)) return false; 
+    redeemedRef.current.add(tid);
+
+    setRedeemedTickets((prev) => {
+      if (prev.includes(tid)) return prev;
+      return [...prev, tid];
+    });
+    return true;
+  }, [setRedeemedTickets]);
+
+
   const validateTicket = useCallback(
     async (payload: string) => {
-      if (validatingRef.current) return; // evitar reentrada
+      if (validatingRef.current) return;
       validatingRef.current = true;
 
       try {
@@ -102,9 +112,7 @@ export function TicketValidator() {
           return;
         }
 
-        // Chequeo idempotente con Set
-        const currentSet = new Set(redeemedTickets);
-        if (currentSet.has(tid)) {
+        if (redeemedRef.current.has(tid)) {
           setValidationResult({
             status: "redeemed",
             message: `El ticket ${tid.substring(0, 8)}… ya fue canjeado.`,
@@ -112,19 +120,16 @@ export function TicketValidator() {
           return;
         }
 
-        // Verificación de firma
         const payloadToSign = `${eid}|${tid}|${v}`;
         const expectedSig = await createHmacSha256(secretKey, payloadToSign);
 
         if (expectedSig === sig) {
-          // Añadimos de forma funcional para evitar carreras
-          setRedeemedTickets((prev) => {
-            if (prev.includes(tid)) return prev; // idempotencia
-            return [...prev, tid];
-          });
+          const added = markRedeemedOnce(tid);
           setValidationResult({
-            status: "valid",
-            message: `El ticket ${tid.substring(0, 8)}… es válido para ingresar.`,
+            status: added ? "valid" : "redeemed",
+            message: added
+              ? `El ticket ${tid.substring(0, 8)}… es válido para ingresar.`
+              : `El ticket ${tid.substring(0, 8)}… ya fue canjeado.`,
           });
         } else {
           setValidationResult({
@@ -136,7 +141,7 @@ export function TicketValidator() {
         validatingRef.current = false;
       }
     },
-    [redeemedTickets, secretKey, setRedeemedTickets, toast]
+    [secretKey, toast, markRedeemedOnce]
   );
 
   const handleManualValidation = useCallback(async () => {
@@ -149,10 +154,7 @@ export function TicketValidator() {
     setIsScanning(true);
 
     try {
-      // Import dinámico en cliente
       const { Html5Qrcode } = await import("html5-qrcode");
-
-      // Asegurar contenedor presente y vacío
       const readerEl = document.getElementById(readerId);
       if (!readerEl) {
         throw new Error("Contenedor del lector no encontrado en el DOM.");
@@ -164,23 +166,18 @@ export function TicketValidator() {
       }
 
       const scanner = scannerRef.current as any;
-
-      // Si ya está escaneando, salir
       if (scanner.isScanning) return;
 
       await scanner.start(
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         async (decodedText: string) => {
-          // Paramos para evitar múltiples lecturas
           await stopScanner();
           if (!mountedRef.current) return;
           setQrPayload(decodedText);
           await validateTicket(decodedText);
         },
-        () => {
-          // onError: lo ignoramos para no llenar la consola
-        }
+        () => {}
       );
     } catch (err: any) {
       console.error("Error iniciando escáner:", err);
@@ -201,7 +198,6 @@ export function TicketValidator() {
   const resetValidation = useCallback(() => {
     setValidationResult(null);
     setQrPayload("");
-    // Si está escaneando, detener
     stopScanner();
   }, [stopScanner]);
 
@@ -313,5 +309,3 @@ export function TicketValidator() {
     </Card>
   );
 }
-
-    

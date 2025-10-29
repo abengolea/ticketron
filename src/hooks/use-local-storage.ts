@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -14,43 +13,48 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
       if (raw == null) return initialValue;
       return JSON.parse(raw) as T;
     } catch {
-      // Si hay JSON corrupto, reseteamos a initialValue
       return initialValue;
     }
   }, [initialValue, isBrowser, key]);
 
-  // Inicialización perezosa
-  const [value, setValue] = useState<T>(() => safeRead());
+  // Inicialización perezosa desde storage (sin “re-sync” que pise)
+  const [value, _setValue] = useState<T>(() => safeRead());
 
-  // Sincroniza al montar (por si SSR hidrata con initialValue)
+  // Setter que persiste *dentro* del updater (atómico)
+  const setValue = useCallback(
+    (updater: T | ((prev: T) => T)) => {
+      _setValue((prev) => {
+        const next = typeof updater === "function" ? (updater as (p: T) => T)(prev) : updater;
+        if (isBrowser) {
+          try {
+            window.localStorage.setItem(key, JSON.stringify(next));
+          } catch {
+            // no romper UI si storage falla
+          }
+        }
+        return next;
+      });
+    },
+    [isBrowser, key]
+  );
+
   useEffect(() => {
     mountedRef.current = true;
-    setValue(safeRead());
     return () => {
       mountedRef.current = false;
     };
-  }, [safeRead]);
+  }, []);
 
-  // Guardar ante cambios
-  useEffect(() => {
-    if (!isBrowser) return;
-    try {
-      window.localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // Evitar romper por storage lleno o privado
-    }
-  }, [key, value, isBrowser]);
-
-  // (Opcional) sincronizar entre pestañas
+  // Sincronizar cambios externos (otras pestañas)
   useEffect(() => {
     if (!isBrowser) return;
     const onStorage = (e: StorageEvent) => {
       if (e.key !== key) return;
       try {
         const next = e.newValue ? (JSON.parse(e.newValue) as T) : initialValue;
-        if (mountedRef.current) setValue(next);
+        if (mountedRef.current) _setValue(next);
       } catch {
-        if (mountedRef.current) setValue(initialValue);
+        if (mountedRef.current) _setValue(initialValue);
       }
     };
     window.addEventListener("storage", onStorage);
@@ -59,5 +63,3 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
 
   return [value, setValue] as const;
 }
-
-    
