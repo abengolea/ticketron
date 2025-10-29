@@ -30,8 +30,6 @@ export function TicketValidator() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const { toast } = useToast();
-  
-  const redeemedTicketsSet = new Set(redeemedTickets);
 
   useEffect(() => {
     // La función de limpieza se encarga de detener el escáner si el componente se desmonta.
@@ -75,9 +73,11 @@ export function TicketValidator() {
         setValidationResult({ status: 'invalid', message: 'La estructura del código QR es inválida.' });
         return;
       }
-
-      // Re-check against the most up-to-date set of redeemed tickets
-      if (new Set(redeemedTickets).has(tid)) {
+      
+      // CRITICAL FIX: Create a fresh Set from the latest state value
+      // before checking for redeemed tickets.
+      const currentRedeemedSet = new Set(redeemedTickets);
+      if (currentRedeemedSet.has(tid)) {
         setValidationResult({ status: 'redeemed', message: `El ticket ${tid.substring(0,8)}... ya ha sido canjeado.` });
         return;
       }
