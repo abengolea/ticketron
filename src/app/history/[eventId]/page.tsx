@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { base32Encode, createHmacSha256 } from "@/lib/utils";
+import PrivateRoute from "@/components/private-route";
 
 type EventData = {
   eventName: string;
@@ -40,7 +41,7 @@ type EventStats = {
   voided: number;
 };
 
-export default function EventDetailPage() {
+function EventDetailPage() {
   const params = useParams();
   const eventId = params.eventId as string;
   const firestore = useFirestore();
@@ -373,4 +374,10 @@ export default function EventDetailPage() {
   return null;
 }
 
-    
+export default function EventDetailWrapper() {
+  return (
+    <PrivateRoute>
+      <EventDetailPage />
+    </PrivateRoute>
+  );
+}

@@ -7,8 +7,9 @@ import { TicketPreview } from "@/components/ticket-preview";
 import type { GenerationResult } from "@/lib/types";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Loader2 } from "lucide-react";
+import PrivateRoute from "@/components/private-route";
 
-export default function Home() {
+function GeneratorPage() {
   const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -54,4 +55,12 @@ export default function Home() {
       </div>
     </div>
   );
+}
+
+export default function Home() {
+    return (
+        <PrivateRoute>
+            <GeneratorPage />
+        </PrivateRoute>
+    )
 }

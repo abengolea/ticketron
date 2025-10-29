@@ -44,17 +44,8 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     const unsubscribe = onAuthStateChanged(
       auth,
       (user) => {
-        if (user) {
-          setUser(user);
-          setLoading(false);
-        } else {
-          // If no user, sign in anonymously. This is the core of our session management.
-          signInAnonymously(auth).catch((err) => {
-            console.error("Anonymous sign-in failed", err);
-            setError(err);
-            setLoading(false);
-          });
-        }
+        setUser(user); // user can be null
+        setLoading(false);
       },
       (err) => {
         console.error("Auth state change error", err);

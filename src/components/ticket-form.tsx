@@ -173,7 +173,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       return;
     }
     if (!user) {
-      onGenerate(null, "El usuario anónimo no está listo. Por favor, espera un momento.");
+      onGenerate(null, "Debes iniciar sesión para crear un evento.");
       return;
     }
     generateAndStoreTickets(firestore, values, onGenerate, setIsLoading, user.uid, toast);
@@ -190,7 +190,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
     }
     
     if (!firestore || !user) {
-      toast({ variant: 'destructive', title: 'Error', description: 'El usuario anónimo no está listo. Por favor, espera un momento.' });
+      toast({ variant: 'destructive', title: 'Error', description: 'Debes iniciar sesión para crear un evento.' });
       return;
     }
     generateAndStoreTickets(firestore, testValues, onGenerate, setIsLoading, user.uid, toast);
@@ -320,9 +320,9 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
              {isUserLoading && (
               <Alert>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <AlertTitle>Inicializando Sesión Segura</AlertTitle>
+                <AlertTitle>Verificando sesión...</AlertTitle>
                 <AlertDescription>
-                  Estableciendo una sesión anónima para proteger tus eventos. Por favor, espera...
+                  Un momento por favor...
                 </AlertDescription>
               </Alert>
             )}
