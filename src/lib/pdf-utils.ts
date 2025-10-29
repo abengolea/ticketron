@@ -38,7 +38,7 @@ export async function captureTicketPNG(node: HTMLElement): Promise<string> {
       img.height = can.height;
       img.style.width = `${can.width}px`;
       img.style.height = `${can.height}px`;
-      can.replaceWith(img);
+      c.replaceWith(img);
     } catch {}
   });
 
@@ -85,6 +85,10 @@ export async function captureTicketPNG(node: HTMLElement): Promise<string> {
     });
 
     return dataUrl;
+  } catch (error) {
+    console.error("Error capturando ticket con dom-to-image:", error);
+    // Relanzar el error para que sea capturado por el llamador (handleBatchClick)
+    throw new Error("Error al generar la imagen de un ticket. Revisa la consola para más detalles.");
   } finally {
     // Limpieza
     removeCaptureStyles(wrapper);
@@ -165,9 +169,14 @@ export async function generateOneBatchPdf(
   for (let i = start; i < end; i++) {
     const ref = ticketRefs[i];
     if (!ref?.current) continue;
+    
+    // El try/catch aquí es crucial por si una sola imagen falla
+    // El error se lanza desde captureTicketPNG
     const png = await captureTicketPNG(ref.current);
     images.push(png);
-    if ((i - start + 1) % 10 === 0) await new Promise(r => setTimeout(r, 20));
+
+    // Ceder el hilo para no congelar el navegador
+    if ((i - start + 1) % 10 === 0) await new Promise(r => setTimeout(r, 50));
   }
 
   const base = slugify(eventName);

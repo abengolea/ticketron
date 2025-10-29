@@ -46,8 +46,10 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       );
       toast({ title: "PDF generado", description: `Lote ${batchIdx + 1} listo.` });
     } catch (e: any) {
+      console.error("Fallo la generacion del PDF:", e);
       toast({ title: "Error de PDF", description: e?.message ?? String(e), variant: "destructive" });
     } finally {
+      // Este finally asegura que el spinner se detenga incluso si hay un error
       setRunningBatch(null);
     }
   }
