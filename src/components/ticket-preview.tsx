@@ -1,12 +1,14 @@
 
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, createRef } from "react";
 import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
 import { downloadFile } from "@/lib/utils";
-import { Download, ArrowLeft, Loader2, CheckCircle, PlusCircle, Pencil, Printer } from "lucide-react";
+import { Download, ArrowLeft, Loader2, CheckCircle, PlusCircle, Pencil, Printer, FileDown } from "lucide-react";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import {
   Dialog,
   DialogContent,
@@ -34,11 +36,109 @@ type TicketPreviewProps = {
   onEventUpdate?: (updatedParams: Partial<EventParameters>) => void;
 };
 
+
+async function generatePdf(
+  ticketRefs: React.RefObject<HTMLDivElement>[],
+  eventName: string,
+  setLoading: (loading: boolean) => void,
+  toast: any
+) {
+  setLoading(true);
+
+  try {
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const marginX = 10;
+    const marginY = 10;
+    const safeBottom = 8;
+    const maxContentW = pageWidth - marginX * 2;
+
+    const tempContainer = document.createElement("div");
+    tempContainer.style.cssText = `
+      position: fixed; top: 0; left: -9999px;
+      background: white; width: 1200px; display: block;
+    `;
+    document.body.appendChild(tempContainer);
+
+    let y = marginY;
+
+    for (const ref of ticketRefs) {
+      if (!ref.current) continue;
+
+      const cloned = ref.current.cloneNode(true) as HTMLDivElement;
+      cloned.style.cssText = `width:1200px;display:block;background:white;`;
+      tempContainer.innerHTML = "";
+      tempContainer.appendChild(cloned);
+
+      await new Promise(r => requestAnimationFrame(r));
+      if ((document as any).fonts?.ready) {
+        try { await (document as any).fonts.ready; } catch {}
+      }
+      
+      const imgs = Array.from(cloned.querySelectorAll("img"));
+      await Promise.all(imgs.map(img => new Promise<void>(res => {
+        if (img.complete) return res();
+        img.onload = () => res();
+        img.onerror = () => res();
+      })));
+
+      const canvas = await html2canvas(cloned, {
+        scale: 2,
+        backgroundColor: "#fff",
+        useCORS: true,
+        allowTaint: true,
+        imageTimeout: 10000,
+      });
+
+      const imgData = canvas.toDataURL("image/png", 1.0);
+      let targetW = maxContentW;
+      let targetH = (canvas.height / canvas.width) * targetW;
+
+      if (y + targetH + safeBottom > pageHeight) {
+        pdf.addPage();
+        y = marginY;
+      }
+      
+      if (y + targetH + safeBottom > pageHeight) {
+        targetH *= 0.98;
+        targetW *= 0.98;
+      }
+
+      const x = (pageWidth - targetW) / 2;
+      pdf.addImage(imgData, "PNG", x, y, targetW, targetH, undefined, "FAST");
+      y += targetH + marginY;
+    }
+
+    const filename = `${eventName.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_tickets.pdf`;
+    pdf.save(filename);
+
+    tempContainer.remove();
+  } catch (error: any) {
+    console.error("PDF Generation failed:", error);
+    toast({
+      variant: "destructive",
+      title: "Error al generar PDF",
+      description: error.message || "Ocurrió un problema inesperado.",
+    });
+  } finally {
+    setLoading(false);
+  }
+}
+
+
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, eventParams, secretKey } = result;
   const { toast } = useToast();
   
   const [isSaved, setIsSaved] = useState(isRegeneration);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  
+  const ticketRefs = React.useMemo(
+    () => Array.from({ length: tickets.length }, () => createRef<HTMLDivElement>()),
+    [tickets.length]
+  );
   
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
   const [moreQuantity, setMoreQuantity] = useState(10);
@@ -101,6 +201,11 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     downloadFile("README_VALIDACION.md", readmeContent.trim(), "text/markdown");
   };
   
+  const handleTriggerPdfGeneration = (e: React.MouseEvent) => {
+    e.preventDefault();
+    generatePdf(ticketRefs, eventParams.event_name, setIsGeneratingPdf, toast);
+  };
+
   return (
     <div className="w-full">
       <div className="bg-card/80 backdrop-blur-sm border rounded-lg p-4 mb-8 flex flex-wrap justify-between items-center gap-4 sticky top-[70px] z-40 no-print">
@@ -134,7 +239,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                 <Dialog open={showGenerateMoreDialog} onOpenChange={setShowGenerateMoreDialog}>
                     <DialogTrigger asChild><Button><PlusCircle className="mr-2 h-4 w-4" /> Generar Más</Button></DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader><DialogTitle>Generar Más Tickets</DialogTitle></DialogHeader>
+                        <DialogHeader><DialogTitle>Generar Más Tickets</DialogTitle></Header>
                         <div className="grid gap-4 py-4">
                             <Label htmlFor="quantity">Cantidad</Label>
                             <Input id="quantity" type="number" value={moreQuantity} onChange={(e) => setMoreQuantity(Number(e.target.value))} />
@@ -148,15 +253,16 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
               </>
             )}
 
-            <Button onClick={() => window.print()}>
-                <Printer className="mr-2 h-4 w-4" />
-                Imprimir / Guardar PDF
+            <Button onClick={handleTriggerPdfGeneration} disabled={isGeneratingPdf}>
+                {isGeneratingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+                {isGeneratingPdf ? 'Generando...' : 'Descargar PDF'}
             </Button>
+
 
             <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="secondary" size="icon" onClick={() => { if (secretKey) handleDownloadSecret(); handleDownloadCsv(); if (secretKey) handleDownloadJson(); handleDownloadReadme();}} disabled={!isSaved}>
+                        <Button variant="secondary" size="icon" onClick={() => { if (secretKey) handleDownloadSecret(); handleDownloadCsv(); if (secretKey) handleDownloadJson(); handleDownloadReadme();}} disabled={!isSaved || isGeneratingPdf}>
                             <Download />
                         </Button>
                     </TooltipTrigger>
@@ -184,8 +290,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       
       {/* Contenedor para la vista previa en pantalla */}
       <div className="all-tickets-container grid grid-cols-1 md:grid-cols-2 gap-4">
-        {tickets.map((ticket) => (
-          <div key={`ticket-container-${ticket.ticketId}`} className="flex justify-center print-page">
+        {tickets.map((ticket, index) => (
+          <div key={`ticket-container-${ticket.ticketId}`} className="flex justify-center" ref={ticketRefs[index]}>
               <TicketCard
                 eventName={eventParams.event_name}
                 dateTime={eventParams.date_time}

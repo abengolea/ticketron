@@ -21,7 +21,7 @@ export function useQRAsBase64(payload: string, opts: Options = {}) {
         // default: nítido, sin borde grande
         const url = await QRCode.toDataURL(payload ?? "", {
           width: opts.size ?? 256,
-          margin: opts.margin ?? 0,
+          margin: opts.margin ?? 1,
           errorCorrectionLevel: opts.errorCorrectionLevel ?? "M",
         });
         if (!cancelled) setDataUrl(url);
