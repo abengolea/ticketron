@@ -1,153 +1,31 @@
 
 "use client";
 
-import React, { useEffect, useState, useRef, createRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
+import { useReactToPrint } from "react-to-print";
 import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
 import { downloadFile } from "@/lib/utils";
 import { Download, ArrowLeft, Loader2, CheckCircle, PlusCircle, Pencil, FileDown } from "lucide-react";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
   DialogTrigger,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Tooltip,
   TooltipProvider,
   TooltipTrigger,
   TooltipContent,
-} from "@/components/ui/tooltip"
+} from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
-
-
-async function handleGeneratePdf(
-  ticketRefs: React.RefObject<HTMLDivElement>[],
-  eventName: string,
-): Promise<void> {
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-
-  const pageWidth = pdf.internal.pageSize.getWidth();   // 210
-  const pageHeight = pdf.internal.pageSize.getHeight(); // 297
-
-  // Márgenes y ajustes
-  const gutterX = 14;
-  const gutterY = 12;
-  const maxW = pageWidth - 2 * gutterX;
-  
-  // Contenedor offscreen
-  const tempContainer = document.createElement('div');
-  tempContainer.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: -9999px;
-    width: 1200px;
-    background: white;
-    display: block;
-    margin: 0;
-    padding: 0;
-    visibility: visible;
-  `;
-  document.body.appendChild(tempContainer);
-
-  try {
-    let yCursor = gutterY;
-
-    for (let i = 0; i < ticketRefs.length; i++) {
-      const ref = ticketRefs[i];
-      if (!ref.current) continue;
-
-      const cloned = ref.current.cloneNode(true) as HTMLDivElement;
-      cloned.style.cssText = `
-        width: 1200px;
-        display: block;
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      `;
-
-      // Convertir QR a <img>
-      cloned.querySelectorAll('canvas').forEach((c) => {
-        const can = c as HTMLCanvasElement;
-        try {
-          const img = document.createElement('img');
-          img.src = can.toDataURL('image/png');
-          img.width = can.width;
-          img.height = can.height;
-          img.style.width = `${can.width}px`;
-          img.style.height = `${can.height}px`;
-          can.replaceWith(img);
-        } catch {}
-      });
-
-      tempContainer.innerHTML = '';
-      tempContainer.appendChild(cloned);
-
-      // Esperar layout e imágenes
-      await new Promise(requestAnimationFrame);
-      if ((document as any).fonts?.ready) { try { await (document as any).fonts.ready; } catch {} }
-
-      const imgs = Array.from(cloned.querySelectorAll('img'));
-      await Promise.all(imgs.map(img => new Promise<void>((res) => {
-        if (img.complete) return res();
-        img.onload = () => res();
-        img.onerror = () => res();
-      })));
-
-      // Captura
-      const canvas = await html2canvas(cloned, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        imageTimeout: 10000,
-      });
-
-      const imgData = canvas.toDataURL('image/png', 1.0);
-      
-      const bottomSafety = 4; // mm extra
-      let targetW = maxW;
-      let targetH = (canvas.height / canvas.width) * targetW;
-      
-      let availableH = pageHeight - yCursor - gutterY - bottomSafety;
-      if (targetH > availableH && yCursor > gutterY) {
-          pdf.addPage();
-          yCursor = gutterY;
-          availableH = pageHeight - yCursor - gutterY - bottomSafety;
-      }
-
-      if (targetH > availableH) {
-        const ratio = availableH / targetH;
-        targetH = Math.max(availableH - 0.5, 0);
-        targetW *= ratio;
-      }
-      
-      targetW = Math.floor(targetW * 10) / 10;
-      targetH = Math.floor(targetH * 10) / 10;
-
-      const x = (pageWidth - targetW) / 2;
-
-      pdf.addImage(imgData, 'PNG', x, yCursor, targetW, targetH, undefined, 'FAST');
-
-      yCursor += targetH + gutterY;
-    }
-
-    const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
-    pdf.save(fileName);
-  } finally {
-    tempContainer.remove();
-  }
-}
-
 
 type TicketPreviewProps = {
   result: GenerationResult;
@@ -155,19 +33,27 @@ type TicketPreviewProps = {
   onEventUpdate?: (updatedParams: Partial<EventParameters>) => void;
 };
 
-
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, eventParams, secretKey } = result;
   const { toast } = useToast();
   
   const [isSaved, setIsSaved] = useState(isRegeneration);
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   
-  const ticketRefs = React.useMemo(
-    () => Array.from({ length: tickets.length }, () => createRef<HTMLDivElement>()),
-    [tickets]
-  );
-  
+  const printRef = useRef<HTMLDivElement>(null);
+  const handlePrint = useReactToPrint({
+    content: () => printRef.current,
+    documentTitle: `${eventParams.event_name}_tickets`,
+    pageStyle: `
+      @page { size: A4; margin: 12mm; }
+      @media print {
+        html, body {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+      }
+    `,
+  });
+
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
   const [moreQuantity, setMoreQuantity] = useState(10);
   const [showGenerateMoreDialog, setShowGenerateMoreDialog] = useState(false);
@@ -175,9 +61,9 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editFormData, setEditFormData] = useState({
-      eventName: eventParams.event_name,
-      dateTime: eventParams.date_time,
-      venue: eventParams.venue,
+    eventName: eventParams.event_name,
+    dateTime: eventParams.date_time,
+    venue: eventParams.venue,
   });
 
   useEffect(() => {
@@ -216,9 +102,9 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       "Ticket Number,Short Code,QR Payload,Redeemed",
       ...tickets.map(t => `${t.ticketNumber},${t.shortCode},"${t.qrPayload.replace(/"/g, '""')}",false`)
     ].join("\n");
-    downloadFile("tickets.csv", csvContent, "text/csv;charset=utf-t;");
+    downloadFile("tickets.csv", csvContent, "text/csv;charset=utf-8;");
   };
-
+  
   const handleDownloadJson = () => {
     const jsonContent = JSON.stringify({ tickets, eventParams, secretKey }, null, 2);
     downloadFile("event_data.json", jsonContent, "application/json");
@@ -227,25 +113,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const handleDownloadReadme = () => {
     const readmeContent = `# Instrucciones de Validación de Tickets`;
     downloadFile("README_VALIDACION.md", readmeContent.trim(), "text/markdown");
-  };
-  
-  const triggerPdfGeneration = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (isGeneratingPdf) return;
-    setIsGeneratingPdf(true);
-    try {
-        await handleGeneratePdf(ticketRefs, eventParams.event_name);
-        toast({ title: "PDF Generado", description: `Se descargó ${eventParams.event_name}.pdf` });
-    } catch(err) {
-        console.error("Error al generar PDF:", err);
-        toast({
-            variant: "destructive",
-            title: "Error al generar PDF",
-            description: err instanceof Error ? err.message : "Ocurrió un problema inesperado.",
-        });
-    } finally {
-        setIsGeneratingPdf(false);
-    }
   };
 
   return (
@@ -295,16 +162,16 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
               </>
             )}
 
-            <Button onClick={triggerPdfGeneration} disabled={isGeneratingPdf}>
-                {isGeneratingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
-                {isGeneratingPdf ? 'Generando...' : 'Descargar PDF'}
+            <Button onClick={handlePrint}>
+                <FileDown className="mr-2 h-4 w-4" />
+                Imprimir / Guardar PDF
             </Button>
 
 
             <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="secondary" size="icon" onClick={() => { if (secretKey) handleDownloadSecret(); handleDownloadCsv(); if (secretKey) handleDownloadJson(); handleDownloadReadme();}} disabled={!isSaved || isGeneratingPdf}>
+                        <Button variant="secondary" size="icon" onClick={() => { if (secretKey) handleDownloadSecret(); handleDownloadCsv(); if (secretKey) handleDownloadJson(); handleDownloadReadme();}} disabled={!isSaved}>
                             <Download />
                         </Button>
                     </TooltipTrigger>
@@ -330,18 +197,18 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
           </Alert>
       )}
       
-      {/* Contenedor para la vista previa en pantalla */}
-      <div className="all-tickets-container grid grid-cols-1 md:grid-cols-2 gap-4">
-        {tickets.map((ticket, index) => (
-          <div key={`ticket-container-${ticket.ticketId}`} className="flex justify-center" ref={ticketRefs[index]}>
-              <TicketCard
-                eventName={eventParams.event_name}
-                dateTime={eventParams.date_time}
-                venue={eventParams.venue}
-                ticketNumber={ticket.ticketNumber}
-                qrPayload={ticket.qrPayload}
-                shortCode={ticket.shortCode}
-              />
+      {/* Contenedor para vista previa Y para impresión */}
+      <div ref={printRef} className="all-tickets-container grid grid-cols-1 md:grid-cols-2 gap-4">
+        {tickets.map((ticket) => (
+          <div key={ticket.ticketId} className="ticket-print">
+            <TicketCard
+              eventName={eventParams.event_name}
+              dateTime={eventParams.date_time}
+              venue={eventParams.venue}
+              ticketNumber={ticket.ticketNumber}
+              qrPayload={ticket.qrPayload}
+              shortCode={ticket.shortCode}
+            />
           </div>
         ))}
       </div>

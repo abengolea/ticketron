@@ -66,29 +66,38 @@
 }
 
 @media print {
-  body {
+  * {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    background-color: #ffffff !important; /* Fondo blanco para impresión */
+  }
+
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important; /* Ensure background is white for printing */
+    color: #000 !important; /* Ensure text is black */
   }
 
   .no-print {
     display: none !important;
   }
-  
-  .print-page {
+
+  /* Layout for each ticket on the printed page */
+  .ticket-print {
+    width: 100%;
     break-inside: avoid;
     page-break-inside: avoid;
-    width: 100%;
-    margin-bottom: 12mm;
+    margin: 0 0 12mm 0; /* Vertical separation between tickets */
   }
 
+  /* Remove visual effects that can cause issues in PDF renderers */
   .ticket-card {
-    border: 1px solid #ccc !important; /* Un borde sutil para delimitar el ticket */
+    border: 1px solid #ccc !important;
     box-shadow: none !important;
+    filter: none !important;
+    transform: none !important;
   }
-  
-  /* Asegura que el contenido principal sea visible y ocupe el espacio */
+
   main, .all-tickets-container {
       display: block !important;
       width: 100%;
@@ -96,9 +105,5 @@
       overflow: visible !important;
       margin: 0 !important;
       padding: 0 !important;
-  }
-  /* Cambia el grid a un layout de bloque para impresión */
-  .all-tickets-container {
-    display: block;
   }
 }
