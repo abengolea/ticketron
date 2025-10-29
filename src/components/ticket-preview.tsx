@@ -6,7 +6,7 @@ import type { GenerationResult, EventParameters, TicketData } from "@/lib/types"
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
 import { downloadFile } from "@/lib/utils";
-import { Download, ArrowLeft, Loader2, CheckCircle, AlertCircle, FileDown, PlusCircle, Pencil } from "lucide-react";
+import { Download, ArrowLeft, Loader2, CheckCircle, PlusCircle, Pencil, Printer } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -26,102 +26,6 @@ import {
 } from "@/components/ui/tooltip"
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
-
-async function handleGeneratePdf(
-  ticketRefs: React.RefObject<HTMLDivElement>[],
-  eventName: string,
-): Promise<void> {
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-
-  const pageWidth = pdf.internal.pageSize.getWidth();   // 210 mm
-  const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
-
-  const marginX = 10;
-  const marginY = 10;
-  const safeBottom = 8; // margen extra para evitar cortes
-  const maxContentW = pageWidth - marginX * 2;
-
-  // contenedor fuera de pantalla
-  const temp = document.createElement("div");
-  temp.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: -9999px;
-    background: white;
-    width: 1200px;
-    display: block;
-  `;
-  document.body.appendChild(temp);
-
-  try {
-    let y = marginY;
-
-    for (let i = 0; i < ticketRefs.length; i++) {
-      const ref = ticketRefs[i];
-      if (!ref.current) continue;
-
-      // clonar ticket
-      const cloned = ref.current.cloneNode(true) as HTMLDivElement;
-      cloned.style.cssText = `width:1200px;display:block;background:white;`;
-      temp.innerHTML = "";
-      temp.appendChild(cloned);
-
-      // esperar fuentes e imágenes
-      await new Promise(r => requestAnimationFrame(r));
-      if ((document as any).fonts?.ready) {
-        try { await (document as any).fonts.ready; } catch {}
-      }
-      const imgs = Array.from(cloned.querySelectorAll("img"));
-      await Promise.all(imgs.map(img => new Promise<void>(res => {
-        if (img.complete) return res();
-        img.onload = () => res();
-        img.onerror = () => res();
-      })));
-
-      // capturar
-      const canvas = await html2canvas(cloned, {
-        scale: 2,
-        backgroundColor: "#fff",
-        useCORS: true,
-        allowTaint: true,
-        imageTimeout: 10000,
-      });
-
-      const imgData = canvas.toDataURL("image/png", 1.0);
-
-      // escalar manteniendo proporción
-      let targetW = maxContentW;
-      let targetH = (canvas.height / canvas.width) * targetW;
-
-      // si el ticket excede la página → salto
-      if (y + targetH + safeBottom > pageHeight) {
-        pdf.addPage();
-        y = marginY;
-      }
-
-      // si aún así queda justo, lo achicamos un 2%
-      if (y + targetH + safeBottom > pageHeight) {
-        targetH *= 0.98;
-        targetW *= 0.98;
-      }
-
-      // centrar horizontalmente
-      const x = (pageWidth - targetW) / 2;
-
-      pdf.addImage(imgData, "PNG", x, y, targetW, targetH, undefined, "FAST");
-
-      // avanzar cursor + separación
-      y += targetH + marginY;
-    }
-
-    const filename = `${eventName.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_tickets.pdf`;
-    pdf.save(filename);
-  } finally {
-    temp.remove();
-  }
-}
 
 
 type TicketPreviewProps = {
@@ -131,17 +35,10 @@ type TicketPreviewProps = {
 };
 
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
-  const { tickets, eventParams } = result;
-  const { secretKey } = result;
+  const { tickets, eventParams, secretKey } = result;
   const { toast } = useToast();
-
-  const ticketRefs = React.useMemo(() =>
-    Array.from({ length: tickets.length }, () => createRef<HTMLDivElement>()),
-    [tickets]
-  );
   
   const [isSaved, setIsSaved] = useState(isRegeneration);
-  const [printingChunk, setPrintingChunk] = useState<number | null>(null);
   
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
   const [moreQuantity, setMoreQuantity] = useState(10);
@@ -161,27 +58,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         return () => clearTimeout(timer);
     }
   }, [isRegeneration]);
-
-  const triggerPdfGeneration = async () => {
-    setPrintingChunk(0); // Use a single state for all chunks
-    
-    try {
-      await handleGeneratePdf(ticketRefs, eventParams.event_name);
-      toast({
-        title: "PDF Generado",
-        description: `El archivo ${eventParams.event_name}.pdf se ha descargado.`,
-      });
-    } catch (error) {
-      console.error("Error generating PDF:", error);
-      toast({
-        title: "Error de PDF",
-        description: `No se pudo generar el PDF: ${error instanceof Error ? error.message : String(error)}`,
-        variant: "destructive",
-      });
-    } finally {
-      setPrintingChunk(null);
-    }
-  };
 
   const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setEditFormData(prev => ({ ...prev, [e.target.id]: e.target.value }));
@@ -212,7 +88,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       "Ticket Number,Short Code,QR Payload,Redeemed",
       ...tickets.map(t => `${t.ticketNumber},${t.shortCode},"${t.qrPayload.replace(/"/g, '""')}",false`)
     ].join("\n");
-    downloadFile("tickets.csv", csvContent, "text/csv;charset=utf-8;");
+    downloadFile("tickets.csv", csvContent, "text/csv;charset=utf-t;");
   };
 
   const handleDownloadJson = () => {
@@ -272,9 +148,9 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
               </>
             )}
 
-            <Button onClick={triggerPdfGeneration} disabled={printingChunk !== null}>
-                {printingChunk !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
-                {printingChunk !== null ? 'Generando...' : 'Descargar PDF'}
+            <Button onClick={() => window.print()}>
+                <Printer className="mr-2 h-4 w-4" />
+                Imprimir / Guardar PDF
             </Button>
 
             <TooltipProvider>
@@ -292,14 +168,14 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       </div>
 
       {!isSaved && (
-          <Alert className="mb-4">
+          <Alert className="mb-4 no-print">
               <Loader2 className="h-4 w-4 animate-spin" />
               <AlertTitle>Guardando tickets...</AlertTitle>
               <AlertDescription>Sincronizando los tickets generados con la base de datos.</AlertDescription>
           </Alert>
       )}
       {isSaved && !isRegeneration && (
-           <Alert variant="default" className="mb-4 bg-green-100 dark:bg-green-900/50">
+           <Alert variant="default" className="mb-4 bg-green-100 dark:bg-green-900/50 no-print">
               <CheckCircle className="h-4 w-4" />
               <AlertTitle>Sincronización Completa</AlertTitle>
               <AlertDescription>Todos los tickets se han guardado en la base de datos.</AlertDescription>
@@ -308,10 +184,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       
       {/* Contenedor para la vista previa en pantalla */}
       <div className="all-tickets-container grid grid-cols-1 md:grid-cols-2 gap-4">
-        {tickets.map((ticket, index) => (
-          <div key={`ticket-container-${ticket.ticketId}`} className="flex justify-center">
-            {/* Le pasamos la ref al TicketCard, que es lo que queremos capturar */}
-            <div ref={ticketRefs[index]}>
+        {tickets.map((ticket) => (
+          <div key={`ticket-container-${ticket.ticketId}`} className="flex justify-center print-page">
               <TicketCard
                 eventName={eventParams.event_name}
                 dateTime={eventParams.date_time}
@@ -320,14 +194,9 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                 qrPayload={ticket.qrPayload}
                 shortCode={ticket.shortCode}
               />
-            </div>
           </div>
         ))}
       </div>
     </div>
   );
 }
-
-    
-
-    

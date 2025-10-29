@@ -60,55 +60,39 @@
 
 /* --- PDF & Printing Styles --- */
 
-/* Hide everything except the printable area when generating PDF */
-body.pdf-generating > *:not(.pdf-capture-area) {
-  display: none !important;
+@page {
+  size: A4;
+  margin: 12mm;
 }
-
-/* Style for the temporary capture area */
-.pdf-capture-area {
-  position: absolute !important;
-  left: 0;
-  top: 0;
-  width: 210mm !important;
-  background-color: white !important;
-  display: none; /* Hidden by default */
-  z-index: -1; /* Keep it out of the way */
-}
-
-body.pdf-generating .pdf-capture-area {
-  display: block !important; /* Shown only during PDF generation */
-  z-index: 9999 !important; /* Bring to front */
-}
-
-/* By default, all pages inside capture area are hidden */
-.pdf-capture-area .print-page {
-  display: none;
-}
-
-/* Only the 'active-pdf-page' is visible for capture */
-.pdf-capture-area .print-page.active-pdf-page {
-  display: grid !important; /* Use grid to match original layout */
-}
-
 
 @media print {
-  .no-print {
-    display: none !important;
-  }
   body {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    background-color: #ffffff; /* Fondo blanco para impresión */
+  }
+
+  .no-print {
+    display: none !important;
   }
   
   .print-page {
-    page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    page-break-after: always; /* Asegura que cada ticket esté en su propia página si es necesario */
+    width: 100%;
+    margin-bottom: 12mm;
     box-shadow: none !important;
     border: none !important;
   }
 
   .ticket-card {
-    border: none !important;
+    border: 1px solid #ccc !important; /* Un borde sutil para delimitar el ticket */
     box-shadow: none !important;
+  }
+  
+  /* Asegura que el contenido principal sea visible */
+  main, .all-tickets-container {
+      display: block !important;
   }
 }

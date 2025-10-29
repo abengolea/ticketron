@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useQRAsBase64 } from '@/hooks/useQRAsBase64';
@@ -54,7 +53,6 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
                     src={qrBase64}
                     alt={`Código QR para el ticket ${formattedTicketNumber}`}
                     className="w-full h-full"
-                    crossOrigin="anonymous"
                  />
             )}
         </div>
