@@ -28,142 +28,98 @@ import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { isValidDataURL, waitForImagesInContainer } from "@/lib/image-utils";
-
-const chunk = <T,>(arr: T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
-    arr.slice(i * size, i * size + size)
-  );
-
 
 async function handleGeneratePdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string,
 ): Promise<void> {
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
-  const pageWidth = pdf.internal.pageSize.getWidth();   // 210
-  const pageHeight = pdf.internal.pageSize.getHeight(); // 297
+  const pageWidth = pdf.internal.pageSize.getWidth();   // 210 mm
+  const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
 
-  // Márgenes y ajustes
-  const gutterX = 14;
-  const gutterY = 12;
-  const maxW = pageWidth - 2 * gutterX;
-  const maxH = pageHeight - 2 * gutterY;
-  const safeBottomMargin = 6; // margen de seguridad extra
+  const marginX = 10;
+  const marginY = 10;
+  const safeBottom = 8; // margen extra para evitar cortes
+  const maxContentW = pageWidth - marginX * 2;
 
-  // Contenedor offscreen
-  const tempContainer = document.createElement('div');
-  tempContainer.style.cssText = `
+  // contenedor fuera de pantalla
+  const temp = document.createElement("div");
+  temp.style.cssText = `
     position: fixed;
     top: 0;
     left: -9999px;
-    width: 1200px;
     background: white;
+    width: 1200px;
     display: block;
-    margin: 0;
-    padding: 0;
-    visibility: visible;
   `;
-  document.body.appendChild(tempContainer);
+  document.body.appendChild(temp);
 
   try {
-    let yCursor = gutterY;
+    let y = marginY;
 
     for (let i = 0; i < ticketRefs.length; i++) {
       const ref = ticketRefs[i];
       if (!ref.current) continue;
 
+      // clonar ticket
       const cloned = ref.current.cloneNode(true) as HTMLDivElement;
-      cloned.style.cssText = `
-        width: 1200px;
-        display: block;
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      `;
+      cloned.style.cssText = `width:1200px;display:block;background:white;`;
+      temp.innerHTML = "";
+      temp.appendChild(cloned);
 
-      // Convertir QR a <img>
-      cloned.querySelectorAll('canvas').forEach((c) => {
-        const can = c as HTMLCanvasElement;
-        try {
-          const img = document.createElement('img');
-          img.src = can.toDataURL('image/png');
-          img.width = can.width;
-          img.height = can.height;
-          img.style.width = `${can.width}px`;
-          img.style.height = `${can.height}px`;
-          can.replaceWith(img);
-        } catch {}
-      });
-
-      tempContainer.innerHTML = '';
-      tempContainer.appendChild(cloned);
-
-      // Esperar layout e imágenes
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      if ((document as any).fonts?.ready) { try { await (document as any).fonts.ready; } catch {} }
-
-      const imgs = Array.from(cloned.querySelectorAll('img'));
-      await Promise.all(imgs.map(img => new Promise<void>((res) => {
+      // esperar fuentes e imágenes
+      await new Promise(r => requestAnimationFrame(r));
+      if ((document as any).fonts?.ready) {
+        try { await (document as any).fonts.ready; } catch {}
+      }
+      const imgs = Array.from(cloned.querySelectorAll("img"));
+      await Promise.all(imgs.map(img => new Promise<void>(res => {
         if (img.complete) return res();
         img.onload = () => res();
         img.onerror = () => res();
       })));
 
-      // Captura
+      // capturar
       const canvas = await html2canvas(cloned, {
         scale: 2,
+        backgroundColor: "#fff",
         useCORS: true,
         allowTaint: true,
-        backgroundColor: '#ffffff',
         imageTimeout: 10000,
       });
 
-      const imgData = canvas.toDataURL('image/png', 1.0);
+      const imgData = canvas.toDataURL("image/png", 1.0);
 
-      // Escalado proporcional con margen de seguridad
-      let targetW = maxW;
+      // escalar manteniendo proporción
+      let targetW = maxContentW;
       let targetH = (canvas.height / canvas.width) * targetW;
-      if (targetH > maxH) {
-        targetH = maxH;
-        targetW = (canvas.width / canvas.height) * targetH;
-      }
-      
-      const bottomSafety = 4; // mm extra para evitar corte visual
-      let availableH = pageHeight - yCursor - gutterY - bottomSafety;
 
-      // Si no entra Y no estamos al comienzo de la página, pasamos a la siguiente
-      if (targetH > availableH && yCursor > gutterY) {
+      // si el ticket excede la página → salto
+      if (y + targetH + safeBottom > pageHeight) {
         pdf.addPage();
-        yCursor = gutterY;
-        availableH = pageHeight - yCursor - gutterY - bottomSafety;
+        y = marginY;
       }
 
-      // Si aún así no entra, lo encogemos proporcionalmente
-      if (targetH > availableH) {
-        const ratio = availableH / targetH;
-        targetH = Math.max(availableH - 0.5, 0); // -0.5mm colchón anti-corte
-        targetW = targetW * ratio;
+      // si aún así queda justo, lo achicamos un 2%
+      if (y + targetH + safeBottom > pageHeight) {
+        targetH *= 0.98;
+        targetW *= 0.98;
       }
 
-      // Redondeo hacia abajo para evitar excedentes por flotantes
-      targetW = Math.floor(targetW * 10) / 10;
-      targetH = Math.floor(targetH * 10) / 10;
-      
-
-      // Centrar horizontalmente
+      // centrar horizontalmente
       const x = (pageWidth - targetW) / 2;
 
-      pdf.addImage(imgData, 'PNG', x, yCursor, targetW, targetH, undefined, 'FAST');
+      pdf.addImage(imgData, "PNG", x, y, targetW, targetH, undefined, "FAST");
 
-      yCursor += targetH + gutterY;
+      // avanzar cursor + separación
+      y += targetH + marginY;
     }
 
-    const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
-    pdf.save(fileName);
+    const filename = `${eventName.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_tickets.pdf`;
+    pdf.save(filename);
   } finally {
-    tempContainer.remove();
+    temp.remove();
   }
 }
 
@@ -173,9 +129,6 @@ type TicketPreviewProps = {
   isRegeneration?: boolean;
   onEventUpdate?: (updatedParams: Partial<EventParameters>) => void;
 };
-
-const PDF_CHUNK_SIZE = 100;
-const TICKETS_PER_PAGE = 8; // No cambiar, 8 tickets (2x4) por página A4
 
 export function TicketPreview({ result, isRegeneration = false, onEventUpdate }: TicketPreviewProps) {
   const { tickets, eventParams } = result;
@@ -374,5 +327,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     </div>
   );
 }
+
+    
 
     
