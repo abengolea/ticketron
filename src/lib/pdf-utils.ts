@@ -8,99 +8,143 @@ const slugify = (s: string) =>
 
 const pad = (n: number) => String(n).padStart(4, "0");
 
-/** Deshabilita stylesheets cross-origin durante la captura y los restablece al final */
-function withSafeStyles<T>(fn: () => Promise<T>): Promise<T> {
-  const disabled: CSSStyleSheet[] = [];
-  // Desactivar stylesheets que no permiten leer cssRules (p.ej., Google Fonts)
-  for (const sheet of Array.from(document.styleSheets) as CSSStyleSheet[]) {
-    try {
-      // Si esto tira SecurityError, es cross-origin
-      // @ts-ignore forzamos acceso para probar
-      void sheet.cssRules;
-    } catch {
-      sheet.disabled = true;
-      disabled.push(sheet);
-    }
-  }
-
-  return fn().finally(() => {
-    // Restaurar stylesheets
-    for (const s of disabled) s.disabled = false;
+/** Quita sombras/bordes durante la captura */
+function applyCaptureStyles(el: HTMLElement) {
+  el.querySelectorAll<HTMLElement>('*').forEach(n => {
+    n.style.boxShadow = 'none';
+    n.style.textShadow = 'none';
+    n.style.outline = 'none';
+    n.style.borderImage = 'initial';
   });
 }
 
+/** Restaura estilos (por si capturás el DOM original en lugar del clon) */
+function removeCaptureStyles(el: HTMLElement) {
+  el.querySelectorAll<HTMLElement>('*').forEach(n => {
+    n.style.boxShadow = '';
+    n.style.textShadow = '';
+    n.style.outline = '';
+    n.style.borderImage = '';
+  });
+}
+
+/** Captura segura, sin CORS y sin hairlines alrededor */
 export async function captureTicketPNG(node: HTMLElement): Promise<string> {
   const domtoimage: typeof import('dom-to-image-more').default = (await import('dom-to-image-more')).default;
-  // Clonado + canvas->img (como ya tenías)
+  // CLON limpio
   const cloned = node.cloneNode(true) as HTMLElement;
-  cloned.querySelectorAll("canvas").forEach((c) => {
+
+  // Reemplazo de canvas → img (ej.: QR)
+  cloned.querySelectorAll('canvas').forEach((c) => {
     try {
       const can = c as HTMLCanvasElement;
-      const img = document.createElement("img");
-      img.src = can.toDataURL("image/png");
+      const img = document.createElement('img');
+      img.src = can.toDataURL('image/png');
       img.width = can.width;
       img.height = can.height;
       img.style.width = `${can.width}px`;
       img.style.height = `${can.height}px`;
-      can.replaceWith(img);
+      c.replaceWith(img);
     } catch {}
   });
 
-  const temp = document.createElement("div");
-  temp.style.cssText = `
-    position: fixed; left: -99999px; top: 0;
-    background:#fff; margin:0; padding:0; z-index:-1;
-    width:${node.clientWidth || 420}px;
+  // Wrapper con fondo blanco y 1px de padding (bleed) para “comerse” el borde
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = `
+    background:#ffffff; 
+    padding:1px;                /* ← bleed */
+    border-radius:18px;         /* opcional: acompaña tu card */
+    display:inline-block;
   `;
-  temp.appendChild(cloned);
+  wrapper.appendChild(cloned);
+
+  // Contenedor offscreen
+  const temp = document.createElement('div');
+  temp.style.cssText = `
+    position:fixed; left:-99999px; top:0; z-index:-1;
+  `;
+  temp.appendChild(wrapper);
   document.body.appendChild(temp);
 
+  // Estilos de captura (sin sombras/bordes)
+  applyCaptureStyles(wrapper);
+
   try {
-    // Ejecutar la captura con los stylesheets cross-origin desactivados
-    return await withSafeStyles(() =>
-      domtoimage.toPng(cloned, {
-        cacheBust: true,
-        quality: 1,
-        // Filtro opcional por si tuvieras <link> dentro del clon (normalmente no)
-        filter: (n: Node) => {
-          // Excluir links a Google Fonts si aparecieran en el árbol
-          if (n instanceof HTMLLinkElement && /fonts\.googleapis\.com/.test(n.href)) return false;
-          return true;
-        },
-        style: {
-          // Asegura colores y fuentes aplicadas en el clon
-          background: "#ffffff",
-          transform: "scale(1)",
-          transformOrigin: "top left",
-        },
-      })
-    );
+    const dataUrl = await domtoimage.toPng(wrapper, {
+      cacheBust: true,
+      quality: 1,
+      bgcolor: '#ffffff',   // fondo sólido (evita halos)
+      copyStyles: false,    // no intentar inlinar CSS externo (evita CORS)
+      filter: (n) => {
+        // Ignorá Google Fonts y cualquier <link> externo
+        if (n instanceof HTMLLinkElement) {
+          const href = n.getAttribute('href') || '';
+          return !href.includes('fonts.googleapis.com') && !href.includes('fonts.gstatic.com');
+        }
+        return true;
+      },
+      style: {
+        background: '#ffffff',
+        transform: 'scale(1)',
+        transformOrigin: 'top left',
+      },
+    });
+
+    return dataUrl;
   } finally {
+    // Limpieza
+    removeCaptureStyles(wrapper);
     temp.remove();
   }
 }
 
-export function addImagesStackedA4(pdf: jsPDF, images: string[]) {
-  const margin = 5;       // márgenes
-  const gap = 3.5;        // espacio entre tickets
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
+export async function buildPdfFromPngs(
+  pngs: string[],
+  fileName: string,
+  opts?: { marginXmm?: number; marginYmm?: number; spacingMm?: number }
+) {
+  const { default: jsPDF } = await import("jspdf");
+  const marginX = opts?.marginXmm ?? 10;
+  const marginY = opts?.marginYmm ?? 10;
+  const spacing = opts?.spacingMm ?? 10;  // tu separación entre tickets
+  const overlap = 0.2;                    // ← solape anti-hairline en mm
+
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
-  const usableW = pageW - margin * 2;
+  const drawW = pageW - marginX * 2;
 
-  let y = margin;
+  let y = marginY;
 
-  for (const dataUrl of images) {
-    const props = pdf.getImageProperties(dataUrl);
-    const imgW = usableW;
-    const imgH = (props.height * imgW) / props.width;
+  for (let i = 0; i < pngs.length; i++) {
+    const img = pngs[i];
 
-    if (y + imgH + margin > pageH) {
+    // Medidas reales del PNG
+    const imgProps = pdf.getImageProperties(img);
+    const drawH = round2((imgProps.height / imgProps.width) * drawW);
+
+    // ¿Cabe en esta página?
+    if (y + drawH + marginY > pageH) {
       pdf.addPage();
-      y = margin;
+      y = marginY;
     }
-    pdf.addImage(dataUrl, "PNG", margin, y, imgW, imgH, undefined, "NONE");
-    y += imgH + gap;
+
+    // Coordenadas redondeadas
+    const x = round2(marginX);
+    const yPos = round2(y);
+
+    // Colocar imagen (usa 'FAST' si todo ok, o probá sin el 7mo arg si ves artefactos)
+    pdf.addImage(img, 'PNG', x, yPos, drawW, drawH);
+
+    // Avanza con un pequeño solape negativo para “tapar” cualquier hairline
+    y = y + drawH + spacing - overlap;
   }
+
+  pdf.save(fileName);
 }
 
 /**
@@ -116,9 +160,7 @@ export async function generateOneBatchPdf(
   perFile: number,
   batchIndex: number
 ) {
-  const { default: jsPDF } = await import("jspdf");
-
-  const start = batchIndex * perFile;            // índice inicial (0-based)
+  const start = batchIndex * perFile;
   const end = Math.min(start + perFile, ticketRefs.length);
 
   const images: string[] = [];
@@ -127,16 +169,13 @@ export async function generateOneBatchPdf(
     if (!ref?.current) continue;
     const png = await captureTicketPNG(ref.current);
     images.push(png);
-    // ceder el hilo para no congelar
     if ((i - start + 1) % 10 === 0) await new Promise(r => setTimeout(r, 20));
   }
 
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  addImagesStackedA4(pdf, images);
-
   const base = slugify(eventName);
-  // numeración humana (1-based) con 4 dígitos
   const humanStart = pad(start + 1);
   const humanEnd = pad(end);
-  pdf.save(`${base}_${humanStart}-${humanEnd}.pdf`);
+  const fileName = `${base}_${humanStart}-${humanEnd}.pdf`;
+
+  await buildPdfFromPngs(images, fileName, { spacingMm: 3.5, marginXmm: 5, marginYmm: 5 });
 }

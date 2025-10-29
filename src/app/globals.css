@@ -57,3 +57,27 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Modo captura/print: sin sombras, sin filtros, sin bordes */
+.ticket-card,
+.ticket-card * {
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: none !important;
+  outline: none !important;
+}
+
+/* Si tu card tiene border-radius + gradient, ayudá con fondo blanco */
+.ticket-card {
+  background-clip: padding-box;   /* evita halos en el borde */
+}
+
+/* Para impresión del navegador, por si vas a usar window.print */
+@media print {
+  .ticket-card { break-inside: avoid; }
+  html, body { 
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: #fff !important;
+  }
+}
