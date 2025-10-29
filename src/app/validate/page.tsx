@@ -1,9 +1,9 @@
-
 import { TicketValidatorOnline } from "@/components/ticket-validator-online";
+import { Header } from "@/components/header";
 
 export default function ValidatePage() {
   return (
-    <div>
+    <>
       <div className="text-center mb-8">
         <h1 className="text-4xl font-headline text-primary">Validador de Tickets</h1>
         <p className="text-muted-foreground mt-2">
@@ -11,6 +11,6 @@ export default function ValidatePage() {
         </p>
       </div>
       <TicketValidatorOnline />
-    </div>
+    </>
   );
 }

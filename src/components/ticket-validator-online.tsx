@@ -6,11 +6,11 @@ import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw, XCircle } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw, XCircle, ShieldCheck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { type Html5Qrcode } from 'html5-qrcode';
-import { useFirestore } from '@/firebase';
-import { doc, runTransaction } from 'firebase/firestore';
+import { useFirestore, useUser } from '@/firebase';
+import { doc, getDoc, runTransaction, updateDoc } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TicketValidator } from './ticket-validator';
 import { errorEmitter } from '@/firebase/error-emitter';
@@ -20,6 +20,8 @@ import type { TicketStatus } from '@/lib/types';
 type ValidationResult = {
   status: TicketStatus | 'invalid';
   message: string;
+  ticketId?: string;
+  eventId?: string;
 };
 
 const readerId = "qr-reader-online";
@@ -27,14 +29,15 @@ const readerId = "qr-reader-online";
 export function TicketValidatorOnline() {
   const [isScanning, setIsScanning] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRedeeming, setIsRedeeming] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const { toast } = useToast();
   const firestore = useFirestore();
+  const { user, loading: userLoading } = useUser();
 
   useEffect(() => {
-    // La función de limpieza se encarga de detener el escáner si el componente se desmonta.
     return () => {
       if (scannerRef.current && scannerRef.current.isScanning) {
         scannerRef.current.stop().catch(err => {
@@ -42,7 +45,7 @@ export function TicketValidatorOnline() {
         });
       }
     };
-  }, []); // El array vacío asegura que la limpieza se ejecute solo al desmontar.
+  }, []);
 
   const stopScanner = () => {
     if (scannerRef.current && scannerRef.current.isScanning) {
@@ -84,47 +87,67 @@ export function TicketValidatorOnline() {
       }
       
       ticketRef = doc(firestore, 'events', eventId, 'tickets', ticketId);
-
-      const resultMessage = await runTransaction(firestore, async (transaction) => {
-        const ticketDoc = await transaction.get(ticketRef);
-
-        if (!ticketDoc.exists()) {
-          throw new Error(`Ticket no encontrado en la base de datos. ID: ${ticketId}`);
-        }
-
-        const ticketData = ticketDoc.data();
-        
-        if (ticketData.status === 'voided') {
-            const reason = ticketData.voidedReason || 'Anulado por el administrador.';
-            setValidationResult({ status: 'voided', message: `Ticket ANULADO. ${reason}` });
-            return;
-        }
-        
-        if (ticketData.status === 'redeemed') {
-           throw new Error(`El ticket ${ticketId.substring(0,8)}... ya fue canjeado el ${new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()}.`);
-        }
-
-        transaction.update(ticketRef, { status: 'redeemed', redeemedAt: new Date() });
-        return `El ticket ${ticketId.substring(0,8)}... es válido y ha sido canjeado exitosamente.`;
-      });
+      const ticketDoc = await getDoc(ticketRef);
       
-      if (resultMessage) {
-        setValidationResult({ status: 'active', message: resultMessage });
+      if (!ticketDoc.exists()) {
+        throw new Error(`Ticket no encontrado en la base de datos. ID: ${ticketId}`);
+      }
+
+      const ticketData = ticketDoc.data();
+      
+      if (ticketData.status === 'voided') {
+          const reason = ticketData.voidedReason || 'Anulado por el administrador.';
+          setValidationResult({ status: 'voided', message: `Ticket ANULADO. ${reason}` });
+      } else if (ticketData.status === 'redeemed') {
+          setValidationResult({ status: 'redeemed', message: `Este ticket YA FUE CANJEADO el ${new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()}.` });
+      } else {
+          setValidationResult({ status: 'active', message: 'Ticket VÁLIDO para ingresar.', ticketId, eventId });
       }
 
     } catch (error: any) {
-        if (error.code === 'permission-denied' || (error.message && error.message.toLowerCase().includes('permission-denied'))) {
+        if (error.code === 'permission-denied') {
             const permissionError = new FirestorePermissionError({
                 path: ticketRef?.path || 'unknown path',
-                operation: 'update',
+                operation: 'get', // Changed from 'update' to 'get'
             });
             errorEmitter.emit('permission-error', permissionError);
-        }
-        if (!validationResult) { // Don't overwrite voided message
-            setValidationResult({ status: 'invalid', message: error.message });
+        } else {
+           setValidationResult({ status: 'invalid', message: error.message });
         }
     } finally {
         setIsLoading(false);
+    }
+  };
+  
+  const handleRedeem = async () => {
+    if (!firestore || !user || !validationResult?.ticketId || !validationResult?.eventId) {
+        toast({ variant: 'destructive', title: 'Error', description: 'No se puede canjear el ticket. Debes ser administrador e iniciar sesión.' });
+        return;
+    }
+    
+    setIsRedeeming(true);
+    const { eventId, ticketId } = validationResult;
+    const ticketRef = doc(firestore, 'events', eventId, 'tickets', ticketId);
+
+    try {
+        await updateDoc(ticketRef, { status: 'redeemed', redeemedAt: new Date() });
+        setValidationResult({
+            status: 'redeemed',
+            message: `¡Éxito! El ticket ${ticketId.substring(0,8)}... ha sido canjeado.`
+        });
+        toast({ title: 'Ticket Canjeado', description: 'El estado se ha actualizado en la base de datos.'});
+    } catch (e: any) {
+        if (e.code === 'permission-denied') {
+            errorEmitter.emit('permission-error', new FirestorePermissionError({
+                path: ticketRef.path,
+                operation: 'update',
+                requestResourceData: { status: 'redeemed' }
+            }));
+        } else {
+            toast({ variant: 'destructive', title: 'Error al Canjear', description: e.message });
+        }
+    } finally {
+        setIsRedeeming(false);
     }
   };
 
@@ -132,7 +155,6 @@ export function TicketValidatorOnline() {
     setIsScanning(true);
     setValidationResult(null);
     
-    // Importación dinámica y creación de la instancia solo cuando se necesita.
     const { Html5Qrcode } = await import('html5-qrcode');
     if (!scannerRef.current) {
         scannerRef.current = new Html5Qrcode(readerId, false);
@@ -168,11 +190,12 @@ export function TicketValidatorOnline() {
       if (!validationResult) return null;
       switch(validationResult.status) {
           case 'active':
-          case 'redeemed': // In this context, a redeemed status from the transaction means it was just successfully redeemed.
               return { variant: 'default', Icon: CheckCircle2, title: 'Válido', className: 'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300' };
+          case 'redeemed':
+              return { variant: 'default', Icon: AlertTriangle, title: 'Ya Canjeado', className: 'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300' };
           case 'voided':
               return { variant: 'destructive', Icon: XCircle, title: 'Anulado' };
-          case 'invalid': // Covers already redeemed and other errors
+          case 'invalid':
               return { variant: 'destructive', Icon: AlertCircle, title: 'Inválido' };
           default:
               return { variant: 'destructive', Icon: AlertCircle, title: 'Error' };
@@ -208,7 +231,7 @@ export function TicketValidatorOnline() {
                                     ) : (
                                         <Camera className="mr-2 h-5 w-5" />
                                     )}
-                                    {isLoading ? 'Validando...' : 'Escanear Código QR'}
+                                    {isLoading ? 'Verificando...' : 'Escanear Código QR'}
                                 </Button>
                             </div>
                         )
@@ -220,7 +243,15 @@ export function TicketValidatorOnline() {
                                 <AlertTitle>{alertInfo.title}</AlertTitle>
                                 <AlertDescription>{validationResult.message}</AlertDescription>
                             </Alert>
-                            <Button onClick={resetValidation} className="w-full">
+
+                            {validationResult.status === 'active' && user && !userLoading && (
+                                <Button onClick={handleRedeem} className="w-full" disabled={isRedeeming}>
+                                    {isRedeeming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+                                    Marcar como Canjeado
+                                </Button>
+                            )}
+                            
+                            <Button onClick={resetValidation} variant="outline" className="w-full">
                                 <RotateCcw className="mr-2 h-4 w-4" />
                                 Validar Otro Ticket
                             </Button>
