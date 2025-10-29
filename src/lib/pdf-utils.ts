@@ -2,6 +2,25 @@
 
 import type { jsPDF } from "jspdf";
 
+// --- Helpers para manejar las fuentes cross-origin ---
+function detachCrossOriginStyleLinks(): HTMLLinkElement[] {
+  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
+  const detached: HTMLLinkElement[] = [];
+  for (const l of links) {
+    const href = l.getAttribute("href") || "";
+    if (/^https?:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)/i.test(href)) {
+      l.parentElement?.removeChild(l);
+      detached.push(l);
+    }
+  }
+  return detached;
+}
+
+function reattachStyleLinks(links: HTMLLinkElement[]) {
+  const head = document.head || document.getElementsByTagName("head")[0];
+  for (const l of links) head.appendChild(l);
+}
+
 /** Quita sombras/bordes durante la captura */
 function applyCaptureStyles(el: HTMLElement) {
   el.querySelectorAll<HTMLElement>('*').forEach(n => {
@@ -25,45 +44,53 @@ function removeCaptureStyles(el: HTMLElement) {
 /** Captura segura, sin CORS y sin hairlines alrededor */
 export async function captureTicketPNG(node: HTMLElement): Promise<string> {
     const { default: domtoimage } = await import('dom-to-image-more');
-  // CLON limpio
-  const cloned = node.cloneNode(true) as HTMLElement;
-
-  // Reemplazo de canvas → img (ej.: QR)
-  cloned.querySelectorAll('canvas').forEach((c) => {
-    try {
-      const can = c as HTMLCanvasElement;
-      const img = document.createElement('img');
-      img.src = can.toDataURL('image/png');
-      img.width = can.width;
-      img.height = can.height;
-      img.style.width = `${can.width}px`;
-      img.style.height = `${can.height}px`;
-      c.replaceWith(img);
-    } catch {}
-  });
-
-  // Wrapper con fondo blanco y 1px de padding (bleed) para “comerse” el borde
-  const wrapper = document.createElement('div');
-  wrapper.style.cssText = `
-    background:#ffffff; 
-    padding:1px;                /* ← bleed */
-    border-radius:18px;         /* opcional: acompaña tu card */
-    display:inline-block;
-  `;
-  wrapper.appendChild(cloned);
-
-  // Contenedor offscreen
-  const temp = document.createElement('div');
-  temp.style.cssText = `
-    position:fixed; left:-99999px; top:0; z-index:-1;
-  `;
-  temp.appendChild(wrapper);
-  document.body.appendChild(temp);
-
-  // Estilos de captura (sin sombras/bordes)
-  applyCaptureStyles(wrapper);
-
+  // Asegura que las fuentes estén listas
   try {
+    await (document as any).fonts?.ready;
+  } catch (e) {
+    console.warn("Error esperando a document.fonts.ready", e);
+  }
+
+  const removedLinks = detachCrossOriginStyleLinks();
+  try {
+    // CLON limpio
+    const cloned = node.cloneNode(true) as HTMLElement;
+
+    // Reemplazo de canvas → img (ej.: QR)
+    cloned.querySelectorAll('canvas').forEach((c) => {
+      try {
+        const can = c as HTMLCanvasElement;
+        const img = document.createElement('img');
+        img.src = can.toDataURL('image/png');
+        img.width = can.width;
+        img.height = can.height;
+        img.style.width = `${can.width}px`;
+        img.style.height = `${can.height}px`;
+        can.replaceWith(img);
+      } catch {}
+    });
+
+    // Wrapper con fondo blanco y 1px de padding (bleed) para “comerse” el borde
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = `
+      background:#ffffff; 
+      padding:1px;                /* ← bleed */
+      border-radius:18px;         /* opcional: acompaña tu card */
+      display:inline-block;
+    `;
+    wrapper.appendChild(cloned);
+
+    // Contenedor offscreen
+    const temp = document.createElement('div');
+    temp.style.cssText = `
+      position:fixed; left:-99999px; top:0; z-index:-1;
+    `;
+    temp.appendChild(wrapper);
+    document.body.appendChild(temp);
+
+    // Estilos de captura (sin sombras/bordes)
+    applyCaptureStyles(wrapper);
+
     const dataUrl = await domtoimage.toPng(wrapper, {
       cacheBust: true,
       quality: 1,
@@ -84,15 +111,19 @@ export async function captureTicketPNG(node: HTMLElement): Promise<string> {
       },
     });
 
-    return dataUrl;
-  } catch (error) {
-    console.error("Error capturando ticket con dom-to-image:", error);
-    // Relanzar el error para que sea capturado por el llamador (handleBatchClick)
-    throw new Error("Error al generar la imagen de un ticket. Revisa la consola para más detalles.");
-  } finally {
-    // Limpieza
+    // Limpieza final del DOM
     removeCaptureStyles(wrapper);
     temp.remove();
+
+    return dataUrl;
+
+  } catch (error) {
+    console.error("Error al generar imagen del ticket:", error);
+    // Relanzar el error para que el llamador lo pueda capturar
+    throw new Error("Error generando la imagen del ticket. Revisa la consola.");
+  } finally {
+    // Siempre re-adjuntar los estilos
+    reattachStyleLinks(removedLinks);
   }
 }
 
@@ -171,7 +202,7 @@ export async function generateOneBatchPdf(
     if (!ref?.current) continue;
     
     // El try/catch aquí es crucial por si una sola imagen falla
-    // El error se lanza desde captureTicketPNG
+    // El error se propaga desde captureTicketPNG
     const png = await captureTicketPNG(ref.current);
     images.push(png);
 
