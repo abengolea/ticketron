@@ -70,6 +70,10 @@
     print-color-adjust: exact;
   }
   
+  .no-print {
+    display: none !important;
+  }
+
   body > *:not(#__print) {
     display: none !important; /* Muestra solo el clon */
   }
@@ -85,8 +89,19 @@
     margin: 0 0 12mm 0;
   }
 
+  /* Override para evitar el “blanco sobre blanco” */
   .ticket-card {
+    background: #ffffff !important;
+    background-image: none !important;
+    color: #111 !important;
     box-shadow: none !important;
     border-radius: 0 !important;
+    border: 1px solid #ddd !important; /* Opcional: ayuda a guillotinar */
+    padding: 8mm !important;
+  }
+
+  /* Forzar texto oscuro en todos los hijos */
+  .ticket-card * {
+    color: #111 !important;
   }
 }
