@@ -51,32 +51,30 @@ async function handleGeneratePdf(
       const ref = ticketRefs[i];
       if (!ref.current) continue;
 
-      // clonar y preparar
       const cloned = ref.current!.cloneNode(true) as HTMLDivElement;
       cloned.style.cssText = `
         display:block;
-        width: 100%;          /* ocupar TODO el ancho grande del contenedor */
-        max-width: none;      /* evitar límites responsive */
-        padding-bottom: 8px;  /* colchón interno anti mordisco */
+        width: 100%;
+        max-width: none;
       `;
 
-      // convertir <canvas> → <img> si los hubiera (QR)
-      cloned.querySelectorAll('canvas').forEach((c) => {
-        try {
-          const can = c as HTMLCanvasElement;
-          const img = document.createElement('img');
-          img.src = can.toDataURL('image/png');
-          img.style.width  = `${can.width}px`;
-          img.style.height = `${can.height}px`;
-          can.replaceWith(img);
-        } catch {}
-      });
+      // Ajustes anti-corte antes de capturar
+      const BOTTOM_PADDING_FIX = 24; // px adicionales debajo del ticket
 
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = `
+        position: relative;
+        display: block;
+        background: white;
+        padding-bottom: ${BOTTOM_PADDING_FIX}px;
+        overflow: visible;
+      `;
+      wrapper.appendChild(cloned);
       temp.innerHTML = '';
-      temp.appendChild(cloned);
+      temp.appendChild(wrapper);
 
       // esperar imágenes del clon
-      const imgs = [...cloned.querySelectorAll('img')];
+      const imgs = [...temp.querySelectorAll('img')];
       await Promise.all(imgs.map(img => new Promise<void>(res => {
         if (img.complete) return res();
         img.onload = () => res();
@@ -84,17 +82,16 @@ async function handleGeneratePdf(
       })));
 
       // 📸 capturar a ese ancho grande
-      const canvas = await html2canvas(cloned, {
+      const canvas = await html2canvas(wrapper, {
         scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#ffffff',
-        imageTimeout: 10000,
-        logging: false,
-        width: captureWidthPx,
         windowWidth: captureWidthPx,
+        height: wrapper.scrollHeight + BOTTOM_PADDING_FIX,
+        logging: false,
       });
-
+      
       const imgData = canvas.toDataURL('image/png', 1.0);
 
       // mantener proporción y salto con colchón
