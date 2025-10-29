@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useRef, useState } from "react";
 import { useReactToPrint } from "react-to-print";
 import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
@@ -27,6 +27,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 
+
 type TicketPreviewProps = {
   result: GenerationResult;
   isRegeneration?: boolean;
@@ -37,23 +38,19 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const { tickets, eventParams, secretKey } = result;
   const { toast } = useToast();
   
-  const [isSaved, setIsSaved] = useState(isRegeneration);
-  
   const printRef = useRef<HTMLDivElement>(null);
   const handlePrint = useReactToPrint({
-    content: () => printRef.current,
+    contentRef: printRef,
     documentTitle: `${eventParams.event_name}_tickets`,
     pageStyle: `
       @page { size: A4; margin: 12mm; }
       @media print {
-        html, body {
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-        }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       }
     `,
   });
 
+  const [isSaved, setIsSaved] = useState(isRegeneration);
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
   const [moreQuantity, setMoreQuantity] = useState(10);
   const [showGenerateMoreDialog, setShowGenerateMoreDialog] = useState(false);
@@ -66,7 +63,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     venue: eventParams.venue,
   });
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!isRegeneration) {
         const timer = setTimeout(() => setIsSaved(true), 2000);
         return () => clearTimeout(timer);
@@ -197,8 +194,23 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
           </Alert>
       )}
       
-      {/* Contenedor para vista previa Y para impresión */}
-      <div ref={printRef} className="all-tickets-container grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Contenido para vista en pantalla (grid) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 no-print">
+        {tickets.map((ticket) => (
+          <TicketCard
+            key={ticket.ticketId}
+            eventName={eventParams.event_name}
+            dateTime={eventParams.date_time}
+            venue={eventParams.venue}
+            ticketNumber={ticket.ticketNumber}
+            qrPayload={ticket.qrPayload}
+            shortCode={ticket.shortCode}
+          />
+        ))}
+      </div>
+      
+      {/* Contenido para impresión (lista) */}
+      <div ref={printRef} className="hidden print:block">
         {tickets.map((ticket) => (
           <div key={ticket.ticketId} className="ticket-print">
             <TicketCard
