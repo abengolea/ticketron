@@ -26,48 +26,71 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 
+// Abre una ventana nueva con el HTML clonado y dispara Print
+export async function printInNewWindow(containerRef: React.RefObject<HTMLElement>) {
+  const node = containerRef.current;
+  if (!node) {
+    console.error('[PRINT] ref vacío');
+    return;
+  }
 
-async function printElementNoIframe(containerRef: React.RefObject<HTMLElement>) {
-  const el = containerRef.current;
-  if (!el) throw new Error('Nada para imprimir');
-
-  const clone = el.cloneNode(true) as HTMLElement;
-
-  const holder = document.createElement('div');
-  holder.id = '__print';
-  holder.style.cssText = `
-    position: fixed;
-    inset: 0;
-    background: white;
-    z-index: 2147483647;
-    overflow: visible;
-  `;
-  holder.appendChild(clone);
-
-  const style = document.createElement('style');
-  style.textContent = `
-    @page { size: A4; margin: 12mm; }
-    @media print {
-      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      body > *:not(#__print) { display: none !important; }
-      #__print { display: block !important; }
-      .ticket-print { width: 100%; break-inside: avoid; page-break-inside: avoid; margin: 0 0 12mm 0; }
-      .ticket-card { box-shadow: none !important; border-radius: 0 !important; }
-    }
-  `;
-  holder.appendChild(style);
-
-  document.body.appendChild(holder);
-
-  const imgs = Array.from(holder.querySelectorAll('img'));
+  // Esperar imágenes cargadas (por las dudas)
+  const imgs = Array.from(node.querySelectorAll('img'));
   await Promise.all(imgs.map(img => new Promise<void>(res => {
     if (img.complete) return res();
     img.onload = () => res();
     img.onerror = () => res();
   })));
 
-  window.print();
-  setTimeout(() => holder.remove(), 0);
+  const html = node.innerHTML;
+
+  // CSS mínimo para A4 vertical y evitar cortes
+  const printCss = `
+    <style>
+      @page { size: A4; margin: 12mm; }
+      @media print {
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .ticket-print { width: 100%; break-inside: avoid; page-break-inside: avoid; margin: 0 0 12mm 0; }
+        .ticket-card { box-shadow: none !important; border-radius: 0 !important; }
+      }
+      /* Reset básico para que se vea igual que en tu app */
+      html,body { padding:0; margin:0; background:#fff; }
+    </style>
+  `;
+
+  // Abrimos POPUP (asegurate de permitir popups en el navegador)
+  const w = window.open('', '_blank', 'noopener,noreferrer,width=1000,height=800');
+  if (!w) {
+    alert('El navegador bloqueó la ventana de impresión. Permití pop-ups para este sitio e intentá de nuevo.');
+    return;
+  }
+
+  // Escribimos el documento completo
+  w.document.open();
+  w.document.write(`<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Tickets</title>
+        ${printCss}
+        <!-- Base para que rutas relativas funcionen si las hubiera -->
+        <base href="${window.location.origin}">
+      </head>
+      <body>
+        <div id="print-root">${html}</div>
+        <script>
+          // Esperar un tick, imprimir y cerrar
+          window.addEventListener('load', function() {
+            try {
+              window.focus();
+              window.print();
+            } catch (e) {}
+            setTimeout(function(){ window.close(); }, 300);
+          });
+        </script>
+      </body>
+    </html>`);
+  w.document.close();
 }
 
 
@@ -82,7 +105,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const { toast } = useToast();
   
   const printRef = useRef<HTMLDivElement>(null);
-  const ticketContainerRef = useRef<HTMLDivElement>(null);
 
   const [isSaved, setIsSaved] = useState(isRegeneration);
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
@@ -193,7 +215,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
               </>
             )}
 
-            <Button onClick={() => printElementNoIframe(ticketContainerRef)}>
+            <Button onClick={(e) => { e.preventDefault(); printInNewWindow(printRef); }}>
                 <FileDown className="mr-2 h-4 w-4" />
                 Imprimir / Guardar PDF
             </Button>
@@ -227,34 +249,19 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
           </Alert>
       )}
       
-      {/* Contenido para vista en pantalla (grid) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 no-print">
+      {/* Contenido para impresion y vista en pantalla */}
+      <div ref={printRef} className="grid grid-cols-1 md:grid-cols-2 gap-4 print:block">
         {tickets.map((ticket, i) => (
-          <TicketCard
-            key={ticket.ticketId}
-            eventName={eventParams.event_name}
-            dateTime={eventParams.date_time}
-            venue={eventParams.venue}
-            ticketNumber={ticket.ticketNumber}
-            qrPayload={ticket.qrPayload}
-            shortCode={ticket.shortCode}
-          />
-        ))}
-      </div>
-      
-      {/* Contenido para impresión (oculto en pantalla) */}
-      <div ref={ticketContainerRef} className="hidden">
-        {tickets.map((ticket) => (
           <div key={ticket.ticketId} className="ticket-print">
             <div className="ticket-card">
-              <TicketCard
-                eventName={eventParams.event_name}
-                dateTime={eventParams.date_time}
-                venue={eventParams.venue}
-                ticketNumber={ticket.ticketNumber}
-                qrPayload={ticket.qrPayload}
-                shortCode={ticket.shortCode}
-              />
+                 <TicketCard
+                    eventName={eventParams.event_name}
+                    dateTime={eventParams.date_time}
+                    venue={eventParams.venue}
+                    ticketNumber={ticket.ticketNumber}
+                    qrPayload={ticket.qrPayload}
+                    shortCode={ticket.shortCode}
+                  />
             </div>
           </div>
         ))}
