@@ -1,8 +1,7 @@
 
 "use client";
 
-import React, { useRef, useState } from "react";
-import { useReactToPrint } from "react-to-print";
+import React, { useRef, useState, useEffect } from "react";
 import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
@@ -28,6 +27,50 @@ import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 
 
+async function printElementNoIframe(containerRef: React.RefObject<HTMLElement>) {
+  const el = containerRef.current;
+  if (!el) throw new Error('Nada para imprimir');
+
+  const clone = el.cloneNode(true) as HTMLElement;
+
+  const holder = document.createElement('div');
+  holder.id = '__print';
+  holder.style.cssText = `
+    position: fixed;
+    inset: 0;
+    background: white;
+    z-index: 2147483647;
+    overflow: visible;
+  `;
+  holder.appendChild(clone);
+
+  const style = document.createElement('style');
+  style.textContent = `
+    @page { size: A4; margin: 12mm; }
+    @media print {
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body > *:not(#__print) { display: none !important; }
+      #__print { display: block !important; }
+      .ticket-print { width: 100%; break-inside: avoid; page-break-inside: avoid; margin: 0 0 12mm 0; }
+      .ticket-card { box-shadow: none !important; border-radius: 0 !important; }
+    }
+  `;
+  holder.appendChild(style);
+
+  document.body.appendChild(holder);
+
+  const imgs = Array.from(holder.querySelectorAll('img'));
+  await Promise.all(imgs.map(img => new Promise<void>(res => {
+    if (img.complete) return res();
+    img.onload = () => res();
+    img.onerror = () => res();
+  })));
+
+  window.print();
+  setTimeout(() => holder.remove(), 0);
+}
+
+
 type TicketPreviewProps = {
   result: GenerationResult;
   isRegeneration?: boolean;
@@ -39,16 +82,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const { toast } = useToast();
   
   const printRef = useRef<HTMLDivElement>(null);
-  const handlePrint = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: `${eventParams.event_name}_tickets`,
-    pageStyle: `
-      @page { size: A4; margin: 12mm; }
-      @media print {
-        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      }
-    `,
-  });
+  const ticketContainerRef = useRef<HTMLDivElement>(null);
 
   const [isSaved, setIsSaved] = useState(isRegeneration);
   const [isGeneratingMore, setIsGeneratingMore] = useState(false);
@@ -63,7 +97,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     venue: eventParams.venue,
   });
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isRegeneration) {
         const timer = setTimeout(() => setIsSaved(true), 2000);
         return () => clearTimeout(timer);
@@ -159,11 +193,10 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
               </>
             )}
 
-            <Button onClick={handlePrint}>
+            <Button onClick={() => printElementNoIframe(ticketContainerRef)}>
                 <FileDown className="mr-2 h-4 w-4" />
                 Imprimir / Guardar PDF
             </Button>
-
 
             <TooltipProvider>
                 <Tooltip>
@@ -196,7 +229,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       
       {/* Contenido para vista en pantalla (grid) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 no-print">
-        {tickets.map((ticket) => (
+        {tickets.map((ticket, i) => (
           <TicketCard
             key={ticket.ticketId}
             eventName={eventParams.event_name}
@@ -209,18 +242,20 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         ))}
       </div>
       
-      {/* Contenido para impresión (lista) */}
-      <div ref={printRef} className="hidden print:block">
+      {/* Contenido para impresión (oculto en pantalla) */}
+      <div ref={ticketContainerRef} className="hidden">
         {tickets.map((ticket) => (
           <div key={ticket.ticketId} className="ticket-print">
-            <TicketCard
-              eventName={eventParams.event_name}
-              dateTime={eventParams.date_time}
-              venue={eventParams.venue}
-              ticketNumber={ticket.ticketNumber}
-              qrPayload={ticket.qrPayload}
-              shortCode={ticket.shortCode}
-            />
+            <div className="ticket-card">
+              <TicketCard
+                eventName={eventParams.event_name}
+                dateTime={eventParams.date_time}
+                venue={eventParams.venue}
+                ticketNumber={ticket.ticketNumber}
+                qrPayload={ticket.qrPayload}
+                shortCode={ticket.shortCode}
+              />
+            </div>
           </div>
         ))}
       </div>
