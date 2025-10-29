@@ -3,144 +3,112 @@
 import type { jsPDF } from "jspdf";
 import type domtoimage from "dom-to-image-more";
 
-
 const slugify = (s: string) =>
-  s.normalize("NFKD").replace(/[^\w-]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
-
-const chunk = <T,>(arr: T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
-    arr.slice(i * size, i * size + size)
-  );
-
-/**
- * Captura una card como PNG (DataURL).
- */
-export async function captureTicketPNG(node: HTMLElement): Promise<string> {
-    const domtoimage: typeof import('dom-to-image-more').default = (await import('dom-to-image-more')).default;
-    
-    const CAPTURE_WIDTH_PX = 1200;
-
-    const cloned = node.cloneNode(true) as HTMLElement;
-    cloned.style.cssText += `
-        width: ${CAPTURE_WIDTH_PX}px !important;
-        max-width: ${CAPTURE_WIDTH_PX}px !important;
-        box-shadow: none !important;
-        transform: none !important;
-        filter: none !important;
-    `;
-
-    cloned.querySelectorAll("canvas").forEach((c) => {
-        try {
-            const can = c as HTMLCanvasElement;
-            const img = document.createElement("img");
-            img.src = can.toDataURL("image/png");
-            img.width = can.width;
-            img.height = can.height;
-            img.style.width = `${can.width}px`;
-            img.style.height = `${can.height}px`;
-            can.replaceWith(img);
-        } catch {}
-    });
-
-    const wrapper = document.createElement("div");
-    wrapper.style.cssText = `
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #ffffff;
-        border: none !important;
-        box-shadow: none !important;
-        outline: none !important;
-        overflow: visible;
-        padding: 24px 0;
-        width: ${CAPTURE_WIDTH_PX}px;
-        transform: translateZ(0);
-        will-change: transform;
-    `;
-    wrapper.appendChild(cloned);
-
-    const temp = document.createElement("div");
-    temp.style.cssText = `
-        position: fixed; left: -9999px; top: 0; width: ${CAPTURE_WIDTH_PX}px;
-        background: white; padding: 0; margin: 0; z-index: -1;
-    `;
-    temp.appendChild(wrapper);
-    document.body.appendChild(temp);
-
-    try {
-        const dataUrl = await domtoimage.toPng(wrapper, {
-            cacheBust: true,
-            quality: 1,
-            bgcolor: "#ffffff",
-            style: {
-                margin: '0',
-                border: 'none',
-                outline: 'none',
-                boxShadow: 'none',
-                transform: 'scale(1)',
-                transformOrigin: 'top left',
-                '-webkit-font-smoothing': 'antialiased',
-                'text-rendering': 'optimizeLegibility',
-            },
-            filter: (node: Node) => {
-                if (node instanceof HTMLElement) {
-                    const s = window.getComputedStyle(node);
-                    if (s.display === 'none' || s.visibility === 'hidden') return false;
-                    node.style.border = "none";
-                    node.style.boxShadow = "none";
-                    node.style.outline = "none";
-                }
-                return true;
-            },
-        });
-        return dataUrl;
-    } finally {
-        temp.remove();
-    }
-}
-
-
-/**
- * Crea un PDF con varias imágenes (tickets) apiladas.
- */
-export async function addImagesStackedA4(pdf: jsPDF, images: string[]) {
-  const marginMM = 10;
-  const gapMM = 6;
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
-  const usableW = pageW - marginMM * 2;
-  const BLEED = 0.2;
-  const SNAP = 0.1;
-  const snap = (mm: number) => Math.round(mm / SNAP) * SNAP;
-  let y = marginMM;
-
-  images.forEach((imgData) => {
-    const props = pdf.getImageProperties(imgData);
-    const imgWmm = usableW;
-    const imgHmm = (props.height * imgWmm) / props.width;
-    
-    const contentBottom = pageH - marginMM;
-    if (y + imgHmm + BLEED > contentBottom) {
-      pdf.addPage();
-      y = marginMM;
-    }
-    
-    const x_pos = snap(marginMM);
-    const y_pos = snap(y);
-    const w_pos = snap(imgWmm);
-    const h_pos = snap(imgHmm + BLEED);
-
-    pdf.addImage(imgData, "PNG", x_pos, y_pos, w_pos, h_pos, undefined, "NONE");
-    
-    y = y_pos + snap(imgHmm) + gapMM;
-  });
-}
+  s.normalize("NFKD").replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
 
 const pad = (n: number) => String(n).padStart(4, "0");
 
+/** Deshabilita stylesheets cross-origin durante la captura y los restablece al final */
+function withSafeStyles<T>(fn: () => Promise<T>): Promise<T> {
+  const disabled: CSSStyleSheet[] = [];
+  // Desactivar stylesheets que no permiten leer cssRules (p.ej., Google Fonts)
+  for (const sheet of Array.from(document.styleSheets) as CSSStyleSheet[]) {
+    try {
+      // Si esto tira SecurityError, es cross-origin
+      // @ts-ignore forzamos acceso para probar
+      void sheet.cssRules;
+    } catch {
+      sheet.disabled = true;
+      disabled.push(sheet);
+    }
+  }
+
+  return fn().finally(() => {
+    // Restaurar stylesheets
+    for (const s of disabled) s.disabled = false;
+  });
+}
+
+export async function captureTicketPNG(node: HTMLElement): Promise<string> {
+  const domtoimage: typeof import('dom-to-image-more').default = (await import('dom-to-image-more')).default;
+  // Clonado + canvas->img (como ya tenías)
+  const cloned = node.cloneNode(true) as HTMLElement;
+  cloned.querySelectorAll("canvas").forEach((c) => {
+    try {
+      const can = c as HTMLCanvasElement;
+      const img = document.createElement("img");
+      img.src = can.toDataURL("image/png");
+      img.width = can.width;
+      img.height = can.height;
+      img.style.width = `${can.width}px`;
+      img.style.height = `${can.height}px`;
+      can.replaceWith(img);
+    } catch {}
+  });
+
+  const temp = document.createElement("div");
+  temp.style.cssText = `
+    position: fixed; left: -99999px; top: 0;
+    background:#fff; margin:0; padding:0; z-index:-1;
+    width:${node.clientWidth || 420}px;
+  `;
+  temp.appendChild(cloned);
+  document.body.appendChild(temp);
+
+  try {
+    // Ejecutar la captura con los stylesheets cross-origin desactivados
+    return await withSafeStyles(() =>
+      domtoimage.toPng(cloned, {
+        cacheBust: true,
+        quality: 1,
+        // Filtro opcional por si tuvieras <link> dentro del clon (normalmente no)
+        filter: (n: Node) => {
+          // Excluir links a Google Fonts si aparecieran en el árbol
+          if (n instanceof HTMLLinkElement && /fonts\.googleapis\.com/.test(n.href)) return false;
+          return true;
+        },
+        style: {
+          // Asegura colores y fuentes aplicadas en el clon
+          background: "#ffffff",
+          transform: "scale(1)",
+          transformOrigin: "top left",
+        },
+      })
+    );
+  } finally {
+    temp.remove();
+  }
+}
+
+export function addImagesStackedA4(pdf: jsPDF, images: string[]) {
+  const margin = 5;       // márgenes
+  const gap = 3.5;        // espacio entre tickets
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const usableW = pageW - margin * 2;
+
+  let y = margin;
+
+  for (const dataUrl of images) {
+    const props = pdf.getImageProperties(dataUrl);
+    const imgW = usableW;
+    const imgH = (props.height * imgW) / props.width;
+
+    if (y + imgH + margin > pageH) {
+      pdf.addPage();
+      y = margin;
+    }
+    pdf.addImage(dataUrl, "PNG", margin, y, imgW, imgH, undefined, "NONE");
+    y += imgH + gap;
+  }
+}
+
 /**
  * Genera un PDF de un lote específico.
+ * @param ticketRefs refs de TODAS las tarjetas
+ * @param eventName  nombre del evento para el archivo
+ * @param perFile    tamaño del lote (100)
+ * @param batchIndex índice del lote (0-based). Ej: 0 => 0001-0100
  */
 export async function generateOneBatchPdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
@@ -149,8 +117,8 @@ export async function generateOneBatchPdf(
   batchIndex: number
 ) {
   const { default: jsPDF } = await import("jspdf");
-  
-  const start = batchIndex * perFile;
+
+  const start = batchIndex * perFile;            // índice inicial (0-based)
   const end = Math.min(start + perFile, ticketRefs.length);
 
   const images: string[] = [];
@@ -159,13 +127,15 @@ export async function generateOneBatchPdf(
     if (!ref?.current) continue;
     const png = await captureTicketPNG(ref.current);
     images.push(png);
+    // ceder el hilo para no congelar
     if ((i - start + 1) % 10 === 0) await new Promise(r => setTimeout(r, 20));
   }
 
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  await addImagesStackedA4(pdf, images);
+  addImagesStackedA4(pdf, images);
 
   const base = slugify(eventName);
+  // numeración humana (1-based) con 4 dígitos
   const humanStart = pad(start + 1);
   const humanEnd = pad(end);
   pdf.save(`${base}_${humanStart}-${humanEnd}.pdf`);
