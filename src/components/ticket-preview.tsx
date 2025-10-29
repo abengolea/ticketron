@@ -10,6 +10,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/comp
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/utils";
 
+
 function disableCrossOriginStyleSheets(): HTMLLinkElement[] {
   const disabled: HTMLLinkElement[] = [];
   for (const ss of Array.from(document.styleSheets)) {
@@ -69,6 +70,10 @@ export async function handleGeneratePdfDomToImage(
   const gap = 6;
   const imgWmm = pageW - margin * 2;
   const CAPTURE_W = 1200;
+  
+  const SNAP = 0.1;
+  const BLEED = 0.2;
+  const snap = (mm: number) => Math.round(mm / SNAP) * SNAP;
 
   const temp = document.createElement("div");
   temp.style.cssText = `
@@ -76,6 +81,20 @@ export async function handleGeneratePdfDomToImage(
     background:#fff; z-index:-1; pointer-events:none;
   `;
   document.body.appendChild(temp);
+  
+  const scrub = (root: HTMLElement) => {
+      root.style.border = "none";
+      root.style.outline = "none";
+      root.style.boxShadow = "none";
+      root.style.backgroundClip = "padding-box";
+      root.querySelectorAll<HTMLElement>("*").forEach(el => {
+        el.style.border = "none";
+        el.style.outline = "none";
+        el.style.boxShadow = "none";
+        el.style.backgroundClip = "padding-box";
+        el.style.textShadow = "none";
+      });
+    };
 
   try {
     let y = margin;
@@ -85,7 +104,8 @@ export async function handleGeneratePdfDomToImage(
 
       const cloned = ref.current.cloneNode(true) as HTMLElement;
       cloned.style.cssText += `width:${CAPTURE_W}px; max-width:${CAPTURE_W}px;`;
-
+      scrub(cloned);
+      
       cloned.querySelectorAll("canvas").forEach((c) => {
         try {
           const can = c as HTMLCanvasElement;
@@ -98,8 +118,20 @@ export async function handleGeneratePdfDomToImage(
       });
 
       const wrapper = document.createElement("div");
-      wrapper.style.cssText = `
-        background:#fff; overflow:visible; padding-bottom:24px; width:${CAPTURE_W}px;
+       wrapper.style.cssText = `
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #ffffff;
+        border: none !important;
+        box-shadow: none !important;
+        outline: none !important;
+        overflow: visible;
+        padding: 24px 0;
+        width: ${CAPTURE_W}px;
+        transform: translateZ(0);
+        will-change: transform;
       `;
       wrapper.appendChild(cloned);
       temp.innerHTML = ""; temp.appendChild(wrapper);
@@ -107,22 +139,48 @@ export async function handleGeneratePdfDomToImage(
       await waitImages(wrapper);
 
       const dataUrl = await domtoimage.toPng(wrapper, {
-        bgcolor: "#ffffff",
+        cacheBust: true,
         quality: 1,
-        filter: (node: Node) => {
-          if (node instanceof HTMLElement && node.tagName === "LINK") return false;
-          return true;
+        bgcolor: "#ffffff",
+        style: {
+          margin: "0",
+          border: "none",
+          outline: "none",
+          boxShadow: "none",
+          transform: "scale(1)",
+          transformOrigin: "top left",
+          "-webkit-font-smoothing": "antialiased",
+          "text-rendering": "optimizeLegibility",
         },
-        style: { transform: "scale(1)", transformOrigin: "top left", margin: "0" },
+        filter: (node: Node) => {
+            if (node instanceof HTMLElement) {
+              const cs = window.getComputedStyle(node);
+              if (cs.display === "none" || cs.visibility === "hidden") return false;
+              node.style.border = "none";
+              node.style.outline = "none";
+              node.style.boxShadow = "none";
+            }
+            return true;
+        },
       });
 
-      const size = await imgNaturalSize(dataUrl);
-      const aspect = size.h / size.w;
-      const imgHmm = imgWmm * aspect;
+      const imgProps = pdf.getImageProperties(dataUrl);
+      const imgW_mm = imgWmm;
+      const imgH_mm = (imgProps.height / imgProps.width) * imgW_mm;
 
-      if (y + imgHmm > pageH - margin) { pdf.addPage(); y = margin; }
-      pdf.addImage(dataUrl, "PNG", margin, y, imgWmm, imgHmm, undefined, "FAST");
-      y += imgHmm + gap;
+      if (y + imgH_mm + margin > pageH) {
+        pdf.addPage();
+        y = margin;
+      }
+      
+      const x_pos = snap(margin);
+      const y_pos = snap(y);
+      const w_pos = snap(imgW_mm);
+      const h_pos = snap(imgH_mm + BLEED);
+
+      pdf.addImage(dataUrl, "PNG", x_pos, y_pos, w_pos, h_pos, undefined, 'NONE');
+      
+      y = y_pos + snap(imgH_mm) + gap;
     }
 
     pdf.save(`${eventName.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_tickets.pdf`);
