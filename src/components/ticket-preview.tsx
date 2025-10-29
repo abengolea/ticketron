@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
 import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
@@ -10,159 +10,128 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/comp
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/utils";
 
-/**
- * Genera un PDF A4 vertical con 1 ticket por fila, sin cortes en el borde inferior ni en el QR.
- * Usa dom-to-image-more para rasterizar cada tarjeta y jsPDF para armar el PDF.
- *
- * @param ticketRefs  Array de refs a los contenedores de cada TicketCard
- * @param eventName   Nombre del evento para el nombre del archivo
- */
+function disableCrossOriginStyleSheets(): HTMLLinkElement[] {
+  const disabled: HTMLLinkElement[] = [];
+  for (const ss of Array.from(document.styleSheets)) {
+    const owner = ss.ownerNode as (HTMLLinkElement | null);
+    if (!owner || owner.tagName !== 'LINK') continue;
+
+    const href = owner.href;
+    if (!href) continue;
+    const sameOrigin = new URL(href, location.href).origin === location.origin;
+    if (!sameOrigin) {
+      owner.disabled = true;
+      disabled.push(owner);
+    }
+  }
+  return disabled;
+}
+function restoreStyleSheets(links: HTMLLinkElement[]) {
+  links.forEach(l => (l.disabled = false));
+}
+
+async function waitImages(el: HTMLElement) {
+  const imgs = Array.from(el.querySelectorAll("img"));
+  return Promise.all(
+    imgs.map(img => new Promise<void>(res => {
+      if ((img as HTMLImageElement).complete) return res();
+      img.onload = () => res(); img.onerror = () => res();
+    }))
+  );
+}
+
+function imgNaturalSize(src: string): Promise<{ w:number; h:number }> {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve({ w: im.naturalWidth, h: im.naturalHeight });
+    im.onerror = reject;
+    im.src = src;
+  });
+}
+
 export async function handleGeneratePdfDomToImage(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string
 ): Promise<void> {
-  // Ejecutar sólo en cliente
-  if (typeof window === "undefined" || typeof document === "undefined") {
-    throw new Error("PDF generation must run in the browser (client-side).");
-  }
+  if (typeof window === "undefined") throw new Error("Run on client");
 
-  // ⚠️ Importes dinámicos para evitar SSR
   const [{ default: jsPDF }, { default: domtoimage }] = await Promise.all([
     import("jspdf"),
     import("dom-to-image-more"),
   ]);
 
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageWidthMM = pdf.internal.pageSize.getWidth();
-  const pageHeightMM = pdf.internal.pageSize.getHeight();
-  const marginMM = 10;
-  const gapBetweenTicketsMM = 6;
-  const imgWidthMM = pageWidthMM - marginMM * 2;
+  const disabledLinks = disableCrossOriginStyleSheets();
 
-  const CAPTURE_WIDTH_PX = 1200;
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const margin = 10;
+  const gap = 6;
+  const imgWmm = pageW - margin * 2;
+  const CAPTURE_W = 1200;
 
   const temp = document.createElement("div");
-  temp.id = `pdf-temp-${Date.now()}`;
   temp.style.cssText = `
-    position: fixed;
-    left: -10000px;
-    top: 0;
-    width: ${CAPTURE_WIDTH_PX}px;
-    background: #ffffff;
-    z-index: -1;
-    pointer-events: none;
+    position: fixed; left:-10000px; top:0; width:${CAPTURE_W}px;
+    background:#fff; z-index:-1; pointer-events:none;
   `;
   document.body.appendChild(temp);
 
   try {
-    let cursorYMM = marginMM;
+    let y = margin;
 
-    for (let i = 0; i < ticketRefs.length; i++) {
-      const ref = ticketRefs[i];
+    for (const ref of ticketRefs) {
       if (!ref.current) continue;
 
       const cloned = ref.current.cloneNode(true) as HTMLElement;
-      cloned.style.cssText += `
-        width: ${CAPTURE_WIDTH_PX}px !important;
-        max-width: ${CAPTURE_WIDTH_PX}px !important;
-        box-shadow: none !important;
-        transform: none !important;
-        filter: none !important;
-      `;
+      cloned.style.cssText += `width:${CAPTURE_W}px; max-width:${CAPTURE_W}px;`;
 
-      // Canvas → IMG por compatibilidad extra
       cloned.querySelectorAll("canvas").forEach((c) => {
         try {
           const can = c as HTMLCanvasElement;
           const img = document.createElement("img");
           img.src = can.toDataURL("image/png");
-          img.width = can.width;
-          img.height = can.height;
-          img.style.width = `${can.width}px`;
-          img.style.height = `${can.height}px`;
+          img.width = can.width; img.height = can.height;
+          img.style.width = `${can.width}px`; img.style.height = `${can.height}px`;
           can.replaceWith(img);
         } catch {}
       });
 
       const wrapper = document.createElement("div");
       wrapper.style.cssText = `
-        position: relative;
-        display: block;
-        background: #ffffff;
-        padding: 0 0 24px 0; /* acolchado para evitar cortes inferiores */
-        overflow: visible;
-        width: ${CAPTURE_WIDTH_PX}px;
+        background:#fff; overflow:visible; padding-bottom:24px; width:${CAPTURE_W}px;
       `;
       wrapper.appendChild(cloned);
-
-      temp.innerHTML = "";
-      temp.appendChild(wrapper);
+      temp.innerHTML = ""; temp.appendChild(wrapper);
 
       await waitImages(wrapper);
 
       const dataUrl = await domtoimage.toPng(wrapper, {
         bgcolor: "#ffffff",
         quality: 1,
-        style: {
-          transform: "scale(1)",
-          transformOrigin: "top left",
-          margin: "0",
+        filter: (node: Node) => {
+          if (node instanceof HTMLElement && node.tagName === "LINK") return false;
+          return true;
         },
+        style: { transform: "scale(1)", transformOrigin: "top left", margin: "0" },
       });
 
-      const img = await loadImage(dataUrl);
-      const aspect = img.naturalHeight / img.naturalWidth;
-      const imgHeightMM = imgWidthMM * aspect;
+      const size = await imgNaturalSize(dataUrl);
+      const aspect = size.h / size.w;
+      const imgHmm = imgWmm * aspect;
 
-      if (cursorYMM + imgHeightMM > pageHeightMM - marginMM) {
-        pdf.addPage();
-        cursorYMM = marginMM;
-      }
-
-      pdf.addImage(
-        dataUrl,
-        "PNG",
-        marginMM,
-        cursorYMM,
-        imgWidthMM,
-        imgHeightMM,
-        undefined,
-        "FAST"
-      );
-
-      cursorYMM += imgHeightMM + gapBetweenTicketsMM;
+      if (y + imgHmm > pageH - margin) { pdf.addPage(); y = margin; }
+      pdf.addImage(dataUrl, "PNG", margin, y, imgWmm, imgHmm, undefined, "FAST");
+      y += imgHmm + gap;
     }
 
-    const filename = `${eventName.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_tickets.pdf`;
-    pdf.save(filename);
+    pdf.save(`${eventName.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_tickets.pdf`);
   } finally {
-    if (temp.parentNode) temp.parentNode.removeChild(temp);
+    restoreStyleSheets(disabledLinks);
+    temp.remove();
   }
 }
 
-async function waitImages(container: HTMLElement): Promise<void> {
-  const imgs = Array.from(container.querySelectorAll("img"));
-  await Promise.all(
-    imgs.map(
-      (img) =>
-        new Promise<void>((resolve) => {
-          const el = img as HTMLImageElement;
-          if (el.complete) return resolve();
-          el.onload = () => resolve();
-          el.onerror = () => resolve();
-        })
-    )
-  );
-}
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const im = new Image();
-    im.onload = () => resolve(im);
-    im.onerror = reject;
-    im.src = src;
-  });
-}
 
 type TicketPreviewProps = {
   result: GenerationResult;
@@ -255,7 +224,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             </div>
         </div>
       
-      {/* Contenido para impresion y vista en pantalla */}
       <div>
         {tickets.map((ticket, i) => (
           <div key={ticket.ticketId} ref={ticketRefs[i]} className="ticket-print mb-4 flex justify-center">
