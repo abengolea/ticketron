@@ -1,12 +1,31 @@
 'use client';
 
 import type { jsPDF } from "jspdf";
-import type domtoimage from "dom-to-image-more";
 
-const slugify = (s: string) =>
-  s.normalize("NFKD").replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
+/** Deshabilita temporalmente los stylesheets de origen cruzado para evitar errores de seguridad. */
+function withSafeStyles<T>(fn: () => Promise<T>): Promise<T> {
+  const disabledSheets: CSSStyleSheet[] = [];
+  
+  for (const sheet of Array.from(document.styleSheets) as CSSStyleSheet[]) {
+    try {
+      // Intentar acceder a cssRules. Si falla, es cross-origin.
+      // @ts-ignore
+      void sheet.cssRules;
+    } catch (e) {
+      // Deshabilitar la hoja de estilo que causa el error de seguridad.
+      sheet.disabled = true;
+      disabledSheets.push(sheet);
+    }
+  }
 
-const pad = (n: number) => String(n).padStart(4, "0");
+  // Ejecutar la función de captura y asegurarse de restaurar siempre los estilos.
+  return fn().finally(() => {
+    for (const sheet of disabledSheets) {
+      sheet.disabled = false;
+    }
+  });
+}
+
 
 /** Quita sombras/bordes durante la captura */
 function applyCaptureStyles(el: HTMLElement) {
@@ -30,7 +49,7 @@ function removeCaptureStyles(el: HTMLElement) {
 
 /** Captura segura, sin CORS y sin hairlines alrededor */
 export async function captureTicketPNG(node: HTMLElement): Promise<string> {
-  const domtoimage: typeof import('dom-to-image-more').default = (await import('dom-to-image-more')).default;
+  const { default: domtoimage } = await import('dom-to-image-more');
   // CLON limpio
   const cloned = node.cloneNode(true) as HTMLElement;
 
@@ -70,7 +89,7 @@ export async function captureTicketPNG(node: HTMLElement): Promise<string> {
   applyCaptureStyles(wrapper);
 
   try {
-    const dataUrl = await domtoimage.toPng(wrapper, {
+    const dataUrl = await withSafeStyles(() => domtoimage.toPng(wrapper, {
       cacheBust: true,
       quality: 1,
       bgcolor: '#ffffff',   // fondo sólido (evita halos)
@@ -88,7 +107,7 @@ export async function captureTicketPNG(node: HTMLElement): Promise<string> {
         transform: 'scale(1)',
         transformOrigin: 'top left',
       },
-    });
+    }));
 
     return dataUrl;
   } finally {
@@ -137,7 +156,7 @@ export async function buildPdfFromPngs(
     const x = round2(marginX);
     const yPos = round2(y);
 
-    // Colocar imagen (usa 'FAST' si todo ok, o probá sin el 7mo arg si ves artefactos)
+    // Colocar imagen
     pdf.addImage(img, 'PNG', x, yPos, drawW, drawH);
 
     // Avanza con un pequeño solape negativo para “tapar” cualquier hairline
@@ -146,6 +165,10 @@ export async function buildPdfFromPngs(
 
   pdf.save(fileName);
 }
+
+const pad = (n: number) => String(n).padStart(4, "0");
+const slugify = (s: string) =>
+  s.normalize("NFKD").replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
 
 /**
  * Genera un PDF de un lote específico.
