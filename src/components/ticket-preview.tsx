@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState } from "react";
 import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
@@ -18,24 +18,29 @@ async function handleGeneratePdf(
 ): Promise<void> {
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth  = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
 
-  const pageWidth  = pdf.internal.pageSize.getWidth();    // 210
-  const pageHeight = pdf.internal.pageSize.getHeight();   // 297
-
-  const gutterX = 10;   // márgenes laterales
-  const gutterY = 10;   // separación vertical entre tarjetas
-  const SAFE = 0.8;     // ? colchón anti-corte en mm (~3 px)
+  const gutterX = 10;
+  const gutterY = 10;
+  const SAFE    = 0.8;
 
   const ticketWidthMM = pageWidth - 2 * gutterX;
 
-  // contenedor temporal para capturas
+  // dpi CSS ~ 96 px por pulgada → 96 / 25.4 = 3.7795 px/mm
+  const PX_PER_MM = 96 / 25.4;
+
+  // Ancho de captura en píxeles: usar un mínimo alto para evitar responsive
+  const captureWidthPx = Math.max(1200, Math.round(ticketWidthMM * PX_PER_MM));
+
+  // ===== contenedor temporal =====
   const temp = document.createElement('div');
   temp.style.cssText = `
     position: fixed; left: -10000px; top: 0;
-    width: 420px; height: 300px;
+    width: ${captureWidthPx}px;   /* 👈 ancho grande */
+    height: auto;
     background: #fff; z-index: 999999;
-    display: flex; align-items: center; justify-content: center;
-    padding: 10px;
+    display: block; overflow: visible; padding: 0; margin: 0;
   `;
   document.body.appendChild(temp);
 
@@ -46,17 +51,22 @@ async function handleGeneratePdf(
       const ref = ticketRefs[i];
       if (!ref.current) continue;
 
-      // ? clonar y preparar
-      const cloned = ref.current.cloneNode(true) as HTMLDivElement;
-      cloned.style.cssText = `display:block;width:100%;padding-bottom:8px;`; // ? colchón visual
+      // clonar y preparar
+      const cloned = ref.current!.cloneNode(true) as HTMLDivElement;
+      cloned.style.cssText = `
+        display:block;
+        width: 100%;          /* ocupar TODO el ancho grande del contenedor */
+        max-width: none;      /* evitar límites responsive */
+        padding-bottom: 8px;  /* colchón interno anti mordisco */
+      `;
 
-      // convertir QR <canvas> ? <img> (si quedara alguno)
+      // convertir <canvas> → <img> si los hubiera (QR)
       cloned.querySelectorAll('canvas').forEach((c) => {
         try {
           const can = c as HTMLCanvasElement;
           const img = document.createElement('img');
           img.src = can.toDataURL('image/png');
-          img.style.width = `${can.width}px`;
+          img.style.width  = `${can.width}px`;
           img.style.height = `${can.height}px`;
           can.replaceWith(img);
         } catch {}
@@ -73,41 +83,29 @@ async function handleGeneratePdf(
         img.onerror = () => res();
       })));
 
-      // ?? capturar
+      // 📸 capturar a ese ancho grande
       const canvas = await html2canvas(cloned, {
-        scale: Math.min(2, window.devicePixelRatio || 1),
+        scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#ffffff',
         imageTimeout: 10000,
         logging: false,
+        width: captureWidthPx,
+        windowWidth: captureWidthPx,
       });
 
       const imgData = canvas.toDataURL('image/png', 1.0);
 
-      // mantener proporción
+      // mantener proporción y salto con colchón
       const imgHeightMM = (canvas.height / canvas.width) * ticketWidthMM;
-
-      // ?? SALTO con margen de seguridad
       const contentBottom = pageHeight - gutterY;
       if (y + imgHeightMM + SAFE > contentBottom) {
         pdf.addPage();
         y = gutterY;
       }
 
-      // ???️ agregar imagen
-      pdf.addImage(
-        imgData,
-        'PNG',
-        gutterX,  // x
-        y,        // y
-        ticketWidthMM,
-        imgHeightMM,
-        undefined,
-        'FAST'
-      );
-
-      // avanzar cursor con separación
+      pdf.addImage(imgData, 'PNG', gutterX, y, ticketWidthMM, imgHeightMM, undefined, 'FAST');
       y += imgHeightMM + gutterY;
     }
 
