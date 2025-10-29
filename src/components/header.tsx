@@ -63,8 +63,19 @@ export function Header() {
             </div>
         )
     }
-    // No renderizar nada si no hay usuario y no está cargando.
-    // El PrivateRoute se encargará de redirigir a /login
+    
+    // Si no está cargando y no hay usuario, mostrar botón de Login si no estamos en /login
+    if (pathname !== '/login') {
+      return (
+        <Button asChild variant="outline" size="sm">
+          <Link href="/login">
+            <User className="mr-2 h-4 w-4" />
+            Admin Login
+          </Link>
+        </Button>
+      );
+    }
+    
     return null;
   }
 
@@ -100,29 +111,29 @@ export function Header() {
                     })}
                 </ul>
             </nav>
-
-             {user && !loading && (
-                <nav>
-                    <ul className="flex items-center gap-2">
-                        {adminNavItems.map((item) => {
-                        const isActive = pathname === item.href;
-                        return (
-                            <li key={item.href}>
-                            <Button asChild variant={isActive ? "secondary" : "ghost"}>
-                                <Link
-                                href={item.href}
-                                className={cn("flex items-center gap-2 text-sm font-medium")}
-                                >
-                                <item.icon className="w-4 h-4" />
-                                {item.label}
-                                </Link>
-                            </Button>
-                            </li>
-                        );
-                        })}
-                    </ul>
-                </nav>
-             )}
+            
+            {!loading && user && (
+              <nav>
+                  <ul className="flex items-center gap-2">
+                      {adminNavItems.map((item) => {
+                      const isActive = pathname === item.href;
+                      return (
+                          <li key={item.href}>
+                          <Button asChild variant={isActive ? "secondary" : "ghost"}>
+                              <Link
+                              href={item.href}
+                              className={cn("flex items-center gap-2 text-sm font-medium")}
+                              >
+                              <item.icon className="w-4 h-4" />
+                              {item.label}
+                              </Link>
+                          </Button>
+                          </li>
+                      );
+                      })}
+                  </ul>
+              </nav>
+            )}
 
             <div className="w-px h-6 bg-border" />
 

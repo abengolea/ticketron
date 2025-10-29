@@ -1,5 +1,5 @@
+
 import { TicketValidatorOnline } from "@/components/ticket-validator-online";
-import { Header } from "@/components/header";
 
 export default function ValidatePage() {
   return (
