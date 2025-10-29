@@ -88,10 +88,14 @@
           "type": "number",
           "description": "The position of the ticket on the printed sheet (1-4)."
         },
-        "isRedeemed": {
-          "type": "boolean",
-          "description": "Indicates whether the ticket has been redeemed or not.",
-          "format": "boolean"
+        "status": {
+          "type": "string",
+          "description": "The current status of the ticket.",
+          "enum": ["active", "redeemed", "voided"]
+        },
+        "voidedReason": {
+            "type": "string",
+            "description": "Reason for the ticket being voided, e.g., 'Anulado por el administrador'."
         }
       },
       "required": [
@@ -104,7 +108,7 @@
         "qrPayload",
         "printedSheet",
         "positionInSheet",
-        "isRedeemed"
+        "status"
       ]
     }
   },

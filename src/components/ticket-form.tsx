@@ -105,7 +105,7 @@ async function generateAndStoreTickets(
                 ownerId: ownerId,
                 ticketNumber: ticket.ticketNumber,
                 shortCode: ticket.shortCode,
-                redeemed: false,
+                status: 'active',
                 redeemedAt: null,
             };
             batch.set(ticketDocRef, ticketData);

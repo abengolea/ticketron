@@ -8,11 +8,14 @@ export interface EventParameters {
   page_size: 'A4' | 'Letter';
 }
 
+export type TicketStatus = 'active' | 'redeemed' | 'voided';
+
 export interface TicketData {
   ticketNumber: number;
   ticketId: string;
   qrPayload: string;
   shortCode: string;
+  status?: TicketStatus;
 }
 
 export interface GenerationResult {

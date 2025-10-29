@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { type Html5Qrcode } from 'html5-qrcode';
 import { useFirestore } from '@/firebase';
@@ -15,9 +15,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TicketValidator } from './ticket-validator';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import type { TicketStatus } from '@/lib/types';
 
 type ValidationResult = {
-  status: 'valid' | 'invalid' | 'redeemed';
+  status: TicketStatus | 'invalid';
   message: string;
 };
 
@@ -92,15 +93,24 @@ export function TicketValidatorOnline() {
         }
 
         const ticketData = ticketDoc.data();
-        if (ticketData.redeemed) {
+        
+        if (ticketData.status === 'voided') {
+            const reason = ticketData.voidedReason || 'Anulado por el administrador.';
+            setValidationResult({ status: 'voided', message: `Ticket ANULADO. ${reason}` });
+            return;
+        }
+        
+        if (ticketData.status === 'redeemed') {
            throw new Error(`El ticket ${ticketId.substring(0,8)}... ya fue canjeado el ${new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()}.`);
         }
 
-        transaction.update(ticketRef, { redeemed: true, redeemedAt: new Date() });
+        transaction.update(ticketRef, { status: 'redeemed', redeemedAt: new Date() });
         return `El ticket ${ticketId.substring(0,8)}... es válido y ha sido canjeado exitosamente.`;
       });
-
-      setValidationResult({ status: 'valid', message: resultMessage });
+      
+      if (resultMessage) {
+        setValidationResult({ status: 'active', message: resultMessage });
+      }
 
     } catch (error: any) {
         if (error.code === 'permission-denied' || (error.message && error.message.toLowerCase().includes('permission-denied'))) {
@@ -110,7 +120,9 @@ export function TicketValidatorOnline() {
             });
             errorEmitter.emit('permission-error', permissionError);
         }
-        setValidationResult({ status: 'invalid', message: error.message });
+        if (!validationResult) { // Don't overwrite voided message
+            setValidationResult({ status: 'invalid', message: error.message });
+        }
     } finally {
         setIsLoading(false);
     }
@@ -152,6 +164,23 @@ export function TicketValidatorOnline() {
     stopScanner();
   };
 
+  const getAlertInfo = () => {
+      if (!validationResult) return null;
+      switch(validationResult.status) {
+          case 'active':
+          case 'redeemed': // In this context, a redeemed status from the transaction means it was just successfully redeemed.
+              return { variant: 'default', Icon: CheckCircle2, title: 'Válido', className: 'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300' };
+          case 'voided':
+              return { variant: 'destructive', Icon: XCircle, title: 'Anulado' };
+          case 'invalid': // Covers already redeemed and other errors
+              return { variant: 'destructive', Icon: AlertCircle, title: 'Inválido' };
+          default:
+              return { variant: 'destructive', Icon: AlertCircle, title: 'Error' };
+      }
+  }
+  
+  const alertInfo = getAlertInfo();
+
   return (
     <Tabs defaultValue="online" className="max-w-2xl mx-auto">
         <TabsList className="grid w-full grid-cols-2">
@@ -184,16 +213,11 @@ export function TicketValidatorOnline() {
                             </div>
                         )
                     )}
-                     {validationResult && (
+                     {validationResult && alertInfo && (
                         <div className="space-y-4">
-                            <Alert variant={validationResult.status === 'invalid' ? 'destructive' : 'default'} className={cn({
-                                'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300': validationResult.status === 'valid',
-                                'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300': validationResult.status === 'redeemed',
-                                })}>
-                                {validationResult.status === 'valid' && <CheckCircle2 className="h-4 w-4" />}
-                                {validationResult.status === 'redeemed' && <AlertTriangle className="h-4 w-4" />}
-                                {validationResult.status === 'invalid' && <AlertCircle className="h-4 w-4" />}
-                                <AlertTitle className='capitalize'>{validationResult.status === 'valid' ? 'Válido' : (validationResult.status === 'invalid' ? 'Inválido' : 'Canjeado')}</AlertTitle>
+                            <Alert variant={alertInfo.variant as any} className={cn(alertInfo.className)}>
+                                <alertInfo.Icon className="h-4 w-4" />
+                                <AlertTitle>{alertInfo.title}</AlertTitle>
                                 <AlertDescription>{validationResult.message}</AlertDescription>
                             </Alert>
                             <Button onClick={resetValidation} className="w-full">
