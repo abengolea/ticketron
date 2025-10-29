@@ -57,16 +57,13 @@ export function TicketValidator() {
     }
   };
 
-  const handleValidate = async (payload: string) => {
-    if (isScanning) {
-      stopScanner();
-    }
+  const validateTicket = async (payload: string) => {
     if (!secretKey.trim() || !payload.trim()) {
       toast({
         variant: "destructive",
         title: "Falta Información",
         description: "Por favor, proporciona tanto una clave secreta como el contenido del QR.",
-      })
+      });
       return;
     }
 
@@ -78,8 +75,9 @@ export function TicketValidator() {
         setValidationResult({ status: 'invalid', message: 'La estructura del código QR es inválida.' });
         return;
       }
-      
-      if (redeemedTicketsSet.has(tid)) {
+
+      // Re-check against the most up-to-date set of redeemed tickets
+      if (new Set(redeemedTickets).has(tid)) {
         setValidationResult({ status: 'redeemed', message: `El ticket ${tid.substring(0,8)}... ya ha sido canjeado.` });
         return;
       }
@@ -89,8 +87,8 @@ export function TicketValidator() {
 
       if (expectedSig === sig) {
         setValidationResult({ status: 'valid', message: `El ticket ${tid.substring(0,8)}... es válido para ingresar.` });
-        const newRedeemed = [...redeemedTickets, tid];
-        setRedeemedTickets(newRedeemed);
+        // Add to redeemed list immediately after successful validation
+        setRedeemedTickets(prev => [...prev, tid]);
       } else {
         setValidationResult({ status: 'invalid', message: 'Firma inválida. El ticket es una falsificación o la clave es incorrecta.' });
       }
@@ -98,8 +96,11 @@ export function TicketValidator() {
     } catch (error) {
       setValidationResult({ status: 'invalid', message: 'Falló al parsear el código QR. ¿Es un JSON válido?' });
     }
-    setQrPayload('');
   };
+
+  const handleManualValidation = async () => {
+    await validateTicket(qrPayload);
+  }
 
   const startScanner = async () => {
     setIsScanning(true);
@@ -121,8 +122,9 @@ export function TicketValidator() {
             { facingMode: "environment" },
             { fps: 10, qrbox: { width: 250, height: 250 } },
             async (decodedText) => {
+                stopScanner();
                 setQrPayload(decodedText);
-                await handleValidate(decodedText);
+                await validateTicket(decodedText);
             },
             (errorMessage) => { /* ignore */ }
         )
@@ -164,6 +166,7 @@ export function TicketValidator() {
                     value={secretKey}
                     onChange={(e) => setSecretKey(e.target.value)}
                     className="font-mono text-sm"
+                    disabled={isScanning}
                 />
             </div>
 
@@ -180,7 +183,7 @@ export function TicketValidator() {
                     </Label>
                     <Textarea
                         id="qr-payload"
-                        placeholder="Pega los datos del código QR escaneado aquí"
+                        placeholder="Pega los datos del código QR escaneado aquí, o usa el botón para escanear."
                         value={qrPayload}
                         onChange={(e) => setQrPayload(e.target.value)}
                         className="font-mono text-sm"
@@ -213,7 +216,7 @@ export function TicketValidator() {
         <CardFooter className='flex-col items-stretch gap-4'>
           <div className="flex gap-2">
             {!isScanning && <Button onClick={startScanner} variant="secondary" className="w-full"><Camera className="mr-2"/> Escanear QR</Button>}
-            <Button onClick={() => handleValidate(qrPayload)} className='w-full' disabled={isScanning}>Validar Ticket</Button>
+            <Button onClick={handleManualValidation} className='w-full' disabled={isScanning || !qrPayload}>Validar Ticket</Button>
           </div>
           <div className="text-xs text-muted-foreground flex items-center gap-4 bg-muted p-3 rounded-lg">
               <p>Tickets canjeados: <span className="font-bold">{redeemedTickets.length}</span></p>
