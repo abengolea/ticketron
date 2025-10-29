@@ -4,11 +4,11 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from 'next/navigation'
 import { useFirestore, useUser } from "@/firebase";
-import { doc, getDoc, collection, getDocs, writeBatch, query, where, serverTimestamp, updateDoc, increment } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, writeBatch, query, where, serverTimestamp, updateDoc, increment, documentId } from "firebase/firestore";
 import { TicketPreview } from "@/components/ticket-preview";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, PlusCircle, MinusCircle, Ticket, Activity, CheckCheck, XCircle } from "lucide-react";
+import { Loader2, PlusCircle, MinusCircle, Ticket, Activity, CheckCheck, XCircle, RotateCcw } from "lucide-react";
 import type { GenerationResult, EventParameters, TicketData, TicketStatus } from "@/lib/types";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -64,6 +64,7 @@ function EventDetailPage() {
   const [moreTickets, setMoreTickets] = useState('');
   const [voidStart, setVoidStart] = useState('');
   const [voidEnd, setVoidEnd] = useState('');
+  const [rehabilitateTicketNum, setRehabilitateTicketNum] = useState('');
 
   const fetchEventDetails = useMemo(() => async () => {
     if (!firestore || !eventId) {
@@ -239,6 +240,45 @@ function EventDetailPage() {
     }
   };
 
+  const handleRehabilitateTicket = async () => {
+    if (!firestore) return;
+    const ticketNum = parseInt(rehabilitateTicketNum, 10);
+
+    if (isNaN(ticketNum) || ticketNum <= 0) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Por favor, introduce un número de ticket válido.' });
+      return;
+    }
+    
+    setIsProcessing(true);
+    try {
+        const ticketsRef = collection(firestore, 'events', eventId, 'tickets');
+        const q = query(ticketsRef, where("ticketNumber", "==", ticketNum));
+        
+        const querySnapshot = await getDocs(q);
+        if (querySnapshot.empty) {
+            throw new Error(`No se encontró el ticket número ${ticketNum}.`);
+        }
+
+        const ticketDoc = querySnapshot.docs[0];
+        const ticketData = ticketDoc.data();
+
+        if (ticketData.status !== 'redeemed') {
+            throw new Error(`El ticket ${ticketNum} no está canjeado (estado actual: ${ticketData.status}).`);
+        }
+
+        await updateDoc(ticketDoc.ref, { status: 'active', redeemedAt: null });
+
+        toast({ title: 'Éxito', description: `El ticket número ${ticketNum} ha sido rehabilitado.` });
+        setRehabilitateTicketNum('');
+        await fetchEventDetails(); // Refresh data
+
+    } catch (e: any) {
+        toast({ variant: 'destructive', title: 'Error al rehabilitar ticket', description: e.message });
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
 
   const handleEventUpdate = (updatedParams: Partial<EventParameters>) => {
     setGenerationResult(prev => {
@@ -336,7 +376,7 @@ function EventDetailPage() {
             </div>
         )}
 
-        <div className="grid md:grid-cols-2 gap-8 mb-8 no-print">
+        <div className="grid md:grid-cols-3 gap-8 mb-8 no-print">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><PlusCircle /> Generar Más Tickets</CardTitle>
@@ -398,6 +438,31 @@ function EventDetailPage() {
               </Button>
             </CardFooter>
           </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><RotateCcw /> Rehabilitar Ticket</CardTitle>
+              <CardDescription>Revierte un ticket canjeado a su estado activo.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <Label htmlFor="rehab-ticket">Número de Ticket a Rehabilitar</Label>
+                <Input
+                  id="rehab-ticket"
+                  type="number"
+                  placeholder="Ej: 15"
+                  value={rehabilitateTicketNum}
+                  onChange={(e) => setRehabilitateTicketNum(e.target.value)}
+                  disabled={isProcessing}
+                />
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button onClick={handleRehabilitateTicket} variant="secondary" disabled={isProcessing}>
+                {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Rehabilitar
+              </Button>
+            </CardFooter>
+          </Card>
         </div>
         <TicketPreview result={generationResult} isRegeneration={true} onEventUpdate={handleEventUpdate} />
       </>
@@ -415,3 +480,4 @@ export default function EventDetailWrapper() {
   );
 }
 
+    
