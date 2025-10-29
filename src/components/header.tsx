@@ -19,10 +19,13 @@ export function Header() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const navItems = [
+  const adminNavItems = [
     { href: "/", label: "Generador", icon: Ticket },
-    { href: "/validate", label: "Validador", icon: ShieldCheck },
     { href: "/history", label: "Historial", icon: History },
+  ];
+
+  const publicNavItems = [
+    { href: "/validate", label: "Validador", icon: ShieldCheck },
   ];
 
   const handleLogout = async () => {
@@ -77,10 +80,31 @@ export function Header() {
           </Link>
           
           <div className="flex items-center gap-4">
+            <nav>
+                <ul className="flex items-center gap-2">
+                    {publicNavItems.map((item) => {
+                    const isActive = pathname === item.href;
+                    return (
+                        <li key={item.href}>
+                        <Button asChild variant={isActive ? "secondary" : "ghost"}>
+                            <Link
+                            href={item.href}
+                            className={cn("flex items-center gap-2 text-sm font-medium")}
+                            >
+                            <item.icon className="w-4 h-4" />
+                            {item.label}
+                            </Link>
+                        </Button>
+                        </li>
+                    );
+                    })}
+                </ul>
+            </nav>
+
              {user && !loading && (
                 <nav>
                     <ul className="flex items-center gap-2">
-                        {navItems.map((item) => {
+                        {adminNavItems.map((item) => {
                         const isActive = pathname === item.href;
                         return (
                             <li key={item.href}>
