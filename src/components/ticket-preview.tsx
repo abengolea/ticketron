@@ -1,8 +1,8 @@
 
 "use client";
 
-import React, { useRef, createRef, useEffect, useState } from "react";
-import type { GenerationResult, EventParameters, TicketData } from "@/lib/types";
+import React, { useEffect, useState } from "react";
+import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCard } from "./ticket-card";
 import { Button } from "./ui/button";
 import { downloadFile } from "@/lib/utils";

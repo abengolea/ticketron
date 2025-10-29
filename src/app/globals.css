@@ -69,7 +69,7 @@
   body {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    background-color: #ffffff; /* Fondo blanco para impresión */
+    background-color: #ffffff !important; /* Fondo blanco para impresión */
   }
 
   .no-print {
@@ -79,11 +79,8 @@
   .print-page {
     break-inside: avoid;
     page-break-inside: avoid;
-    page-break-after: always; /* Asegura que cada ticket esté en su propia página si es necesario */
     width: 100%;
     margin-bottom: 12mm;
-    box-shadow: none !important;
-    border: none !important;
   }
 
   .ticket-card {
@@ -91,8 +88,17 @@
     box-shadow: none !important;
   }
   
-  /* Asegura que el contenido principal sea visible */
+  /* Asegura que el contenido principal sea visible y ocupe el espacio */
   main, .all-tickets-container {
       display: block !important;
+      width: 100%;
+      height: auto !important;
+      overflow: visible !important;
+      margin: 0 !important;
+      padding: 0 !important;
+  }
+  /* Cambia el grid a un layout de bloque para impresión */
+  .all-tickets-container {
+    display: block;
   }
 }
