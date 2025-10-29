@@ -3,6 +3,20 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 import { Header } from '@/components/header';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
+import { Inter, Belleza } from 'next/font/google';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+});
+
+const belleza = Belleza({
+  subsets: ['latin'],
+  weight: '400',
+  variable: '--font-belleza',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Ticketron',
@@ -15,12 +29,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" suppressHydrationWarning className="dark">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Belleza&family=Inter:wght@400;700&display=swap" rel="stylesheet" />
-      </head>
+    <html lang="es" suppressHydrationWarning className={`${inter.variable} ${belleza.variable} dark`}>
+      <head />
       <body className="font-body antialiased min-h-screen flex flex-col">
         <FirebaseClientProvider>
           <Header />

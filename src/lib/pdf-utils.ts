@@ -2,31 +2,6 @@
 
 import type { jsPDF } from "jspdf";
 
-/** Deshabilita temporalmente los stylesheets de origen cruzado para evitar errores de seguridad. */
-function withSafeStyles<T>(fn: () => Promise<T>): Promise<T> {
-  const disabledSheets: CSSStyleSheet[] = [];
-  
-  for (const sheet of Array.from(document.styleSheets) as CSSStyleSheet[]) {
-    try {
-      // Intentar acceder a cssRules. Si falla, es cross-origin.
-      // @ts-ignore
-      void sheet.cssRules;
-    } catch (e) {
-      // Deshabilitar la hoja de estilo que causa el error de seguridad.
-      sheet.disabled = true;
-      disabledSheets.push(sheet);
-    }
-  }
-
-  // Ejecutar la función de captura y asegurarse de restaurar siempre los estilos.
-  return fn().finally(() => {
-    for (const sheet of disabledSheets) {
-      sheet.disabled = false;
-    }
-  });
-}
-
-
 /** Quita sombras/bordes durante la captura */
 function applyCaptureStyles(el: HTMLElement) {
   el.querySelectorAll<HTMLElement>('*').forEach(n => {
@@ -49,7 +24,7 @@ function removeCaptureStyles(el: HTMLElement) {
 
 /** Captura segura, sin CORS y sin hairlines alrededor */
 export async function captureTicketPNG(node: HTMLElement): Promise<string> {
-  const { default: domtoimage } = await import('dom-to-image-more');
+    const { default: domtoimage } = await import('dom-to-image-more');
   // CLON limpio
   const cloned = node.cloneNode(true) as HTMLElement;
 
@@ -63,7 +38,7 @@ export async function captureTicketPNG(node: HTMLElement): Promise<string> {
       img.height = can.height;
       img.style.width = `${can.width}px`;
       img.style.height = `${can.height}px`;
-      c.replaceWith(img);
+      can.replaceWith(img);
     } catch {}
   });
 
@@ -89,7 +64,7 @@ export async function captureTicketPNG(node: HTMLElement): Promise<string> {
   applyCaptureStyles(wrapper);
 
   try {
-    const dataUrl = await withSafeStyles(() => domtoimage.toPng(wrapper, {
+    const dataUrl = await domtoimage.toPng(wrapper, {
       cacheBust: true,
       quality: 1,
       bgcolor: '#ffffff',   // fondo sólido (evita halos)
@@ -107,7 +82,7 @@ export async function captureTicketPNG(node: HTMLElement): Promise<string> {
         transform: 'scale(1)',
         transformOrigin: 'top left',
       },
-    }));
+    });
 
     return dataUrl;
   } finally {
