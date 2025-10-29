@@ -40,27 +40,26 @@ async function handleGeneratePdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string,
 ): Promise<void> {
-  // A4 vertical
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-  const pageWidth  = pdf.internal.pageSize.getWidth();   // 210 mm
-  const pageHeight = pdf.internal.pageSize.getHeight();  // 297 mm
+  const pageWidth = pdf.internal.pageSize.getWidth();   // 210
+  const pageHeight = pdf.internal.pageSize.getHeight(); // 297
 
-  // Márgenes y separación entre tarjetas
-  const gutterX = 14;  // mm
-  const gutterY = 12;  // mm
-  const maxW = pageWidth  - 2 * gutterX;
+  // Márgenes y ajustes
+  const gutterX = 14;
+  const gutterY = 12;
+  const maxW = pageWidth - 2 * gutterX;
   const maxH = pageHeight - 2 * gutterY;
+  const safeBottomMargin = 6; // margen de seguridad extra
 
-  // Contenedor oculto para renderizar el ticket con ancho fijo "de escritorio"
+  // Contenedor offscreen
   const tempContainer = document.createElement('div');
   tempContainer.style.cssText = `
     position: fixed;
     top: 0;
     left: -9999px;
-    width: 1200px;           /* ancho grande: evita layout móvil */
+    width: 1200px;
     background: white;
-    z-index: 999999;
     display: block;
     margin: 0;
     padding: 0;
@@ -84,7 +83,7 @@ async function handleGeneratePdf(
         box-sizing: border-box;
       `;
 
-      // Convertir QR canvas → img
+      // Convertir QR a <img>
       cloned.querySelectorAll('canvas').forEach((c) => {
         const can = c as HTMLCanvasElement;
         try {
@@ -101,9 +100,10 @@ async function handleGeneratePdf(
       tempContainer.innerHTML = '';
       tempContainer.appendChild(cloned);
 
-      // Esperar fuentes e imágenes
+      // Esperar layout e imágenes
       await new Promise(resolve => requestAnimationFrame(resolve));
       if ((document as any).fonts?.ready) { try { await (document as any).fonts.ready; } catch {} }
+
       const imgs = Array.from(cloned.querySelectorAll('img'));
       await Promise.all(imgs.map(img => new Promise<void>((res) => {
         if (img.complete) return res();
@@ -111,7 +111,7 @@ async function handleGeneratePdf(
         img.onerror = () => res();
       })));
 
-      // Capturar como imagen
+      // Captura
       const canvas = await html2canvas(cloned, {
         scale: 2,
         useCORS: true,
@@ -122,22 +122,24 @@ async function handleGeneratePdf(
 
       const imgData = canvas.toDataURL('image/png', 1.0);
 
-      // Escalar proporcionalmente ("contain") sin cortar
+      // Escalado proporcional con margen de seguridad
       let targetW = maxW;
       let targetH = (canvas.height / canvas.width) * targetW;
       if (targetH > maxH) {
         targetH = maxH;
         targetW = (canvas.width / canvas.height) * targetH;
       }
+      targetH *= 0.985; // ajuste fino para evitar corte
 
-      // Nueva página si no entra el siguiente ticket
-      if (yCursor + targetH > pageHeight - gutterY) {
+      // Salto de página si no entra completo
+      if (yCursor + targetH + safeBottomMargin > pageHeight) {
         pdf.addPage();
         yCursor = gutterY;
       }
 
-      // Agregar imagen centrada horizontalmente
+      // Centrar horizontalmente
       const x = (pageWidth - targetW) / 2;
+
       pdf.addImage(imgData, 'PNG', x, yCursor, targetW, targetH, undefined, 'FAST');
 
       yCursor += targetH + gutterY;
@@ -357,13 +359,3 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     </div>
   );
 }
-
-    
-
-    
-
-    
-
-    
-
-    
