@@ -1,8 +1,8 @@
-
 'use client';
 
 import type { jsPDF } from "jspdf";
 import type domtoimage from "dom-to-image-more";
+
 
 const slugify = (s: string) =>
   s.normalize("NFKD").replace(/[^\w-]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
@@ -13,8 +13,7 @@ const chunk = <T,>(arr: T[], size: number): T[][] =>
   );
 
 /**
- * Captures a ticket card as a PNG DataURL.
- * Uses dom-to-image-more.
+ * Captura una card como PNG (DataURL).
  */
 export async function captureTicketPNG(node: HTMLElement): Promise<string> {
     const domtoimage: typeof import('dom-to-image-more').default = (await import('dom-to-image-more')).default;
@@ -103,15 +102,9 @@ export async function captureTicketPNG(node: HTMLElement): Promise<string> {
 
 
 /**
- * Creates a PDF from multiple ticket images, arranging them 3 per A4 page.
+ * Crea un PDF con varias imágenes (tickets) apiladas.
  */
-export async function createPdfFromImages(
-  images: string[],
-  fileNameBase: string
-) {
-  const { default: jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-
+export async function addImagesStackedA4(pdf: jsPDF, images: string[]) {
   const marginMM = 10;
   const gapMM = 6;
   const pageW = pdf.internal.pageSize.getWidth();
@@ -142,45 +135,38 @@ export async function createPdfFromImages(
     
     y = y_pos + snap(imgHmm) + gapMM;
   });
-
-  pdf.save(fileNameBase);
 }
 
+const pad = (n: number) => String(n).padStart(4, "0");
 
 /**
- * Orchestrates the PDF generation process in chunks.
+ * Genera un PDF de un lote específico.
  */
-export async function generatePdfsInChunks(
+export async function generateOneBatchPdf(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string,
-  chunkSize = 100,
-  onProgress: (chunk: number, total: number) => void
+  perFile: number,
+  batchIndex: number
 ) {
-  const batches = chunk(ticketRefs, chunkSize);
-  const baseName = slugify(eventName);
+  const { default: jsPDF } = await import("jspdf");
+  
+  const start = batchIndex * perFile;
+  const end = Math.min(start + perFile, ticketRefs.length);
 
-  for (let i = 0; i < batches.length; i++) {
-    onProgress(i, batches.length);
-    
-    const batch = batches[i];
-    const images: string[] = [];
-    
-    for (const ref of batch) {
-      if (ref.current) {
-        // Since captureTicketPNG is also client-side only, this is safe.
-        const dataUrl = await captureTicketPNG(ref.current);
-        images.push(dataUrl);
-      }
-    }
-
-    const startNum = i * chunkSize + 1;
-    const endNum = i * chunkSize + images.length;
-    const fileName = `${baseName}_${String(startNum).padStart(4, "0")}-${String(endNum).padStart(4, "0")}.pdf`;
-
-    // createPdfFromImages also uses dynamic import, so it's safe.
-    await createPdfFromImages(images, fileName);
-    
-    await new Promise((resolve) => setTimeout(resolve, 50));
+  const images: string[] = [];
+  for (let i = start; i < end; i++) {
+    const ref = ticketRefs[i];
+    if (!ref?.current) continue;
+    const png = await captureTicketPNG(ref.current);
+    images.push(png);
+    if ((i - start + 1) % 10 === 0) await new Promise(r => setTimeout(r, 20));
   }
-  onProgress(batches.length, batches.length);
+
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  await addImagesStackedA4(pdf, images);
+
+  const base = slugify(eventName);
+  const humanStart = pad(start + 1);
+  const humanEnd = pad(end);
+  pdf.save(`${base}_${humanStart}-${humanEnd}.pdf`);
 }
