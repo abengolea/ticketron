@@ -17,6 +17,10 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { base32Encode, createHmacSha256 } from "@/lib/utils";
 import PrivateRoute from "@/components/private-route";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+
 
 type EventData = {
   eventName: string;
@@ -51,6 +55,7 @@ function EventDetailPage() {
 
   const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
   const [stats, setStats] = useState<EventStats | null>(null);
+  const [voidedTickets, setVoidedTickets] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -83,6 +88,7 @@ function EventDetailPage() {
       const ticketsSnap = await getDocs(ticketsRef);
 
       const eventStats: EventStats = { total: 0, active: 0, redeemed: 0, voided: 0 };
+      const currentVoidedTickets: number[] = [];
       
       const tickets: TicketData[] = ticketsSnap.docs.map(docSnap => {
           const ticketDocData = docSnap.data() as TicketDoc;
@@ -90,7 +96,10 @@ function EventDetailPage() {
           // Update stats
           eventStats.total++;
           if (ticketDocData.status === 'redeemed') eventStats.redeemed++;
-          else if (ticketDocData.status === 'voided') eventStats.voided++;
+          else if (ticketDocData.status === 'voided') {
+            eventStats.voided++;
+            currentVoidedTickets.push(ticketDocData.ticketNumber);
+          }
           else eventStats.active++;
 
           const qrPayload = JSON.stringify({
@@ -109,7 +118,9 @@ function EventDetailPage() {
       });
       
       tickets.sort((a,b) => a.ticketNumber - b.ticketNumber);
+      currentVoidedTickets.sort((a, b) => a - b);
       setStats(eventStats);
+      setVoidedTickets(currentVoidedTickets);
 
       const eventParams: EventParameters = {
           event_name: eventData.eventName,
@@ -292,13 +303,35 @@ function EventDetailPage() {
                         </CardHeader>
                         <CardContent><div className="text-2xl font-bold">{stats.redeemed}</div></CardContent>
                     </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Anulados</CardTitle>
-                            <XCircle className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent><div className="text-2xl font-bold">{stats.voided}</div></CardContent>
-                    </Card>
+
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <CardTitle className="text-sm font-medium">Anulados</CardTitle>
+                                    <XCircle className="h-4 w-4 text-muted-foreground" />
+                                </CardHeader>
+                                <CardContent><div className="text-2xl font-bold">{stats.voided}</div></CardContent>
+                            </Card>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[425px]">
+                            <DialogHeader>
+                                <DialogTitle>Tickets Anulados</DialogTitle>
+                                <DialogDescription>
+                                    Lista de los números de ticket que han sido anulados para este evento.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <ScrollArea className="h-72 w-full rounded-md border">
+                                <div className="p-4 flex flex-wrap gap-2">
+                                    {voidedTickets.length > 0 ? (
+                                        voidedTickets.map(num => <Badge key={num} variant="secondary">{String(num).padStart(4, '0')}</Badge>)
+                                    ) : (
+                                        <p className="text-sm text-muted-foreground">No hay tickets anulados.</p>
+                                    )}
+                                </div>
+                            </ScrollArea>
+                        </DialogContent>
+                    </Dialog>
                 </div>
             </div>
         )}
@@ -381,3 +414,4 @@ export default function EventDetailWrapper() {
     </PrivateRoute>
   );
 }
+
