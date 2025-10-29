@@ -9,8 +9,6 @@ import { Download, ArrowLeft, Loader2, FileDown } from "lucide-react";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/utils";
-import jsPDF from "jspdf";
-import domtoimage from "dom-to-image-more";
 
 /**
  * Genera un PDF A4 vertical con 1 ticket por fila, sin cortes en el borde inferior ni en el QR.
@@ -23,22 +21,26 @@ export async function handleGeneratePdfDomToImage(
   ticketRefs: React.RefObject<HTMLDivElement>[],
   eventName: string
 ): Promise<void> {
-  // --- Configuración de PDF ---
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageWidthMM = pdf.internal.pageSize.getWidth();   // 210
-  const pageHeightMM = pdf.internal.pageSize.getHeight(); // 297
-  const marginMM = 10;           // márgenes izq/der/sup/inf
-  const gapBetweenTicketsMM = 6; // espacio entre tarjetas
+  // Ejecutar sólo en cliente
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    throw new Error("PDF generation must run in the browser (client-side).");
+  }
 
-  // Ancho de imagen dentro del PDF (dejando margen)
+  // ⚠️ Importes dinámicos para evitar SSR
+  const [{ default: jsPDF }, { default: domtoimage }] = await Promise.all([
+    import("jspdf"),
+    import("dom-to-image-more"),
+  ]);
+
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageWidthMM = pdf.internal.pageSize.getWidth();
+  const pageHeightMM = pdf.internal.pageSize.getHeight();
+  const marginMM = 10;
+  const gapBetweenTicketsMM = 6;
   const imgWidthMM = pageWidthMM - marginMM * 2;
 
-  // --- Render consistente: ancho fijo en px para "fotografiar" el ticket ---
-  // Elegí un ancho de captura suficientemente alto para tener buena definición
-  // y mantener proporciones del diseño. (1100–1400 px suele ir perfecto.)
   const CAPTURE_WIDTH_PX = 1200;
 
-  // Contenedor off-screen para clonar y capturar sin afectar el layout de la UI
   const temp = document.createElement("div");
   temp.id = `pdf-temp-${Date.now()}`;
   temp.style.cssText = `
@@ -59,9 +61,7 @@ export async function handleGeneratePdfDomToImage(
       const ref = ticketRefs[i];
       if (!ref.current) continue;
 
-      // 1) Clon del ticket para captura
       const cloned = ref.current.cloneNode(true) as HTMLElement;
-      // Normalizamos estilos para captura: ancho fijo, sin transformaciones raras
       cloned.style.cssText += `
         width: ${CAPTURE_WIDTH_PX}px !important;
         max-width: ${CAPTURE_WIDTH_PX}px !important;
@@ -70,8 +70,7 @@ export async function handleGeneratePdfDomToImage(
         filter: none !important;
       `;
 
-      // 2) Convertimos canvases (p.ej., QR) a <img> para máxima compatibilidad
-      // (dom-to-image-more suele manejar canvas, pero esto lo hace a prueba de todo)
+      // Canvas → IMG por compatibilidad extra
       cloned.querySelectorAll("canvas").forEach((c) => {
         try {
           const can = c as HTMLCanvasElement;
@@ -82,36 +81,28 @@ export async function handleGeneratePdfDomToImage(
           img.style.width = `${can.width}px`;
           img.style.height = `${can.height}px`;
           can.replaceWith(img);
-        } catch {
-          /* si falla, seguimos con canvas */
-        }
+        } catch {}
       });
 
-      // 3) Wrapper con acolchado inferior (anti “mordida”)
       const wrapper = document.createElement("div");
       wrapper.style.cssText = `
         position: relative;
         display: block;
         background: #ffffff;
-        padding: 0 0 24px 0; /* espacio extra abajo para evitar recorte */
+        padding: 0 0 24px 0; /* acolchado para evitar cortes inferiores */
         overflow: visible;
         width: ${CAPTURE_WIDTH_PX}px;
       `;
       wrapper.appendChild(cloned);
 
-      // montamos en off-screen
       temp.innerHTML = "";
       temp.appendChild(wrapper);
 
-      // 4) Esperar imágenes del clon
       await waitImages(wrapper);
 
-      // 5) Capturar a PNG con dom-to-image-more
       const dataUrl = await domtoimage.toPng(wrapper, {
         bgcolor: "#ffffff",
         quality: 1,
-        // width/height se infieren del DOM, pero podemos fijar width si queremos
-        // width: CAPTURE_WIDTH_PX,
         style: {
           transform: "scale(1)",
           transformOrigin: "top left",
@@ -119,49 +110,51 @@ export async function handleGeneratePdfDomToImage(
         },
       });
 
-      // 6) Medimos el PNG para calcular alto proporcional en mm
       const img = await loadImage(dataUrl);
       const aspect = img.naturalHeight / img.naturalWidth;
       const imgHeightMM = imgWidthMM * aspect;
 
-      // 7) Salto de página si no entra
       if (cursorYMM + imgHeightMM > pageHeightMM - marginMM) {
         pdf.addPage();
         cursorYMM = marginMM;
       }
 
-      // 8) Agregar imagen al PDF
-      pdf.addImage(dataUrl, "PNG", marginMM, cursorYMM, imgWidthMM, imgHeightMM, undefined, "FAST");
+      pdf.addImage(
+        dataUrl,
+        "PNG",
+        marginMM,
+        cursorYMM,
+        imgWidthMM,
+        imgHeightMM,
+        undefined,
+        "FAST"
+      );
 
-      // 9) Avanzar cursor
       cursorYMM += imgHeightMM + gapBetweenTicketsMM;
     }
 
-    // 10) Guardar
     const filename = `${eventName.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_tickets.pdf`;
     pdf.save(filename);
   } finally {
-    // limpiar
     if (temp.parentNode) temp.parentNode.removeChild(temp);
   }
 }
 
-/** Espera a que todas las <img> dentro de el estén cargadas */
 async function waitImages(container: HTMLElement): Promise<void> {
   const imgs = Array.from(container.querySelectorAll("img"));
   await Promise.all(
     imgs.map(
       (img) =>
         new Promise<void>((resolve) => {
-          if ((img as HTMLImageElement).complete) return resolve();
-          img.onload = () => resolve();
-          img.onerror = () => resolve(); // no frenamos por error
+          const el = img as HTMLImageElement;
+          if (el.complete) return resolve();
+          el.onload = () => resolve();
+          el.onerror = () => resolve();
         })
     )
   );
 }
 
-/** Carga un dataURL en un objeto Image y resuelve cuando está listo */
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const im = new Image();
