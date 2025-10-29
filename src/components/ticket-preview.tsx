@@ -10,108 +10,165 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/comp
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/utils";
 import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import domtoimage from "dom-to-image-more";
 
-async function handleGeneratePdf(
+/**
+ * Genera un PDF A4 vertical con 1 ticket por fila, sin cortes en el borde inferior ni en el QR.
+ * Usa dom-to-image-more para rasterizar cada tarjeta y jsPDF para armar el PDF.
+ *
+ * @param ticketRefs  Array de refs a los contenedores de cada TicketCard
+ * @param eventName   Nombre del evento para el nombre del archivo
+ */
+export async function handleGeneratePdfDomToImage(
   ticketRefs: React.RefObject<HTMLDivElement>[],
-  eventName: string,
+  eventName: string
 ): Promise<void> {
+  // --- Configuración de PDF ---
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageWidthMM = pdf.internal.pageSize.getWidth();   // 210
+  const pageHeightMM = pdf.internal.pageSize.getHeight(); // 297
+  const marginMM = 10;           // márgenes izq/der/sup/inf
+  const gapBetweenTicketsMM = 6; // espacio entre tarjetas
 
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pageWidth  = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
+  // Ancho de imagen dentro del PDF (dejando margen)
+  const imgWidthMM = pageWidthMM - marginMM * 2;
 
-  const gutterX = 10;
-  const gutterY = 10;
-  const SAFE    = 0.8;
+  // --- Render consistente: ancho fijo en px para "fotografiar" el ticket ---
+  // Elegí un ancho de captura suficientemente alto para tener buena definición
+  // y mantener proporciones del diseño. (1100–1400 px suele ir perfecto.)
+  const CAPTURE_WIDTH_PX = 1200;
 
-  const ticketWidthMM = pageWidth - 2 * gutterX;
-
-  // dpi CSS ~ 96 px por pulgada → 96 / 25.4 = 3.7795 px/mm
-  const PX_PER_MM = 96 / 25.4;
-
-  // Ancho de captura en píxeles: usar un mínimo alto para evitar responsive
-  const captureWidthPx = Math.max(1200, Math.round(ticketWidthMM * PX_PER_MM));
-
-  // ===== contenedor temporal =====
-  const temp = document.createElement('div');
+  // Contenedor off-screen para clonar y capturar sin afectar el layout de la UI
+  const temp = document.createElement("div");
+  temp.id = `pdf-temp-${Date.now()}`;
   temp.style.cssText = `
-    position: fixed; left: -10000px; top: 0;
-    width: ${captureWidthPx}px;   /* 👈 ancho grande */
-    height: auto;
-    background: #fff; z-index: 999999;
-    display: block; overflow: visible; padding: 0; margin: 0;
+    position: fixed;
+    left: -10000px;
+    top: 0;
+    width: ${CAPTURE_WIDTH_PX}px;
+    background: #ffffff;
+    z-index: -1;
+    pointer-events: none;
   `;
   document.body.appendChild(temp);
 
   try {
-    let y = gutterY;
+    let cursorYMM = marginMM;
 
     for (let i = 0; i < ticketRefs.length; i++) {
       const ref = ticketRefs[i];
       if (!ref.current) continue;
 
-      const cloned = ref.current!.cloneNode(true) as HTMLDivElement;
-      cloned.style.cssText = `
-        display:block;
-        width: 100%;
-        max-width: none;
+      // 1) Clon del ticket para captura
+      const cloned = ref.current.cloneNode(true) as HTMLElement;
+      // Normalizamos estilos para captura: ancho fijo, sin transformaciones raras
+      cloned.style.cssText += `
+        width: ${CAPTURE_WIDTH_PX}px !important;
+        max-width: ${CAPTURE_WIDTH_PX}px !important;
+        box-shadow: none !important;
+        transform: none !important;
+        filter: none !important;
       `;
 
-      // Ajustes anti-corte antes de capturar
-      const BOTTOM_PADDING_FIX = 24; // px adicionales debajo del ticket
+      // 2) Convertimos canvases (p.ej., QR) a <img> para máxima compatibilidad
+      // (dom-to-image-more suele manejar canvas, pero esto lo hace a prueba de todo)
+      cloned.querySelectorAll("canvas").forEach((c) => {
+        try {
+          const can = c as HTMLCanvasElement;
+          const img = document.createElement("img");
+          img.src = can.toDataURL("image/png");
+          img.width = can.width;
+          img.height = can.height;
+          img.style.width = `${can.width}px`;
+          img.style.height = `${can.height}px`;
+          can.replaceWith(img);
+        } catch {
+          /* si falla, seguimos con canvas */
+        }
+      });
 
-      const wrapper = document.createElement('div');
+      // 3) Wrapper con acolchado inferior (anti “mordida”)
+      const wrapper = document.createElement("div");
       wrapper.style.cssText = `
         position: relative;
         display: block;
-        background: white;
-        padding-bottom: ${BOTTOM_PADDING_FIX}px;
+        background: #ffffff;
+        padding: 0 0 24px 0; /* espacio extra abajo para evitar recorte */
         overflow: visible;
+        width: ${CAPTURE_WIDTH_PX}px;
       `;
       wrapper.appendChild(cloned);
-      temp.innerHTML = '';
+
+      // montamos en off-screen
+      temp.innerHTML = "";
       temp.appendChild(wrapper);
 
-      // esperar imágenes del clon
-      const imgs = [...temp.querySelectorAll('img')];
-      await Promise.all(imgs.map(img => new Promise<void>(res => {
-        if (img.complete) return res();
-        img.onload = () => res();
-        img.onerror = () => res();
-      })));
+      // 4) Esperar imágenes del clon
+      await waitImages(wrapper);
 
-      // 📸 capturar a ese ancho grande
-      const canvas = await html2canvas(wrapper, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        windowWidth: captureWidthPx,
-        height: wrapper.scrollHeight + BOTTOM_PADDING_FIX,
-        logging: false,
+      // 5) Capturar a PNG con dom-to-image-more
+      const dataUrl = await domtoimage.toPng(wrapper, {
+        bgcolor: "#ffffff",
+        quality: 1,
+        // width/height se infieren del DOM, pero podemos fijar width si queremos
+        // width: CAPTURE_WIDTH_PX,
+        style: {
+          transform: "scale(1)",
+          transformOrigin: "top left",
+          margin: "0",
+        },
       });
-      
-      const imgData = canvas.toDataURL('image/png', 1.0);
 
-      // mantener proporción y salto con colchón
-      const imgHeightMM = (canvas.height / canvas.width) * ticketWidthMM;
-      const contentBottom = pageHeight - gutterY;
-      if (y + imgHeightMM + SAFE > contentBottom) {
+      // 6) Medimos el PNG para calcular alto proporcional en mm
+      const img = await loadImage(dataUrl);
+      const aspect = img.naturalHeight / img.naturalWidth;
+      const imgHeightMM = imgWidthMM * aspect;
+
+      // 7) Salto de página si no entra
+      if (cursorYMM + imgHeightMM > pageHeightMM - marginMM) {
         pdf.addPage();
-        y = gutterY;
+        cursorYMM = marginMM;
       }
 
-      pdf.addImage(imgData, 'PNG', gutterX, y, ticketWidthMM, imgHeightMM, undefined, 'FAST');
-      y += imgHeightMM + gutterY;
+      // 8) Agregar imagen al PDF
+      pdf.addImage(dataUrl, "PNG", marginMM, cursorYMM, imgWidthMM, imgHeightMM, undefined, "FAST");
+
+      // 9) Avanzar cursor
+      cursorYMM += imgHeightMM + gapBetweenTicketsMM;
     }
 
-    const fileName = `${eventName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_tickets.pdf`;
-    pdf.save(fileName);
-
+    // 10) Guardar
+    const filename = `${eventName.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_tickets.pdf`;
+    pdf.save(filename);
   } finally {
-    temp.remove();
+    // limpiar
+    if (temp.parentNode) temp.parentNode.removeChild(temp);
   }
+}
+
+/** Espera a que todas las <img> dentro de el estén cargadas */
+async function waitImages(container: HTMLElement): Promise<void> {
+  const imgs = Array.from(container.querySelectorAll("img"));
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          if ((img as HTMLImageElement).complete) return resolve();
+          img.onload = () => resolve();
+          img.onerror = () => resolve(); // no frenamos por error
+        })
+    )
+  );
+}
+
+/** Carga un dataURL en un objeto Image y resuelve cuando está listo */
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = reject;
+    im.src = src;
+  });
 }
 
 type TicketPreviewProps = {
@@ -155,12 +212,11 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     downloadFile("README_VALIDACION.md", readmeContent.trim(), "text/markdown");
   };
 
-  const triggerPdfGeneration = async (e: React.MouseEvent) => {
-    e.preventDefault();
+  const triggerPdfGeneration = async () => {
     if (printing) return;
     setPrinting(true);
     try {
-      await handleGeneratePdf(ticketRefs, eventParams.event_name);
+      await handleGeneratePdfDomToImage(ticketRefs, eventParams.event_name);
       toast({ title: "PDF Generado", description: `Se descargó ${eventParams.event_name}.pdf` });
     } catch (error) {
       console.error("[PDF] error:", error);
