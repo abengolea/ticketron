@@ -16,7 +16,7 @@ export class ValidatorService {
     const id = canonicalId(eid, tid);
     const secret = this.secretProvider();
     if (!secret) {
-        return { outcome: "invalid", id, msg: "Falta la clave secreta para validar." };
+        return { outcome: "invalid", id, msg: "Falta la clave secreta para validar. Por favor, pégala en el campo de texto." };
     }
 
     const expected = await createHmacSha256(secret, `${eid}|${tid}|${v}`);
