@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -24,6 +23,30 @@ const readerId = "qr-reader-offline";
 /** 🔒 Normaliza ID */
 const canonicalId = (eid: unknown, tid: unknown) =>
   `${String(eid ?? "").trim().toLowerCase()}::${String(tid ?? "").trim().toLowerCase()}`;
+
+/** Lee el array canjeado desde localStorage de forma segura */
+function readRedeemedFromLS(): string[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = localStorage.getItem("redeemedTickets");
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Chequea en los TRES lugares: ref en memoria, sessionStorage y localStorage */
+function isAlreadyRedeemed(key: string, redeemedRef: React.MutableRefObject<Set<string>>): boolean {
+  if (redeemedRef.current.has(key)) return true;
+  try {
+    if (typeof window !== "undefined" && sessionStorage.getItem(key) === "redeemed") return true;
+  } catch {}
+  const lsArr = readRedeemedFromLS();
+  return lsArr.includes(key);
+}
+
 
 export function TicketValidator() {
   const [secretKey, setSecretKey] = useState("");
@@ -62,17 +85,18 @@ export function TicketValidator() {
     (key: string) => {
       if (redeemedRef.current.has(key)) return false;
       redeemedRef.current.add(key);
-      try {
-        sessionStorage.setItem(key, "redeemed");
-      } catch {}
+    
+      // sello inmediato en sessionStorage
+      try { if (typeof window !== "undefined") sessionStorage.setItem(key, "redeemed"); } catch {}
+    
+      // estado + LS atómico
       setRedeemed((prev) => {
         if (prev.includes(key)) return prev;
         const next = [...prev, key];
-        try {
-          localStorage.setItem("redeemedTickets", JSON.stringify(next));
-        } catch {}
+        try { if (typeof window !== "undefined") localStorage.setItem("redeemedTickets", JSON.stringify(next)); } catch {}
         return next;
       });
+    
       return true;
     },
     [setRedeemed]
@@ -108,14 +132,14 @@ export function TicketValidator() {
         }
 
         const key = canonicalId(eid, tid);
-
-        // Chequeo inmediato (memoria + sessionStorage)
-        if (redeemedRef.current.has(key) || sessionStorage.getItem(key) === "redeemed") {
-          setValidationResult({
-            status: "redeemed",
-            message: `El ticket ${String(tid).slice(0, 8)}… ya fue canjeado.`,
-          });
-          return;
+        
+        // ✅ CHEQUEO DURO: memoria + sessionStorage + localStorage
+        if (isAlreadyRedeemed(key, redeemedRef)) {
+            setValidationResult({
+                status: "redeemed",
+                message: `El ticket ${String(tid).slice(0, 8)}… ya fue canjeado.`,
+            });
+            return;
         }
 
         const expectedSig = await createHmacSha256(secretKey, `${eid}|${tid}|${v}`);
@@ -182,7 +206,9 @@ export function TicketValidator() {
 
   const clearRedeemed = useCallback(() => {
     redeemedRef.current.clear();
-    sessionStorage.clear();
+    try {
+        if (typeof window !== "undefined") sessionStorage.clear();
+    } catch {}
     setRedeemed([]);
     toast({ title: "Lista de canjeados limpiada." });
   }, [setRedeemed, toast]);
