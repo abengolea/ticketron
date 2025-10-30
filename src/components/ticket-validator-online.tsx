@@ -22,89 +22,34 @@ type ValidationResult = {
   message: string;
   ticketId?: string;
   eventId?: string;
-  qrPayload?: string;
 };
 
-const readerId = "qr-reader-online";
-
-// ============== SCANNER CONTROLLER (INLINED) =================
-// To avoid depending on external files, we put the robust controller logic here.
-class ScannerController {
-  private scanner: Html5Qrcode | null = null;
-  private isRunning = false;
-  private elementId: string;
-  private lastScanTime = 0;
-  private lastScanText = "";
-  private readonly DEBOUNCE_MS = 1500;
-
-  constructor(elementId: string) {
-    this.elementId = elementId;
-  }
-
-  async initAndStart(onScan: (decodedText: string) => void, onError: (errorMessage: string) => void): Promise<void> {
-    if (this.isRunning) return;
-
-    try {
-      const { Html5Qrcode } = await import("html5-qrcode");
-      this.scanner = new Html5Qrcode(this.elementId);
-      this.isRunning = true;
-
-      await this.scanner.start(
-        { facingMode: "environment" },
-        { fps: 5, qrbox: { width: 250, height: 250 } },
-        (decodedText) => {
-          const now = Date.now();
-          if (decodedText === this.lastScanText && now - this.lastScanTime < this.DEBOUNCE_MS) {
-            return; // Debounce duplicate scans
-          }
-          this.lastScanText = decodedText;
-          this.lastScanTime = now;
-          this.stop(); // Stop immediately after a successful scan
-          onScan(decodedText);
-        },
-        () => {} // Undefined onScanFailure
-      );
-    } catch (err: any) {
-      this.isRunning = false;
-      onError(err.message || "No se pudo iniciar el escáner. Revisa los permisos de la cámara.");
-    }
-  }
-
-  async stop(): Promise<void> {
-    if (this.scanner && this.isRunning) {
-      try {
-        await this.scanner.stop();
-        const readerEl = document.getElementById(this.elementId);
-        if (readerEl) readerEl.innerHTML = "";
-      } catch (err) {
-        console.error("Error al detener escáner (puede ignorarse si ya está detenido):", err);
-      } finally {
-        this.isRunning = false;
-      }
-    }
-  }
+// Define un estado final para cuando el ticket se marca como canjeado en la sesión actual
+type FinalRedeemedState = {
+  isRedeemed: true;
+  message: string;
 }
-// =============================================================
 
+const readerId = "qr-reader-online";
 
 export function TicketValidatorOnline() {
   const [isScanning, setIsScanning] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [finalRedeemedState, setFinalRedeemedState] = useState<FinalRedeemedState | null>(null);
   
-  const scannerControllerRef = useRef<ScannerController | null>(null);
-
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
   const firestore = useFirestore();
   const { user } = useUser();
   
-  // Initialize the scanner controller once
   useEffect(() => {
-    scannerControllerRef.current = new ScannerController(readerId);
     // Cleanup on unmount
     return () => {
-        scannerControllerRef.current?.stop();
+        if (scannerRef.current && (scannerRef.current as any).isScanning) {
+            scannerRef.current.stop().catch(err => console.error("Failed to stop scanner on unmount", err));
+        }
     }
   }, []);
 
@@ -114,13 +59,9 @@ export function TicketValidatorOnline() {
       toast({ variant: 'destructive', title: 'Error', description: 'Firestore no está conectado.' });
       return;
     }
-    if (!payload.trim()) {
-      toast({ variant: "destructive", title: "Falta Contenido", description: "El código QR está vacío." });
-      return;
-    }
 
     setIsLoading(true);
-    setValidationResult(null);
+    setValidationResult(null); // Limpiar resultado anterior
 
     let ticketRef: any;
     try {
@@ -136,7 +77,8 @@ export function TicketValidatorOnline() {
       const ticketDoc = await getDoc(ticketRef);
       
       if (!ticketDoc.exists()) {
-        throw new Error(`Ticket no encontrado en la base de datos. ID: ${ticketId}`);
+        setValidationResult({ status: 'invalid', message: `Ticket no encontrado en la base de datos. ID: ${ticketId}` });
+        return;
       }
 
       const ticketData = ticketDoc.data();
@@ -147,7 +89,7 @@ export function TicketValidatorOnline() {
       } else if (ticketData.status === 'redeemed') {
           setValidationResult({ status: 'redeemed', message: `Este ticket YA FUE CANJEADO el ${new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()}.` });
       } else {
-          setValidationResult({ status: 'active', message: 'Ticket VÁLIDO para ingresar.', ticketId, eventId, qrPayload: payload });
+          setValidationResult({ status: 'active', message: 'Ticket VÁLIDO y listo para ser canjeado.', ticketId, eventId });
       }
 
     } catch (error: any) {
@@ -158,7 +100,7 @@ export function TicketValidatorOnline() {
         });
         errorEmitter.emit('permission-error', permissionError);
       } else {
-        setValidationResult({ status: 'invalid', message: error.message });
+        setValidationResult({ status: 'invalid', message: error.message || 'Error al procesar el QR.' });
       }
     } finally {
       setIsLoading(false);
@@ -176,18 +118,12 @@ export function TicketValidatorOnline() {
     const ticketRef = doc(firestore, 'events', eventId, 'tickets', ticketId);
 
     try {
-      // Step 1: Update the document in Firestore
       await updateDoc(ticketRef, { status: 'redeemed', redeemedAt: serverTimestamp() });
-      
-      // Step 2: Show immediate success to the user
-      toast({ title: 'Éxito', description: `El ticket ${ticketId.substring(0, 8)}... fue marcado como canjeado.`});
+      toast({ title: 'Éxito', description: `El ticket fue marcado como canjeado.`});
 
-      // Step 3: Update the UI to a final "redeemed" state. No re-validation needed.
-      // This makes the action final and prevents re-scanning the same ticket.
-      setValidationResult({
-        status: 'redeemed',
-        message: `¡Canje exitoso! El ticket ha sido utilizado.`
-      });
+      // Transición a un estado final. No se necesita revalidar.
+      setFinalRedeemedState({ isRedeemed: true, message: `¡Canje exitoso! El ticket ha sido utilizado.` });
+      setValidationResult(null); // Limpiar el estado de validación
 
     } catch (e: any) {
       if (e.code === 'permission-denied') {
@@ -205,52 +141,119 @@ export function TicketValidatorOnline() {
   };
 
   const startScanner = useCallback(() => {
-    if (isScanning || !scannerControllerRef.current) return;
-    setIsScanning(true);
+    if (isScanning) return;
+    
+    // Limpiar todos los estados antes de escanear
     setValidationResult(null);
+    setFinalRedeemedState(null);
 
-    scannerControllerRef.current.initAndStart(
-      (decodedText) => {
-        // onScan success
-        setIsScanning(false);
-        handleValidate(decodedText);
-      },
-      (errorMessage) => {
-        // onScan error
-        setIsScanning(false);
-        toast({ variant: 'destructive', title: 'Error de Escáner', description: errorMessage });
-      }
-    );
+    import("html5-qrcode").then(({ Html5Qrcode }) => {
+        const scanner = new Html5Qrcode(readerId);
+        scannerRef.current = scanner;
+
+        const config = { fps: 5, qrbox: { width: 250, height: 250 } };
+        
+        const onScanSuccess = (decodedText: string) => {
+            scanner.stop();
+            setIsScanning(false);
+            handleValidate(decodedText);
+        };
+        const onScanFailure = (error: any) => { /* Silenciado */ };
+        
+        setIsScanning(true);
+        scanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
+            .catch(err => {
+                setIsScanning(false);
+                toast({ variant: 'destructive', title: 'Error de Escáner', description: err.message || "No se pudo iniciar la cámara." });
+            });
+
+    }).catch(err => {
+        toast({ variant: 'destructive', title: 'Error', description: "No se pudo cargar la librería de escaneo." });
+    });
   }, [isScanning, handleValidate, toast]);
 
   const stopScanner = useCallback(() => {
-    scannerControllerRef.current?.stop().then(() => {
-        setIsScanning(false);
-    });
+    if (scannerRef.current && (scannerRef.current as any).isScanning) {
+        scannerRef.current.stop()
+            .then(() => setIsScanning(false))
+            .catch(err => {
+                console.error("Fallo al detener el escáner:", err);
+                setIsScanning(false); 
+            });
+    }
   }, []);
 
   const resetValidation = () => {
     setValidationResult(null);
-    stopScanner(); 
+    setFinalRedeemedState(null);
+    stopScanner();
   };
 
-  const getAlertInfo = () => {
-    if (!validationResult) return null;
-    switch(validationResult.status) {
-        case 'active':
-            return { variant: 'default', Icon: CheckCircle2, title: 'Válido', className: 'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300' };
-        case 'redeemed':
-            return { variant: 'default', Icon: AlertTriangle, title: 'Ya Canjeado', className: 'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300' };
-        case 'voided':
-            return { variant: 'destructive', Icon: XCircle, title: 'Anulado' };
-        case 'invalid':
-            return { variant: 'destructive', Icon: AlertCircle, title: 'Inválido' };
-        default:
-            return { variant: 'destructive', Icon: AlertCircle, title: 'Error' };
+  const renderInitialState = () => (
+    <div className="flex justify-center items-center h-48 border-2 border-dashed rounded-lg">
+        <Button onClick={startScanner} variant="secondary" size="lg" disabled={isLoading}>
+            {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Camera className="mr-2 h-5 w-5" />}
+            {isLoading ? 'Verificando...' : 'Escanear Código QR'}
+        </Button>
+    </div>
+  );
+
+  const renderScanningState = () => (
+    <div className="space-y-2">
+        <div id={readerId} className="w-full rounded-md border aspect-video bg-muted"></div>
+        <Button variant="outline" onClick={stopScanner} className="w-full">Cancelar Escaneo</Button>
+    </div>
+  );
+
+  const renderResultState = () => {
+    let alertInfo: { variant: string, Icon: React.ElementType, title: string, className: string } | null = null;
+    let message: string = '';
+
+    if (finalRedeemedState) {
+        alertInfo = { variant: 'default', Icon: ShieldCheck, title: 'Canjeado con Éxito', className: 'bg-blue-100 border-blue-400 text-blue-800 dark:bg-blue-900/50 dark:border-blue-700 dark:text-blue-300' };
+        message = finalRedeemedState.message;
+    } else if (validationResult) {
+        message = validationResult.message;
+        switch(validationResult.status) {
+            case 'active':
+                alertInfo = { variant: 'default', Icon: CheckCircle2, title: 'Válido', className: 'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300' };
+                break;
+            case 'redeemed':
+                alertInfo = { variant: 'default', Icon: AlertTriangle, title: 'Ya Canjeado', className: 'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300' };
+                break;
+            case 'voided':
+                alertInfo = { variant: 'destructive', Icon: XCircle, title: 'Anulado', className: '' };
+                break;
+            case 'invalid':
+                alertInfo = { variant: 'destructive', Icon: AlertCircle, title: 'Inválido', className: '' };
+                break;
+        }
     }
+    
+    if (!alertInfo) return null;
+
+    return (
+        <div className="space-y-4">
+            <Alert variant={alertInfo.variant as any} className={cn(alertInfo.className)}>
+                <alertInfo.Icon className="h-4 w-4" />
+                <AlertTitle>{alertInfo.title}</AlertTitle>
+                <AlertDescription>{message}</AlertDescription>
+            </Alert>
+
+            {validationResult?.status === 'active' && user && (
+              <Button onClick={handleRedeem} className="w-full" disabled={isRedeeming}>
+                {isRedeeming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+                Confirmar Canje del Ticket
+              </Button>
+            )}
+            
+            <Button onClick={resetValidation} variant="outline" className="w-full">
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Validar Otro Ticket
+            </Button>
+        </div>
+    );
   }
-  
-  const alertInfo = getAlertInfo();
 
   return (
     <Tabs defaultValue="online" className="max-w-2xl mx-auto">
@@ -265,43 +268,10 @@ export function TicketValidatorOnline() {
             <CardDescription>Escanea un ticket para validarlo en tiempo real contra la base de datos. Requiere conexión a internet.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {isScanning && (
-              <div className="space-y-2">
-                <div id={readerId} className="w-full rounded-md border aspect-video bg-muted"></div>
-                <Button variant="outline" onClick={stopScanner} className="w-full">Cancelar Escaneo</Button>
-              </div>
-            )}
-
-            {!isScanning && !validationResult && (
-                <div className="flex justify-center items-center h-48 border-2 border-dashed rounded-lg">
-                  <Button onClick={startScanner} variant="secondary" size="lg" disabled={isLoading}>
-                    {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Camera className="mr-2 h-5 w-5" />}
-                    {isLoading ? 'Verificando...' : 'Escanear Código QR'}
-                  </Button>
-                </div>
-            )}
-            
-            {validationResult && alertInfo && (
-              <div className="space-y-4">
-                <Alert variant={alertInfo.variant as any} className={cn(alertInfo.className)}>
-                  <alertInfo.Icon className="h-4 w-4" />
-                  <AlertTitle>{alertInfo.title}</AlertTitle>
-                  <AlertDescription>{validationResult.message}</AlertDescription>
-                </Alert>
-
-                {validationResult.status === 'active' && user && (
-                  <Button onClick={handleRedeem} className="w-full" disabled={isRedeeming}>
-                    {isRedeeming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-                    Marcar como Canjeado
-                  </Button>
-                )}
-                
-                <Button onClick={resetValidation} variant="outline" className="w-full">
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  Validar Otro Ticket
-                </Button>
-              </div>
-            )}
+            {isScanning 
+              ? renderScanningState() 
+              : (validationResult || finalRedeemedState ? renderResultState() : renderInitialState())
+            }
           </CardContent>
         </Card>
       </TabsContent>
