@@ -61,20 +61,6 @@ export function TicketValidatorOnline() {
     }, ...prev].slice(0, 50));
   }, []);
   
-  useEffect(() => {
-    // Inicializar el scanner una vez
-    if (!scannerRef.current) {
-        scannerRef.current = new Html5Qrcode(readerId, false);
-    }
-    
-    // Limpieza al desmontar
-    return () => {
-        if (scannerRef.current && (scannerRef.current as any).isScanning) {
-            scannerRef.current.stop().catch(err => console.error("Failed to stop scanner on unmount", err));
-        }
-    }
-  }, []);
-
   const stopScanner = useCallback(() => {
     addLog('info', 'Intentando detener el escáner...');
     if (scannerRef.current && (scannerRef.current as any).isScanning) {
@@ -93,6 +79,21 @@ export function TicketValidatorOnline() {
       if(logs.length > 0) addLog('info', 'El escáner ya estaba detenido.');
     }
   }, [addLog, logs]);
+
+  useEffect(() => {
+    // Inicializar el scanner una vez
+    if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(readerId, false);
+        addLog('info', 'Librería de escáner inicializada.');
+    }
+    
+    // Limpieza al desmontar
+    return () => {
+      if (scannerRef.current && (scannerRef.current as any).isScanning) {
+        stopScanner();
+      }
+    }
+  }, [addLog, stopScanner]);
 
   const handleValidate = useCallback(async (payload: string) => {
     setIsLoading(true);
