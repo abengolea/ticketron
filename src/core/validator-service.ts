@@ -22,14 +22,18 @@ export class ValidatorService {
     const expected = await createHmacSha256(secret, `${eid}|${tid}|${v}`);
     if (expected !== sig) return { outcome: "invalid", id, msg: "Firma inválida. Revisa que la clave secreta sea la correcta para este evento." };
 
+    // Si la firma es válida, ahora sí consultamos el registro local
     const rec = registry.get(id);
     if (rec?.state === "void") return { outcome: "void", id, msg: "Ticket anulado" };
     if (rec?.state === "redeemed") return { outcome: "already_redeemed", id, msg: "Ticket ya canjeado" };
 
     const res = registry.redeem(id, "operator");
     if (res.ok) return { outcome: "valid", id, msg: "Válido y canjeado" };
-    if ((res as any).value === "already") return { outcome: "already_redeemed", id, msg: "Ticket ya canjeado" };
-    if ((res as any).value === "void") return { outcome: "void", id, msg: "Ticket anulado" };
-    return { outcome: "invalid", id, msg: "No pudo canjearse" };
+    
+    // Fallbacks si la operación atómica falla por una condición de carrera
+    if ((res as any).value === "already") return { outcome: "already_redeemed", id, msg: "Ticket ya canjeado (detectado durante el canje)" };
+    if ((res as any).value === "void") return { outcome: "void", id, msg: "Ticket anulado (detectado durante el canje)" };
+    
+    return { outcome: "invalid", id, msg: "No se pudo canjear por una razón desconocida" };
   }
 }

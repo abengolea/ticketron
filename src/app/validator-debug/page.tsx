@@ -12,13 +12,13 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { Camera, KeyRound, Loader2, RotateCcw, Info, Terminal } from "lucide-react";
+import { Camera, KeyRound, Loader2, RotateCcw, Info, Terminal, RefreshCw, Trash2 } from "lucide-react";
 import { createHmacSha256 } from "@/lib/utils";
 
 
 type LogEntry = {
     timestamp: string;
-    level: 'info' | 'error' | 'success';
+    level: 'info' | 'error' | 'success' | 'warn';
     message: string;
     data?: any;
 };
@@ -30,9 +30,20 @@ export default function ValidatorDebugPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [redeemedCount, setRedeemedCount] = useState(0);
   
   const scannerRef = useRef<ScannerController | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const updateCount = () => {
+        const count = registry.snapshot().filter(r => r.state === 'redeemed').length;
+        setRedeemedCount(count);
+    };
+    const unsubscribe = registry.subscribe(updateCount);
+    updateCount();
+    return unsubscribe;
+  }, []);
 
   const addLog = useCallback((level: LogEntry['level'], message: string, data?: any) => {
     setLogs(prev => [{
@@ -40,7 +51,7 @@ export default function ValidatorDebugPage() {
       level,
       message,
       data
-    }, ...prev]);
+    }, ...prev].slice(0, 50)); // Limita los logs a 50 entradas
   }, []);
 
   const handleDecode = useCallback(async (payloadText: string) => {
@@ -72,15 +83,15 @@ export default function ValidatorDebugPage() {
     }
     
     const payloadToSign = `${eid}|${tid}|${v}`;
-    addLog('info', 'Generando firma con los siguientes datos:', {
+    addLog('info', 'Generando firma para verificación...', {
         payloadToSign,
         secretKey: `${secret.substring(0, 5)}...${secret.substring(secret.length - 5)}`
     });
     
     try {
         const expectedSignature = await createHmacSha256(secret, payloadToSign);
-        addLog('info', 'Firma Generada (expected)', expectedSignature);
-        addLog('info', 'Firma del QR (sig)', sig);
+        addLog('info', 'Firma del QR', sig);
+        addLog('info', 'Firma generada localmente', expectedSignature);
 
         const isValid = expectedSignature === sig;
         if (isValid) {
@@ -91,26 +102,29 @@ export default function ValidatorDebugPage() {
             return;
         }
 
-        // Si la firma es válida, proceder con el registro
+        // Si la firma es válida, proceder con el canje usando el servicio
         const validatorService = new ValidatorService(() => secret);
         const result = await validatorService.validateAndRedeem(payloadText);
 
-        addLog(result.outcome === 'valid' ? 'success' : 'error', 'Resultado final del canje', result);
+        const level = result.outcome === 'valid' ? 'success' : result.outcome === 'already_redeemed' ? 'warn' : 'error';
+        addLog(level, `Resultado final del canje: ${result.outcome.toUpperCase()}`, result);
 
     } catch (e: any) {
         addLog('error', 'Error durante el proceso de firma o validación', e.message);
     } finally {
         setIsLoading(false);
+        // Opcional: reiniciar scanner para el siguiente
+        // setTimeout(() => startScanner(), 1000);
     }
   }, [secret, addLog, toast]);
 
   const startScanner = useCallback(async () => {
-    addLog('info', 'Iniciando escáner...');
-    setIsScanning(true);
+    addLog('info', 'Intentando iniciar escáner...');
     if (!scannerRef.current) {
       scannerRef.current = new ScannerController(SCANNER_CONTAINER_ID);
     }
     try {
+      setIsScanning(true);
       await scannerRef.current.start(handleDecode);
       addLog('success', 'Escáner iniciado. Apunte la cámara a un código QR.');
     } catch(err: any) {
@@ -129,15 +143,19 @@ export default function ValidatorDebugPage() {
     addLog('success', 'Escáner detenido.');
   }, [addLog]);
   
-  const reset = () => {
-    setLogs([]);
-    stopScanner();
-  };
+  const clearLogs = () => setLogs([]);
+  
+  const clearRegistry = () => {
+    registry.clear();
+    addLog('warn', 'Registro de canjes locales ha sido limpiado.');
+    toast({ title: 'Registro Limpiado', description: 'Todos los tickets canjeados en este dispositivo han sido reseteados.' });
+  }
 
   const logColors = {
-    info: 'text-muted-foreground',
-    success: 'text-green-500',
-    error: 'text-red-500',
+    info: 'text-blue-400',
+    success: 'text-green-400',
+    error: 'text-red-400',
+    warn: 'text-yellow-400'
   }
 
   return (
@@ -160,11 +178,11 @@ export default function ValidatorDebugPage() {
                     <div className="space-y-4">
                         <div>
                             <Label htmlFor="secret-key" className="flex items-center gap-2 mb-2">
-                                <KeyRound className="w-4 h-4" /> Clave Secreta
+                                <KeyRound className="w-4 h-4" /> Clave Secreta del Evento
                             </Label>
                             <Textarea
                                 id="secret-key"
-                                placeholder="Pega la clave secreta del evento aquí"
+                                placeholder="Pega la clave secreta que descargaste al crear el evento."
                                 value={secret}
                                 onChange={(e) => setSecret(e.target.value)}
                                 className="font-mono text-sm h-24"
@@ -172,8 +190,10 @@ export default function ValidatorDebugPage() {
                             />
                         </div>
 
-                        <div id={SCANNER_CONTAINER_ID} className={cn("w-full aspect-video border rounded-lg bg-muted flex items-center justify-center text-muted-foreground", { 'hidden': !isScanning })}>
-                            {isScanning && <Loader2 className="h-8 w-8 animate-spin" />}
+                        <div id={SCANNER_CONTAINER_ID} className={cn("w-full aspect-video border-2 border-dashed rounded-lg bg-muted flex items-center justify-center text-muted-foreground", { 'border-solid': isScanning })}>
+                            {!isScanning && <p>Cámara inactiva</p>}
+                            {isScanning && !isLoading && <p>Esperando QR...</p>}
+                            {isLoading && <Loader2 className="h-8 w-8 animate-spin" />}
                         </div>
 
                         {!isScanning && (
@@ -184,35 +204,44 @@ export default function ValidatorDebugPage() {
                         {isScanning && (
                         <Button onClick={stopScanner} variant="outline" className="w-full" disabled={isLoading}>
                             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                            Detener
+                            Detener Escáner
                         </Button>
                         )}
                     </div>
                 </CardContent>
 
-                <CardFooter>
-                    <Button variant="ghost" className="w-full" onClick={reset}>
-                        <RotateCcw className="mr-2 h-4 w-4" /> Limpiar Logs y Reiniciar
+                <CardFooter className="flex-col items-stretch gap-4">
+                  <div className="text-xs text-muted-foreground flex items-center gap-4 bg-muted p-3 rounded-lg">
+                    <p>
+                      Tickets canjeados en este dispositivo: <span className="font-bold text-foreground">{redeemedCount}</span>
+                    </p>
+                    <Button variant="ghost" size="sm" className="ml-auto" onClick={clearRegistry}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Limpiar Registro
                     </Button>
+                  </div>
                 </CardFooter>
             </Card>
 
             <Card className="h-full">
                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><Terminal /> Logs en Vivo</CardTitle>
+                    <div className="flex justify-between items-center">
+                        <CardTitle className="flex items-center gap-2"><Terminal /> Logs en Vivo</CardTitle>
+                        <Button variant="ghost" size="icon" onClick={clearLogs}><RefreshCw className="h-4 w-4" /></Button>
+                    </div>
                     <CardDescription>Los eventos del proceso de validación aparecerán aquí.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="h-[450px] bg-muted/50 rounded-lg p-4 overflow-y-auto font-mono text-xs space-y-3">
+                    <div className="h-[450px] bg-black rounded-lg p-4 overflow-y-auto font-mono text-xs space-y-3">
                         {logs.length === 0 && <p className="text-muted-foreground">Esperando acciones...</p>}
                         {logs.map((log, i) => (
-                            <div key={i} className={cn("border-l-2 pl-3", log.level === 'success' ? 'border-green-500' : log.level === 'error' ? 'border-red-500' : 'border-border')}>
-                               <p className="font-bold flex justify-between">
+                            <div key={i} className={cn("border-l-2 pl-3", log.level === 'success' ? 'border-green-500' : log.level === 'error' ? 'border-red-500' : log.level === 'warn' ? 'border-yellow-500' : 'border-blue-500')}>
+                               <p className={cn("font-bold flex justify-between", logColors[log.level])}>
                                  <span>{log.message}</span>
                                  <span className="text-muted-foreground/50">{log.timestamp}</span>
                                </p>
                                {log.data && (
-                                    <pre className={cn("mt-1 p-2 bg-black rounded-md overflow-x-auto", logColors[log.level])}>
+                                    <pre className="mt-1 p-2 bg-muted/20 rounded-md overflow-x-auto text-muted-foreground">
                                         {typeof log.data === 'string' ? log.data : JSON.stringify(log.data, null, 2)}
                                     </pre>
                                )}

@@ -85,13 +85,20 @@ function EventDetailPage() {
       
       const eventData = eventSnap.data() as EventData;
 
+      const secretRef = doc(firestore, 'event_secrets', eventId);
+      const secretSnap = await getDoc(secretRef);
+      if (!secretSnap.exists()) {
+        throw new Error("No se encontró la clave secreta para este evento. No se puede regenerar la información de los tickets.");
+      }
+      const { secretKey } = secretSnap.data();
+
       const ticketsRef = collection(firestore, 'events', eventId, 'tickets');
       const ticketsSnap = await getDocs(ticketsRef);
 
       const eventStats: EventStats = { total: 0, active: 0, redeemed: 0, voided: 0 };
       const currentVoidedTickets: number[] = [];
       
-      const tickets: TicketData[] = ticketsSnap.docs.map(docSnap => {
+      const ticketsPromises = ticketsSnap.docs.map(async (docSnap) => {
           const ticketDocData = docSnap.data() as TicketDoc;
 
           // Update stats
@@ -102,12 +109,16 @@ function EventDetailPage() {
             currentVoidedTickets.push(ticketDocData.ticketNumber);
           }
           else eventStats.active++;
+          
+          const version = 1;
+          const payloadToSign = `${eventId}|${docSnap.id}|${version}`;
+          const sig = await createHmacSha256(secretKey, payloadToSign);
 
           const qrPayload = JSON.stringify({
-              v: 1,
+              v: version,
               eid: eventId,
               tid: docSnap.id,
-              sig: 'REGENERADO_-FALLARA_EN_VALIDACION_OFFLINE'
+              sig: sig
           });
 
           return {
@@ -118,6 +129,8 @@ function EventDetailPage() {
           }
       });
       
+      const tickets = await Promise.all(ticketsPromises);
+
       tickets.sort((a,b) => a.ticketNumber - b.ticketNumber);
       currentVoidedTickets.sort((a, b) => a - b);
       setStats(eventStats);
@@ -136,7 +149,7 @@ function EventDetailPage() {
       setGenerationResult({
           tickets,
           eventParams,
-          secretKey: "" 
+          secretKey
       });
 
     } catch (err: any) {
@@ -479,5 +492,3 @@ export default function EventDetailWrapper() {
     </PrivateRoute>
   );
 }
-
-    

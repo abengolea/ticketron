@@ -42,7 +42,7 @@ export function base32Encode(buffer: Buffer): string {
 
 // Correct implementation for Base64 to ArrayBuffer conversion for Web Crypto API
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
-    const binaryString = window.atob(base64);
+    const binaryString = atob(base64); // `atob` is fine here as we are reversing a `btoa` string
     const len = binaryString.length;
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) {
@@ -53,6 +53,8 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 
 // Correct HMAC function using Web Crypto API
 export async function createHmacSha256(secret: string, data: string): Promise<string> {
+    if (typeof window === 'undefined') return '';
+    
     const secretKeyData = base64ToArrayBuffer(secret);
     const dataToSign = new TextEncoder().encode(data);
 
@@ -70,6 +72,7 @@ export async function createHmacSha256(secret: string, data: string): Promise<st
     const truncatedSignature = signature.slice(0, 12);
     
     // Convert to Base64 and make it URL-safe
+    // `btoa` is the reverse of `atob`, converting binary string to base64
     const base64Signature = btoa(String.fromCharCode(...new Uint8Array(truncatedSignature)));
     return base64Signature.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
