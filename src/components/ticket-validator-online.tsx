@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
-import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw, XCircle, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw, XCircle, ShieldCheck, Terminal, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Html5Qrcode } from 'html5-qrcode';
 import { useFirestore, useUser } from '@/firebase';
@@ -25,11 +25,17 @@ type ValidationResult = {
   ticketNumber?: number;
 };
 
-// Define un estado final para cuando el ticket se marca como canjeado en la sesión actual
 type FinalRedeemedState = {
   isRedeemed: true;
   message: string;
 }
+
+type LogEntry = {
+    timestamp: string;
+    level: 'info' | 'error' | 'success' | 'warn';
+    message: string;
+    data?: any;
+};
 
 const readerId = "qr-reader-online";
 
@@ -39,13 +45,22 @@ export function TicketValidatorOnline() {
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [finalRedeemedState, setFinalRedeemedState] = useState<FinalRedeemedState | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const { toast } = useToast();
   const firestore = useFirestore();
   const { user } = useUser();
+
+  const addLog = useCallback((level: LogEntry['level'], message: string, data?: any) => {
+    setLogs(prev => [{
+      timestamp: new Date().toLocaleTimeString(),
+      level,
+      message,
+      data
+    }, ...prev].slice(0, 50));
+  }, []);
   
-  // Función de limpieza para detener el escáner al desmontar el componente
   useEffect(() => {
     return () => {
         if (scannerRef.current && (scannerRef.current as any).isScanning) {
@@ -54,59 +69,83 @@ export function TicketValidatorOnline() {
     }
   }, []);
 
-  // Función para detener el escáner
   const stopScanner = useCallback(() => {
+    addLog('info', 'Intentando detener el escáner...');
     if (scannerRef.current && (scannerRef.current as any).isScanning) {
         scannerRef.current.stop()
-            .then(() => setIsScanning(false))
+            .then(() => {
+              setIsScanning(false);
+              addLog('success', 'Escáner detenido.');
+            })
             .catch(err => {
                 console.error("Fallo al detener el escáner:", err);
                 setIsScanning(false); 
+                addLog('error', 'Fallo al detener el escáner.', err);
             });
     } else {
       setIsScanning(false);
+      if(logs.length > 0) addLog('info', 'El escáner ya estaba detenido.');
     }
-  }, []);
+  }, [addLog, logs]);
 
-  // Función para validar el payload del QR contra Firestore
   const handleValidate = useCallback(async (payload: string) => {
-    if (!firestore) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Firestore no está conectado.' });
-      return;
-    }
-
     setIsLoading(true);
     setValidationResult(null);
+    addLog('info', 'QR Decodificado. Validando payload...', payload);
+
+    if (!firestore) {
+      const msg = 'Firestore no está conectado.';
+      addLog('error', msg);
+      toast({ variant: 'destructive', title: 'Error', description: msg });
+      setIsLoading(false);
+      return;
+    }
 
     let ticketRef: any;
     try {
       const data = JSON.parse(payload);
+      addLog('success', 'Payload JSON parseado correctamente.', data);
+
       const { eid: eventId, tid: ticketId } = data;
 
       if (!eventId || !ticketId) {
-        setValidationResult({ status: 'invalid', message: 'Contenido de QR inválido. Falta el ID del evento o del ticket.' });
+        const msg = 'Contenido de QR inválido. Falta el ID del evento o del ticket.';
+        setValidationResult({ status: 'invalid', message: msg });
+        addLog('error', msg, data);
         return;
       }
       
+      addLog('info', 'Consultando Firestore...', { path: `events/${eventId}/tickets/${ticketId}` });
       ticketRef = doc(firestore, 'events', eventId, 'tickets', ticketId);
       const ticketDoc = await getDoc(ticketRef);
       
       if (!ticketDoc.exists()) {
-        setValidationResult({ status: 'invalid', message: `Ticket no encontrado en la base de datos. ID: ${ticketId}` });
+        const msg = `Ticket no encontrado en la base de datos. ID: ${ticketId}`;
+        setValidationResult({ status: 'invalid', message: msg });
+        addLog('error', msg);
         return;
       }
 
+      addLog('success', 'Ticket encontrado en Firestore.');
       const ticketData = ticketDoc.data();
+      addLog('info', 'Datos del ticket:', ticketData);
       
       if (ticketData.status === 'voided') {
-          setValidationResult({ status: 'voided', message: `Ticket ANULADO. ${ticketData.voidedReason || 'Anulado por el administrador.'}` });
+          const msg = `Ticket ANULADO. ${ticketData.voidedReason || 'Anulado por el administrador.'}`;
+          setValidationResult({ status: 'voided', message: msg });
+          addLog('warn', msg);
       } else if (ticketData.status === 'redeemed') {
-          setValidationResult({ status: 'redeemed', message: `Este ticket YA FUE CANJEADO el ${new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()}.` });
+          const msg = `Este ticket YA FUE CANJEADO el ${new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()}.`;
+          setValidationResult({ status: 'redeemed', message: msg });
+          addLog('warn', msg);
       } else {
-          setValidationResult({ status: 'active', message: `Ticket VÁLIDO (Nº ${ticketData.ticketNumber}) y listo para ser canjeado.`, ticketId, eventId, ticketNumber: ticketData.ticketNumber });
+          const msg = `Ticket VÁLIDO (Nº ${ticketData.ticketNumber}) y listo para ser canjeado.`;
+          setValidationResult({ status: 'active', message: msg, ticketId, eventId, ticketNumber: ticketData.ticketNumber });
+          addLog('success', msg);
       }
 
     } catch (error: any) {
+      addLog('error', `Error durante la validación: ${error.message}`, error);
       if (error.code === 'permission-denied') {
         const permissionError = new FirestorePermissionError({
           path: ticketRef?.path || 'unknown path',
@@ -119,16 +158,18 @@ export function TicketValidatorOnline() {
     } finally {
       setIsLoading(false);
     }
-  }, [firestore, toast]);
+  }, [firestore, toast, addLog]);
   
-  // Función para marcar el ticket como canjeado
   const handleRedeem = async () => {
     if (!firestore || !user || !validationResult?.ticketId || !validationResult?.eventId) {
-      toast({ variant: 'destructive', title: 'Error', description: 'No se puede canjear el ticket. Debes ser administrador e iniciar sesión.' });
+      const msg = 'No se puede canjear el ticket. Debes ser administrador e iniciar sesión.';
+      addLog('error', msg);
+      toast({ variant: 'destructive', title: 'Error', description: msg });
       return;
     }
     
     setIsRedeeming(true);
+    addLog('info', 'Iniciando proceso de canje...');
     const { eventId, ticketId, ticketNumber } = validationResult;
     const ticketRef = doc(firestore, 'events', eventId, 'tickets', ticketId);
 
@@ -140,12 +181,13 @@ export function TicketValidatorOnline() {
 
     updateDoc(ticketRef, updateData)
       .then(() => {
-        // Transición a un estado final. No se necesita revalidar.
-        // Esto proporciona feedback inmediato al usuario.
-        setFinalRedeemedState({ isRedeemed: true, message: `¡Canje exitoso! Ticket Nº ${ticketNumber} ha sido utilizado.` });
-        setValidationResult(null); // Limpiar el estado de validación para mostrar el estado final
+        const msg = `¡Canje exitoso! Ticket Nº ${ticketNumber} ha sido utilizado.`;
+        setFinalRedeemedState({ isRedeemed: true, message: msg });
+        setValidationResult(null);
+        addLog('success', msg, { ticketId, eventId, user: user.uid });
       })
       .catch((e: any) => {
+        addLog('error', 'Error al canjear el ticket.', e);
         if (e.code === 'permission-denied') {
           errorEmitter.emit('permission-error', new FirestorePermissionError({
             path: ticketRef.path,
@@ -161,21 +203,22 @@ export function TicketValidatorOnline() {
       });
   };
 
-  // Función para iniciar el escáner
   const startScanner = useCallback(() => {
     if (isScanning) return;
     
+    addLog('info', 'Iniciando escáner...');
     setValidationResult(null);
     setFinalRedeemedState(null);
 
     import("html5-qrcode").then(({ Html5Qrcode }) => {
-        const scanner = new Html5Qrcode(readerId);
+        const scanner = new Html5Qrcode(readerId, false);
         scannerRef.current = scanner;
 
-        const config = { fps: 5, qrbox: { width: 250, height: 250 } };
+        const config = { fps: 5, qrbox: { width: 250, height: 250 }, rememberLastUsedCamera: true, };
         
         const onScanSuccess = (decodedText: string) => {
-            stopScanner(); // Detener el escáner inmediatamente después de una lectura exitosa
+            addLog('success', 'Código QR detectado.');
+            stopScanner();
             handleValidate(decodedText);
         };
         
@@ -185,22 +228,23 @@ export function TicketValidatorOnline() {
         scanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
             .catch(err => {
                 setIsScanning(false);
+                addLog('error', 'No se pudo iniciar la cámara.', err);
                 toast({ variant: 'destructive', title: 'Error de Escáner', description: err.message || "No se pudo iniciar la cámara." });
             });
 
     }).catch(err => {
+        addLog('error', 'No se pudo cargar la librería de escaneo.', err);
         toast({ variant: 'destructive', title: 'Error', description: "No se pudo cargar la librería de escaneo." });
     });
-  }, [isScanning, handleValidate, toast, stopScanner]);
+  }, [isScanning, handleValidate, toast, stopScanner, addLog]);
 
-  // Función para reiniciar el estado y permitir un nuevo escaneo
   const resetValidation = () => {
+    addLog('info', 'Reiniciando validador.');
     setValidationResult(null);
     setFinalRedeemedState(null);
-    stopScanner(); // Asegurarse de que el scanner esté detenido
+    stopScanner();
   };
 
-  // Renderiza el estado inicial o el botón para escanear
   const renderInitialState = () => (
     <div className="flex justify-center items-center h-48 border-2 border-dashed rounded-lg">
         <Button onClick={startScanner} variant="secondary" size="lg" disabled={isLoading}>
@@ -210,7 +254,6 @@ export function TicketValidatorOnline() {
     </div>
   );
 
-  // Renderiza el visor del escáner
   const renderScanningState = () => (
     <div className="space-y-2">
         <div id={readerId} className="w-full rounded-md border aspect-video bg-muted"></div>
@@ -218,7 +261,6 @@ export function TicketValidatorOnline() {
     </div>
   );
 
-  // Renderiza el resultado de la validación o del canje
   const renderResultState = () => {
     let alertInfo: { variant: string, Icon: React.ElementType, title: string, className: string } | null = null;
     let message: string = '';
@@ -269,29 +311,68 @@ export function TicketValidatorOnline() {
     );
   }
 
+  const logColors: Record<LogEntry['level'], string> = {
+    info: 'text-blue-400',
+    success: 'text-green-400',
+    error: 'text-red-400',
+    warn: 'text-yellow-400'
+  };
+
   return (
-    <Tabs defaultValue="online" className="max-w-2xl mx-auto">
-      <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger value="online">Validador Online</TabsTrigger>
-        <TabsTrigger value="offline">Validador Offline</TabsTrigger>
-      </TabsList>
-      <TabsContent value="online">
+    <div className="max-w-2xl mx-auto space-y-8">
+        <Tabs defaultValue="online">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="online">Validador Online</TabsTrigger>
+            <TabsTrigger value="offline">Validador Offline</TabsTrigger>
+          </TabsList>
+          <TabsContent value="online">
+            <Card>
+              <CardHeader>
+                <CardTitle>Validador Online</CardTitle>
+                <CardDescription>Escanea un ticket para validarlo en tiempo real contra la base de datos. Requiere conexión a internet.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {isScanning 
+                  ? renderScanningState() 
+                  : (validationResult || finalRedeemedState ? renderResultState() : renderInitialState())
+                }
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="offline">
+            <TicketValidator />
+          </TabsContent>
+        </Tabs>
+
         <Card>
-          <CardHeader>
-            <CardTitle>Validador Online</CardTitle>
-            <CardDescription>Escanea un ticket para validarlo en tiempo real contra la base de datos. Requiere conexión a internet.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {isScanning 
-              ? renderScanningState() 
-              : (validationResult || finalRedeemedState ? renderResultState() : renderInitialState())
-            }
-          </CardContent>
+            <CardHeader>
+                <div className="flex justify-between items-center">
+                    <CardTitle className="flex items-center gap-2"><Terminal /> Logs en Vivo</CardTitle>
+                    <Button variant="ghost" size="icon" onClick={() => setLogs([])}><RefreshCw className="h-4 w-4" /></Button>
+                </div>
+                <CardDescription>Los eventos del proceso de validación online aparecerán aquí.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="h-[300px] bg-black rounded-lg p-4 overflow-y-auto font-mono text-xs space-y-3">
+                    {logs.length === 0 && <p className="text-muted-foreground">Esperando acciones...</p>}
+                    {logs.map((log, i) => (
+                        <div key={i} className={cn("border-l-2 pl-3", log.level === 'success' ? 'border-green-500' : log.level === 'error' ? 'border-red-500' : log.level === 'warn' ? 'border-yellow-500' : 'border-blue-500')}>
+                            <p className={cn("font-bold flex justify-between", logColors[log.level])}>
+                                <span>{log.message}</span>
+                                <span className="text-muted-foreground/50">{log.timestamp}</span>
+                            </p>
+                            {log.data && (
+                                <pre className="mt-1 p-2 bg-muted/20 rounded-md overflow-x-auto text-muted-foreground whitespace-pre-wrap break-all">
+                                    {typeof log.data === 'string' ? log.data : JSON.stringify(log.data, null, 2)}
+                                </pre>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </CardContent>
         </Card>
-      </TabsContent>
-      <TabsContent value="offline">
-        <TicketValidator />
-      </TabsContent>
-    </Tabs>
+    </div>
   );
 }
+
+    
