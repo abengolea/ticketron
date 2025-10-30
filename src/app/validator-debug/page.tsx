@@ -1,10 +1,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { ValidatorService, ValidateOutcome } from "@/core/validator-service";
-import { ScannerController } from "@/core/scanner-controller";
-import { registry, TicketRecord } from "@/core/ticket-registry";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,9 +9,190 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { Camera, KeyRound, Loader2, RotateCcw, Info, Terminal, RefreshCw, Trash2 } from "lucide-react";
+import { Camera, KeyRound, Loader2, RotateCcw, Terminal, RefreshCw, Trash2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { createHmacSha256 } from "@/lib/utils";
+import type { Html5Qrcode } from "html5-qrcode";
 
+// --- START: Core logic re-implemented inside the component for isolation ---
+
+class StorageAdapter {
+    private lsKey = "tickets.registry.v1";
+    private listeners = new Set<() => void>();
+    private bc?: BroadcastChannel;
+
+    constructor() {
+        if (typeof window !== "undefined") {
+            this.bc = "BroadcastChannel" in window ? new BroadcastChannel("tickets-sync") : undefined;
+            window.addEventListener("storage", (e) => {
+                if (e.key === this.lsKey) this.emit();
+            });
+            this.bc?.addEventListener("message", (e) => {
+                if (e.data?.type === "SYNC") this.emit();
+            });
+        }
+    }
+
+    subscribe(l: () => void) { this.listeners.add(l); return () => this.listeners.delete(l); }
+    private emit() { for (const l of this.listeners) l(); }
+
+    read(): Record<string, any> {
+        if (typeof window === "undefined") return {};
+        try {
+            const raw = window.localStorage.getItem(this.lsKey);
+            return raw ? JSON.parse(raw) : {};
+        } catch { return {}; }
+    }
+
+    write(obj: Record<string, any>) {
+        if (typeof window === "undefined") return;
+        try {
+            window.localStorage.setItem(this.lsKey, JSON.stringify(obj));
+            this.bc?.postMessage({ type: "SYNC" });
+            this.emit();
+        } catch { /* noop */ }
+    }
+
+    checkAndSet<T>(
+        key: string,
+        check: (current: any) => { ok: boolean; value: T },
+        mutate: (state: Record<string, any>) => void
+    ): { ok: boolean; value: T } {
+        const state = this.read();
+        const res = check(state[key]);
+        if (!res.ok) return res;
+        mutate(state);
+        this.write(state);
+        return res;
+    }
+    
+    clear() { this.write({}); }
+}
+
+type TicketState = "new" | "redeemed" | "void";
+interface TicketRecord {
+    id: string; state: TicketState; at: number; who?: string; reason?: string;
+}
+
+const canonicalId = (eid: unknown, tid: unknown) =>
+    `${String(eid ?? "").trim().toLowerCase()}::${String(tid ?? "").trim().toLowerCase()}`;
+
+class TicketRegistry {
+    private storage: StorageAdapter;
+    constructor() {
+        this.storage = new StorageAdapter();
+    }
+    
+    subscribe(l: () => void) { return this.storage.subscribe(l); }
+
+    snapshot(): TicketRecord[] {
+        const raw = this.storage.read();
+        return Object.entries(raw).map(([id, v]: any) => ({ id, ...v }));
+    }
+
+    get(id: string): TicketRecord | undefined {
+        const raw = this.storage.read();
+        const v = raw[id];
+        return v ? ({ id, ...v }) : undefined;
+    }
+
+    redeem(id: string, who?: string): { ok: boolean; already?: boolean; record?: TicketRecord } {
+        return this.storage.checkAndSet(id,
+            (current) => {
+                if (!current) return { ok: true, value: "create" as any };
+                if (current.state === "redeemed") return { ok: false, value: "already" as any };
+                if (current.state === "void") return { ok: false, value: "void" as any };
+                return { ok: true, value: "update" as any };
+            },
+            (state) => {
+                const now = Date.now();
+                state[id] = { state: "redeemed", at: now, who };
+            }
+        ) as any;
+    }
+    
+    clear() { this.storage.clear(); }
+}
+
+type ValidateOutcome = "valid" | "invalid" | "already_redeemed" | "void" | "malformed";
+
+class ValidatorService {
+    constructor(private secretProvider: () => string, private registry: TicketRegistry) {}
+
+    async validateAndRedeem(payloadText: string): Promise<{ outcome: ValidateOutcome; id?: string; msg: string }> {
+        let data: any;
+        try { data = JSON.parse(payloadText); } catch { return { outcome: "malformed", msg: "QR no es JSON válido" }; }
+        
+        const { v, eid, tid, sig } = data ?? {};
+        if (!v || !eid || !tid || !sig) return { outcome: "malformed", msg: "Faltan campos en el QR" };
+
+        const id = canonicalId(eid, tid);
+        const secret = this.secretProvider();
+        if (!secret) return { outcome: "invalid", id, msg: "Falta la clave secreta para validar." };
+        
+        const expected = await createHmacSha256(secret, `${eid}|${tid}|${v}`);
+        if (expected !== sig) return { outcome: "invalid", id, msg: "Firma inválida. Revisa que la clave secreta sea la correcta." };
+
+        const rec = this.registry.get(id);
+        if (rec?.state === "void") return { outcome: "void", id, msg: "Ticket anulado" };
+        if (rec?.state === "redeemed") return { outcome: "already_redeemed", id, msg: `Ticket ya canjeado el ${new Date(rec.at).toLocaleString()}` };
+        
+        const res = this.registry.redeem(id, "operator");
+        if (res.ok) return { outcome: "valid", id, msg: "Válido y canjeado con éxito." };
+        
+        if ((res as any).value === "already") return { outcome: "already_redeemed", id, msg: "Ticket ya canjeado (detectado durante el canje)" };
+        if ((res as any).value === "void") return { outcome: "void", id, msg: "Ticket anulado (detectado durante el canje)" };
+        
+        return { outcome: "invalid", id, msg: "No se pudo canjear por una razón desconocida" };
+    }
+}
+
+class ScannerController {
+    private scanner: Html5Qrcode | null = null;
+    private running = false;
+    
+    constructor(private containerId: string, private Html5QrcodeLib: any) {}
+
+    async start(onDecode: (text: string) => Promise<void>) {
+        if (this.running) return;
+
+        if (!this.scanner) {
+            this.scanner = new this.Html5QrcodeLib(this.containerId, false);
+        }
+        
+        const el = document.getElementById(this.containerId);
+        if (!el) throw new Error("Contenedor del lector no existe");
+        
+        this.running = true;
+        await this.scanner!.start(
+            { facingMode: "environment" },
+            { fps: 5, qrbox: { width: 260, height: 260 }, rememberLastUsedCamera: true },
+            async (decodedText: string) => {
+                await this.pause();
+                await onDecode(decodedText);
+            },
+            () => {}
+        );
+    }
+
+    async pause() {
+        if (!this.running || !this.scanner) return;
+        try {
+            if ((this.scanner as any).isScanning) {
+                await this.scanner.stop();
+            }
+        } catch(e) {
+            console.error("Scanner stop error", e);
+        } finally {
+            this.running = false;
+        }
+    }
+}
+
+
+// --- END: Core logic ---
+
+
+const SCANNER_CONTAINER_ID = "qr-reader-debug";
 
 type LogEntry = {
     timestamp: string;
@@ -23,7 +201,6 @@ type LogEntry = {
     data?: any;
 };
 
-const SCANNER_CONTAINER_ID = "qr-reader-debug";
 
 export default function ValidatorDebugPage() {
   const [secret, setSecret] = useState("");
@@ -33,17 +210,34 @@ export default function ValidatorDebugPage() {
   const [redeemedCount, setRedeemedCount] = useState(0);
   
   const scannerRef = useRef<ScannerController | null>(null);
+  const registryRef = useRef<TicketRegistry | null>(null);
+  const validatorRef = useRef<ValidatorService | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    const updateCount = () => {
-        const count = registry.snapshot().filter(r => r.state === 'redeemed').length;
-        setRedeemedCount(count);
-    };
-    const unsubscribe = registry.subscribe(updateCount);
-    updateCount();
-    return unsubscribe;
-  }, []);
+    // This effect runs ONLY on the client.
+    const reg = new TicketRegistry();
+    registryRef.current = reg;
+    
+    const unsub = reg.subscribe(() => {
+        setRedeemedCount(reg.snapshot().filter(r => r.state === 'redeemed').length);
+    });
+    setRedeemedCount(reg.snapshot().filter(r => r.state === 'redeemed').length);
+
+    import('html5-qrcode').then(lib => {
+        scannerRef.current = new ScannerController(SCANNER_CONTAINER_ID, lib.Html5Qrcode);
+    }).catch(err => {
+        addLog('error', 'No se pudo cargar la librería de escaneo', err);
+    });
+    
+    return unsub;
+  }, []); // Empty dependency array ensures this runs once.
+
+  useEffect(() => {
+    if (registryRef.current) {
+        validatorRef.current = new ValidatorService(() => secret, registryRef.current);
+    }
+  }, [secret]); // Re-create validator service if secret changes.
 
   const addLog = useCallback((level: LogEntry['level'], message: string, data?: any) => {
     setLogs(prev => [{
@@ -51,80 +245,43 @@ export default function ValidatorDebugPage() {
       level,
       message,
       data
-    }, ...prev].slice(0, 50)); // Limita los logs a 50 entradas
+    }, ...prev].slice(0, 50));
   }, []);
 
   const handleDecode = useCallback(async (payloadText: string) => {
     setIsLoading(true);
     addLog('info', 'QR Decodificado', payloadText);
 
-    if (!secret) {
-        addLog('error', 'Clave secreta no proporcionada. Abortando validación.');
+    if (!validatorRef.current) {
+        addLog('error', 'El servicio validador no está inicializado.');
         setIsLoading(false);
-        toast({ variant: 'destructive', title: 'Error', description: 'Por favor, introduce la clave secreta.'});
         return;
     }
-    
-    let qrData: any;
+
     try {
-        qrData = JSON.parse(payloadText);
-        addLog('success', 'Payload JSON parseado correctamente', qrData);
-    } catch {
-        addLog('error', 'El contenido del QR no es un JSON válido.');
-        setIsLoading(false);
-        return;
-    }
-
-    const { v, eid, tid, sig } = qrData ?? {};
-    if (!v || !eid || !tid || !sig) {
-        addLog('error', 'Faltan campos esenciales en el QR (v, eid, tid, sig).');
-        setIsLoading(false);
-        return;
-    }
-    
-    const payloadToSign = `${eid}|${tid}|${v}`;
-    addLog('info', 'Generando firma para verificación...', {
-        payloadToSign,
-        secretKey: `${secret.substring(0, 5)}...${secret.substring(secret.length - 5)}`
-    });
-    
-    try {
-        const expectedSignature = await createHmacSha256(secret, payloadToSign);
-        addLog('info', 'Firma del QR', sig);
-        addLog('info', 'Firma generada localmente', expectedSignature);
-
-        const isValid = expectedSignature === sig;
-        if (isValid) {
-            addLog('success', '¡Las firmas coinciden! El ticket es auténtico.');
-        } else {
-            addLog('error', '¡Las firmas NO coinciden! El ticket es inválido o la clave secreta es incorrecta.');
-            setIsLoading(false);
-            return;
-        }
-
-        // Si la firma es válida, proceder con el canje usando el servicio
-        const validatorService = new ValidatorService(() => secret);
-        const result = await validatorService.validateAndRedeem(payloadText);
-
+        const result = await validatorRef.current.validateAndRedeem(payloadText);
         const level = result.outcome === 'valid' ? 'success' : result.outcome === 'already_redeemed' ? 'warn' : 'error';
         addLog(level, `Resultado final del canje: ${result.outcome.toUpperCase()}`, result);
-
     } catch (e: any) {
-        addLog('error', 'Error durante el proceso de firma o validación', e.message);
+        addLog('error', 'Error durante el proceso de validación', e.message);
     } finally {
         setIsLoading(false);
-        // Opcional: reiniciar scanner para el siguiente
-        // setTimeout(() => startScanner(), 1000);
     }
-  }, [secret, addLog, toast]);
+  }, []);
 
   const startScanner = useCallback(async () => {
-    addLog('info', 'Intentando iniciar escáner...');
     if (!scannerRef.current) {
-      scannerRef.current = new ScannerController(SCANNER_CONTAINER_ID);
+        addLog('error', 'El controlador del escáner no está listo.');
+        return;
     }
+    if (!secret) {
+        addLog('warn', 'La clave secreta está vacía.');
+        toast({variant: 'destructive', title: 'Clave Necesaria', description: 'Pega la clave secreta para continuar.'})
+        return;
+    }
+    addLog('info', 'Intentando iniciar escáner...');
+    setIsScanning(true);
     try {
-      setIsScanning(true);
       await scannerRef.current.start(handleDecode);
       addLog('success', 'Escáner iniciado. Apunte la cámara a un código QR.');
     } catch(err: any) {
@@ -132,7 +289,7 @@ export default function ValidatorDebugPage() {
       toast({ variant: 'destructive', title: 'Error de Escáner', description: err.message });
       setIsScanning(false);
     }
-  }, [handleDecode, toast, addLog]);
+  }, [handleDecode, secret, toast, addLog]);
 
   const stopScanner = useCallback(async () => {
     addLog('info', 'Deteniendo escáner...');
@@ -146,9 +303,11 @@ export default function ValidatorDebugPage() {
   const clearLogs = () => setLogs([]);
   
   const clearRegistry = () => {
-    registry.clear();
-    addLog('warn', 'Registro de canjes locales ha sido limpiado.');
-    toast({ title: 'Registro Limpiado', description: 'Todos los tickets canjeados en este dispositivo han sido reseteados.' });
+    if (registryRef.current) {
+        registryRef.current.clear();
+        addLog('warn', 'Registro de canjes locales ha sido limpiado.');
+        toast({ title: 'Registro Limpiado', description: 'Todos los tickets canjeados en este dispositivo han sido reseteados.' });
+    }
   }
 
   const logColors = {
@@ -192,9 +351,13 @@ export default function ValidatorDebugPage() {
 
                         <div id={SCANNER_CONTAINER_ID} className={cn("w-full aspect-video border-2 border-dashed rounded-lg bg-muted flex items-center justify-center text-muted-foreground", { 'border-solid': isScanning })}>
                             {!isScanning && <p>Cámara inactiva</p>}
-                            {isScanning && !isLoading && <p>Esperando QR...</p>}
-                            {isLoading && <Loader2 className="h-8 w-8 animate-spin" />}
                         </div>
+                        
+                        {isLoading && (
+                            <div className="flex items-center justify-center text-muted-foreground">
+                                <Loader2 className="h-5 w-5 mr-2 animate-spin" /> Procesando...
+                            </div>
+                        )}
 
                         {!isScanning && (
                         <Button onClick={startScanner} className="w-full" disabled={!secret || isLoading}>
