@@ -32,108 +32,86 @@ export function TicketValidator() {
   const [isScanning, setIsScanning] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const processingRef = useRef(false);
-  const redeemedRef = useRef(new Set(redeemed));
-
   const { toast } = useToast();
-
-  useEffect(() => {
-    redeemedRef.current = new Set(redeemed);
-  }, [redeemed]);
-
-  useEffect(() => {
-    return () => {
-      if (scannerRef.current && (scannerRef.current as any).isScanning) {
-        scannerRef.current.stop().catch(() => {});
-      }
-    };
-  }, []);
-
-  const markRedeemed = useCallback((key: string) => {
-    if (redeemedRef.current.has(key)) return false;
-    redeemedRef.current.add(key);
-
-    try {
-      sessionStorage.setItem(key, "redeemed");
-    } catch {}
-
-    setRedeemed((prev) => {
-      if (prev.includes(key)) return prev;
-      const next = [...prev, key];
-      return next;
-    });
-
-    return true;
-  }, [setRedeemed]);
-
-  const validateTicket = useCallback(async (payload: string) => {
-    if (processingRef.current) return;
-    processingRef.current = true;
-
-    try {
-      if (!secretKey.trim() || !payload.trim()) {
-        toast({ variant: "destructive", title: "Falta información", description: "Clave secreta y QR son requeridos." });
-        return;
-      }
-
-      let data: any;
-      try {
-        data = JSON.parse(payload);
-      } catch {
-        setValidationResult({ status: "invalid", message: "El QR no contiene JSON válido." });
-        return;
-      }
-
-      const { v, eid, tid, sig } = data ?? {};
-      if (!v || !eid || !tid || !sig) {
-        setValidationResult({ status: "invalid", message: "Estructura del QR inválida." });
-        return;
-      }
-
-      const key = canonicalId(eid, tid);
-      if (redeemedRef.current.has(key) || sessionStorage.getItem(key) === 'redeemed') {
-        setValidationResult({ status: "redeemed", message: `El ticket ${String(tid).slice(0, 8)}… ya fue canjeado.` });
-        return;
-      }
-
-      const expectedSig = await createHmacSha256(secretKey, `${eid}|${tid}|${v}`);
-
-      if (expectedSig === sig) {
-        const added = markRedeemed(key);
-        setValidationResult({ status: "valid", message: `El ticket ${String(tid).slice(0, 8)}… es válido y se marcó como canjeado.` });
-      } else {
-        setValidationResult({ status: "invalid", message: "Firma inválida: ticket falsificado o clave incorrecta." });
-      }
-    } finally {
-      processingRef.current = false;
-    }
-  }, [secretKey, toast, markRedeemed]);
 
   const stopScanner = useCallback(async () => {
     try {
-        if (scannerRef.current && (scannerRef.current as any).isScanning) {
-            await scannerRef.current.stop();
-            const el = document.getElementById(readerId);
-            if(el) el.innerHTML = "";
-        }
-    } catch (e) {
-        console.error("Error stopping scanner", e);
+      if (scannerRef.current && (scannerRef.current as any).isScanning) {
+        await scannerRef.current.stop();
+        const el = document.getElementById(readerId);
+        if (el) el.innerHTML = "";
+      }
+    } catch {
+      // Silenciar errores al detener, es un cleanup.
     } finally {
-        setIsScanning(false);
+      setIsScanning(false);
     }
   }, []);
 
+  const validateTicket = useCallback(async (payload: string) => {
+    if (!secretKey.trim() || !payload.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Falta información",
+        description: "Por favor ingresa la clave secreta y el QR.",
+      });
+      return;
+    }
+
+    let data: any;
+    try {
+      data = JSON.parse(payload);
+    } catch {
+      setValidationResult({ status: "invalid", message: "El QR no contiene JSON válido." });
+      return;
+    }
+
+    const { v, eid, tid, sig } = data ?? {};
+    if (!v || !eid || !tid || !sig) {
+      setValidationResult({ status: "invalid", message: "Estructura del QR inválida o incompleta." });
+      return;
+    }
+
+    const key = canonicalId(eid, tid);
+    
+    // CHEQUEO DIRECTO CONTRA EL ESTADO PERSISTENTE
+    if (redeemed.includes(key)) {
+      setValidationResult({
+        status: "redeemed",
+        message: `El ticket ${String(tid).slice(0, 8)}… ya fue canjeado.`,
+      });
+      return;
+    }
+
+    const expectedSig = await createHmacSha256(secretKey, `${eid}|${tid}|${v}`);
+
+    if (expectedSig === sig) {
+      // VÁLIDO: Añadir a la lista de canjeados y actualizar estado/storage
+      setRedeemed(prev => [...prev, key]);
+      setValidationResult({
+        status: "valid",
+        message: `El ticket ${String(tid).slice(0, 8)}… es válido y se marcó como canjeado.`,
+      });
+    } else {
+      setValidationResult({
+        status: "invalid",
+        message: "Firma inválida: clave incorrecta o ticket adulterado.",
+      });
+    }
+  }, [secretKey, redeemed, setRedeemed, toast]);
+
+
   const startScanner = useCallback(async () => {
-    if (isScanning || processingRef.current) return;
+    if (isScanning) return;
     setValidationResult(null);
     setIsScanning(true);
 
     try {
       const { Html5Qrcode } = await import("html5-qrcode");
-      
       const readerEl = document.getElementById(readerId);
-      if (!readerEl) throw new Error("Contenedor del lector no encontrado.");
-      
+      if (!readerEl) throw new Error("No se encontró el contenedor del lector.");
+      readerEl.innerHTML = "";
+
       const scanner = new Html5Qrcode(readerId);
       scannerRef.current = scanner;
 
@@ -141,39 +119,46 @@ export function TicketValidator() {
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         async (decodedText: string) => {
-            await stopScanner();
-            setQrPayload(decodedText);
-            await validateTicket(decodedText);
+          await stopScanner();
+          setQrPayload(decodedText); // Opcional: mostrar el payload en el textarea
+          await validateTicket(decodedText);
         },
-        (errorMessage: string) => {}
+        () => {} // onError silenciado
       );
     } catch (err: any) {
-        toast({ variant: "destructive", title: "Error de cámara", description: err.message || "No se pudo iniciar el escáner. Revisa los permisos." });
+        toast({
+          variant: "destructive",
+          title: "Error de cámara",
+          description: err.message || "No se pudo iniciar el escaneo. Revisa los permisos.",
+        });
         setIsScanning(false);
     }
   }, [isScanning, stopScanner, toast, validateTicket]);
 
-  const resetValidation = () => {
+  // Limpieza al desmontar el componente
+  useEffect(() => {
+    return () => {
+      stopScanner();
+    };
+  }, [stopScanner]);
+
+  const resetValidation = useCallback(() => {
     setValidationResult(null);
     setQrPayload("");
-  };
+  }, []);
 
-  const clearRedeemed = () => {
+  const clearRedeemed = useCallback(() => {
     setRedeemed([]);
-    try {
-      const keys = Object.keys(sessionStorage);
-      for(const key of keys) {
-        if(key.includes('::')) sessionStorage.removeItem(key);
-      }
-    } catch {}
     toast({ title: "Lista de canjeados limpiada." });
-  };
+  }, [setRedeemed, toast]);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Validador Offline</CardTitle>
-        <CardDescription>Valida QRs sin internet; cada ticket queda “quemado” tras el primer canje.</CardDescription>
+        <CardDescription>
+          Escanea o pega un QR y verifica su validez. Cada ticket se quema automáticamente tras el canje.
+        </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-6">
