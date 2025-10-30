@@ -1,14 +1,14 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { Camera, CheckCircle, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { Html5Qrcode } from 'html5-qrcode';
 
 const readerId = "qr-reader-test";
 
@@ -19,31 +19,33 @@ export default function ScannerTestPage() {
     const [scanError, setScanError] = useState<string | null>(null);
     const { toast } = useToast();
 
+    // The library is imported dynamically only on the client-side
     useEffect(() => {
-        // Inicializa el objeto scanner una sola vez
-        if (!scannerRef.current) {
-            scannerRef.current = new Html5Qrcode(readerId, false);
-        }
-        const scanner = scannerRef.current;
+        import('html5-qrcode').then(lib => {
+            if (!scannerRef.current) {
+                scannerRef.current = new lib.Html5Qrcode(readerId, false);
+            }
+        }).catch(err => {
+            console.error("Failed to load html5-qrcode lib", err);
+            setScanError("Could not load scanner library.");
+        });
 
-        // Función de limpieza para detener el escáner al desmontar el componente
+        // Cleanup function to stop the scanner on component unmount
         return () => {
-            if (scanner && (scanner as any).isScanning) {
-                scanner.stop().catch(err => {
-                    console.error("Error al detener el escáner de prueba en el cleanup:", err);
+            if (scannerRef.current && (scannerRef.current as any).isScanning) {
+                scannerRef.current.stop().catch(err => {
+                    console.error("Error stopping scanner on cleanup:", err);
                 });
             }
         };
     }, []);
 
-    const startScanner = async () => {
-        const scanner = scannerRef.current;
-        if (!scanner) {
-            toast({ variant: 'destructive', title: 'Error', description: 'La instancia del escáner no se ha inicializado.' });
+    const startScanner = useCallback(async () => {
+        if (!scannerRef.current) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Scanner library not loaded yet.' });
             return;
         }
-
-        // Ya está escaneando, no hacer nada
+        const scanner = scannerRef.current;
         if ((scanner as any).isScanning) return;
 
         setScanResult(null);
@@ -56,52 +58,52 @@ export default function ScannerTestPage() {
             rememberLastUsedCamera: true,
         };
 
-        const onScanSuccess = (decodedText: string) => {
-            setScanResult(decodedText);
-            stopScanner(); // Detener después de un escaneo exitoso
-        };
-
-        const onScanFailure = (error: any) => {
-            // Se ignora porque se llama continuamente
-        };
-
         try {
-            await scanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure);
+            await scanner.start(
+                { facingMode: "environment" },
+                config,
+                (decodedText: string) => {
+                    setScanResult(decodedText);
+                    stopScanner(); // Stop after successful scan
+                },
+                (errorMessage: string) => {
+                    // This is called continuously, ignore it.
+                }
+            );
         } catch (err: any) {
-            console.error("Error al iniciar el escáner:", err);
-            const errorMessage = err.message || "No se pudo iniciar el escáner. Revisa los permisos de la cámara.";
+            console.error("Error starting scanner:", err);
+            const errorMessage = err.message || "Could not start scanner. Check camera permissions.";
             setScanError(errorMessage);
             setIsScanning(false);
             toast({
                 variant: 'destructive',
-                title: 'Error de Cámara',
+                title: 'Camera Error',
                 description: errorMessage,
             });
         }
-    };
+    }, [toast]);
 
-    const stopScanner = () => {
-        const scanner = scannerRef.current;
-        if (scanner && (scanner as any).isScanning) {
-            scanner.stop()
+    const stopScanner = useCallback(() => {
+        if (scannerRef.current && (scannerRef.current as any).isScanning) {
+            scannerRef.current.stop()
                 .then(() => {
                     setIsScanning(false);
                 })
                 .catch(err => {
-                    console.error("Fallo al detener el escáner:", err);
-                    setIsScanning(false); // Forzar el estado de todas formas
+                    console.error("Failed to stop scanner:", err);
+                    setIsScanning(false); // Force state anyway
                 });
         }
-    };
+    }, []);
 
 
     return (
         <div className="max-w-2xl mx-auto">
             <Card>
                 <CardHeader>
-                    <CardTitle>Página de Prueba del Escáner QR</CardTitle>
+                    <CardTitle>QR Scanner Test Page</CardTitle>
                     <CardDescription>
-                        Esta página prueba la librería <code>html5-qrcode</code> de forma aislada para depurar errores de renderizado o comunicación.
+                        This page tests the <code>html5-qrcode</code> library in isolation to debug rendering or communication errors.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -111,21 +113,21 @@ export default function ScannerTestPage() {
                         <div className="flex justify-center items-center h-48 border-2 border-dashed rounded-lg">
                             <Button onClick={startScanner} variant="secondary" size="lg">
                                 <Camera className="mr-2 h-5 w-5" />
-                                Iniciar Escáner de Prueba
+                                Start Test Scanner
                             </Button>
                         </div>
                     )}
                     
                     {isScanning && (
                         <Button onClick={stopScanner} variant="outline" className="w-full">
-                            Detener Escáner
+                            Stop Scanner
                         </Button>
                     )}
 
                     {scanResult && (
                         <Alert variant="default" className="bg-green-100 dark:bg-green-900/50">
                             <CheckCircle className="h-4 w-4" />
-                            <AlertTitle>Escaneo Exitoso</AlertTitle>
+                            <AlertTitle>Scan Successful</AlertTitle>
                             <AlertDescription className="font-mono break-all">{scanResult}</AlertDescription>
                         </Alert>
                     )}
@@ -133,7 +135,7 @@ export default function ScannerTestPage() {
                     {scanError && (
                         <Alert variant="destructive">
                             <XCircle className="h-4 w-4" />
-                            <AlertTitle>Error del Escáner</AlertTitle>
+                            <AlertTitle>Scanner Error</AlertTitle>
                             <AlertDescription>{scanError}</AlertDescription>
                         </Alert>
                     )}
@@ -142,5 +144,3 @@ export default function ScannerTestPage() {
         </div>
     );
 }
-
-    

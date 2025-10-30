@@ -8,7 +8,6 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw, XCircle, ShieldCheck, Terminal, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Html5Qrcode } from 'html5-qrcode';
 import { useFirestore, useUser } from '@/firebase';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,6 +15,7 @@ import { TicketValidator } from './ticket-validator';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import type { TicketStatus } from '@/lib/types';
+import type { Html5Qrcode } from 'html5-qrcode';
 
 type ValidationResult = {
   status: TicketStatus | 'invalid';
@@ -60,7 +60,7 @@ export function TicketValidatorOnline() {
       data
     }, ...prev].slice(0, 50));
   }, []);
-  
+
   const stopScanner = useCallback(() => {
     addLog('info', 'Intentando detener el escáner...');
     if (scannerRef.current && (scannerRef.current as any).isScanning) {
@@ -76,21 +76,19 @@ export function TicketValidatorOnline() {
             });
     } else {
       setIsScanning(false);
-      // Evitar loguear si no hay logs, para no causar un bucle en el primer render
-      if (logs.length > 0) {
-        addLog('info', 'El escáner ya estaba detenido.');
-      }
     }
   }, [addLog]);
 
   useEffect(() => {
-    // Inicializar el scanner una vez
-    if (!scannerRef.current) {
-        scannerRef.current = new Html5Qrcode(readerId, false);
+    import('html5-qrcode').then(lib => {
+      if (!scannerRef.current) {
+        scannerRef.current = new lib.Html5Qrcode(readerId, false);
         addLog('info', 'Librería de escáner inicializada.');
-    }
+      }
+    }).catch(err => {
+      addLog('error', 'No se pudo cargar la librería de escaneo', err);
+    });
     
-    // Limpieza al desmontar
     return () => {
       if (scannerRef.current && (scannerRef.current as any).isScanning) {
         stopScanner();
@@ -377,5 +375,3 @@ export function TicketValidatorOnline() {
     </div>
   );
 }
-
-    
