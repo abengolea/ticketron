@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw, XCircle, ShieldCheck, Terminal, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useFirestore, useUser } from '@/firebase';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -62,6 +62,12 @@ export function TicketValidatorOnline() {
   }, []);
   
   useEffect(() => {
+    // Inicializar el scanner una vez
+    if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(readerId, false);
+    }
+    
+    // Limpieza al desmontar
     return () => {
         if (scannerRef.current && (scannerRef.current as any).isScanning) {
             scannerRef.current.stop().catch(err => console.error("Failed to stop scanner on unmount", err));
@@ -204,38 +210,31 @@ export function TicketValidatorOnline() {
   };
 
   const startScanner = useCallback(() => {
-    if (isScanning) return;
+    if (isScanning || !scannerRef.current) return;
     
     addLog('info', 'Iniciando escáner...');
     setValidationResult(null);
     setFinalRedeemedState(null);
 
-    import("html5-qrcode").then(({ Html5Qrcode }) => {
-        const scanner = new Html5Qrcode(readerId, false);
-        scannerRef.current = scanner;
+    const scanner = scannerRef.current;
+    const config = { fps: 5, qrbox: { width: 250, height: 250 }, rememberLastUsedCamera: true };
+    
+    const onScanSuccess = (decodedText: string) => {
+        addLog('success', 'Código QR detectado.');
+        stopScanner();
+        handleValidate(decodedText);
+    };
+    
+    const onScanFailure = (error: any) => { /* Silenciado a propósito */ };
+    
+    setIsScanning(true);
+    scanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
+        .catch(err => {
+            setIsScanning(false);
+            addLog('error', 'No se pudo iniciar la cámara.', err);
+            toast({ variant: 'destructive', title: 'Error de Escáner', description: err.message || "No se pudo iniciar la cámara." });
+        });
 
-        const config = { fps: 5, qrbox: { width: 250, height: 250 }, rememberLastUsedCamera: true, };
-        
-        const onScanSuccess = (decodedText: string) => {
-            addLog('success', 'Código QR detectado.');
-            stopScanner();
-            handleValidate(decodedText);
-        };
-        
-        const onScanFailure = (error: any) => { /* Silenciado a propósito */ };
-        
-        setIsScanning(true);
-        scanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
-            .catch(err => {
-                setIsScanning(false);
-                addLog('error', 'No se pudo iniciar la cámara.', err);
-                toast({ variant: 'destructive', title: 'Error de Escáner', description: err.message || "No se pudo iniciar la cámara." });
-            });
-
-    }).catch(err => {
-        addLog('error', 'No se pudo cargar la librería de escaneo.', err);
-        toast({ variant: 'destructive', title: 'Error', description: "No se pudo cargar la librería de escaneo." });
-    });
   }, [isScanning, handleValidate, toast, stopScanner, addLog]);
 
   const resetValidation = () => {

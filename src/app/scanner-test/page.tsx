@@ -1,12 +1,13 @@
+
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { Camera, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { Camera, CheckCircle, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const readerId = "qr-reader-test";
@@ -27,7 +28,7 @@ export default function ScannerTestPage() {
 
         // Función de limpieza para detener el escáner al desmontar el componente
         return () => {
-            if (scanner && scanner.isScanning) {
+            if (scanner && (scanner as any).isScanning) {
                 scanner.stop().catch(err => {
                     console.error("Error al detener el escáner de prueba en el cleanup:", err);
                 });
@@ -43,7 +44,7 @@ export default function ScannerTestPage() {
         }
 
         // Ya está escaneando, no hacer nada
-        if (scanner.isScanning) return;
+        if ((scanner as any).isScanning) return;
 
         setScanResult(null);
         setScanError(null);
@@ -81,7 +82,7 @@ export default function ScannerTestPage() {
 
     const stopScanner = () => {
         const scanner = scannerRef.current;
-        if (scanner && scanner.isScanning) {
+        if (scanner && (scanner as any).isScanning) {
             scanner.stop()
                 .then(() => {
                     setIsScanning(false);
@@ -141,3 +142,5 @@ export default function ScannerTestPage() {
         </div>
     );
 }
+
+    
