@@ -27,13 +27,19 @@ export function TicketValidator() {
   const [isScanning, setIsScanning] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   
+  // Los servicios y controladores ahora son refs para persistir entre renders sin causar efectos.
+  // Se inicializarán solo en el cliente dentro de useEffect.
   const scannerRef = useRef<ScannerController | null>(null);
+  const validatorServiceRef = useRef<ValidatorService | null>(null);
+  
   const { toast } = useToast();
 
-  const validatorService = useMemo(() => new ValidatorService(() => secret), [secret]);
-
-  // Suscribe to registry changes to update redeemed count
+  // Efecto para inicializar todo en el cliente y suscribirse a cambios.
   useEffect(() => {
+    // Inicialización segura de los servicios que dependen del navegador.
+    validatorServiceRef.current = new ValidatorService(() => secret);
+    scannerRef.current = new ScannerController(SCANNER_CONTAINER_ID);
+
     const updateCount = () => {
       const snapshot = registry.snapshot();
       const count = snapshot.filter(r => r.state === 'redeemed').length;
@@ -41,12 +47,17 @@ export function TicketValidator() {
     };
 
     const unsubscribe = registry.subscribe(updateCount);
-    updateCount(); // Initial count
+    updateCount(); // Carga inicial
 
-    return unsubscribe;
-  }, []);
+    // Limpieza al desmontar
+    return () => {
+      unsubscribe();
+      scannerRef.current?.destroy();
+    };
+  }, [secret]); // Depende de 'secret' para recrear el validator service si cambia
 
   const handleDecode = useCallback(async (text: string) => {
+    if (!validatorServiceRef.current) return;
     setIsLoading(true);
     setResult(null);
     if (!secret) {
@@ -54,18 +65,15 @@ export function TicketValidator() {
       setIsLoading(false);
       return;
     }
-    const res = await validatorService.validateAndRedeem(text);
+    const res = await validatorServiceRef.current.validateAndRedeem(text);
     setResult({ outcome: res.outcome, message: res.msg });
     setIsLoading(false);
-  }, [validatorService, secret, toast]);
+  }, [secret, toast]);
 
   const startScanner = useCallback(async () => {
+    if (!scannerRef.current) return;
     setResult(null);
     setIsScanning(true);
-    // Initialize the scanner controller only on the client-side when the user clicks the button.
-    if (!scannerRef.current) {
-      scannerRef.current = new ScannerController(SCANNER_CONTAINER_ID);
-    }
     try {
       await scannerRef.current.start(handleDecode);
     } catch(err: any) {
