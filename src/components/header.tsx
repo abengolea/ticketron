@@ -26,7 +26,6 @@ export function Header() {
 
   const publicNavItems = [
     { href: "/validate", label: "Validador", icon: ShieldCheck },
-    { href: "/validator-debug", label: "Debug", icon: Bug },
   ];
 
   const handleLogout = async () => {
@@ -95,7 +94,7 @@ export function Header() {
             <nav>
                 <ul className="flex items-center gap-2">
                     {publicNavItems.map((item) => {
-                    const isActive = pathname === item.href || (item.href === "/validator-debug" && pathname.startsWith("/validator-debug"));
+                    const isActive = pathname === item.href;
                     return (
                         <li key={item.href}>
                         <Button asChild variant={isActive ? "secondary" : "ghost"}>
