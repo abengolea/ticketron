@@ -8,7 +8,7 @@ import { doc, getDoc, collection, getDocs, writeBatch, query, where, serverTimes
 import { TicketPreview } from "@/components/ticket-preview";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, PlusCircle, MinusCircle, Ticket, Activity, CheckCheck, XCircle, RotateCcw } from "lucide-react";
+import { Loader2, PlusCircle, MinusCircle, Ticket, Activity, CheckCheck, XCircle, RotateCcw, Edit } from "lucide-react";
 import type { GenerationResult, EventParameters, TicketData, TicketStatus } from "@/lib/types";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,9 @@ import PrivateRoute from "@/components/private-route";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 
 
 type EventData = {
@@ -45,6 +48,15 @@ type EventStats = {
   voided: number;
 };
 
+const editEventSchema = z.object({
+  eventName: z.string().min(3, "El nombre del evento es requerido."),
+  dateTime: z.string().min(3, "La fecha y hora son requeridas."),
+  venue: z.string().min(3, "El lugar es requerido."),
+});
+
+type EditEventFormValues = z.infer<typeof editEventSchema>;
+
+
 function EventDetailPage() {
   const params = useParams();
   const eventId = params.eventId as string;
@@ -60,12 +72,17 @@ function EventDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // States for new forms
   const [moreTickets, setMoreTickets] = useState('');
   const [voidStart, setVoidStart] = useState('');
   const [voidEnd, setVoidEnd] = useState('');
   const [rehabilitateTicketNum, setRehabilitateTicketNum] = useState('');
+
+  const editEventForm = useForm<EditEventFormValues>({
+    resolver: zodResolver(editEventSchema),
+  });
 
   const fetchEventDetails = useMemo(() => async () => {
     if (!firestore || !eventId) {
@@ -85,6 +102,13 @@ function EventDetailPage() {
       }
       
       const eventData = eventSnap.data() as EventData;
+      
+      // Set form defaults when data is fetched
+      editEventForm.reset({
+        eventName: eventData.eventName,
+        dateTime: eventData.dateTime,
+        venue: eventData.venue,
+      });
 
       const secretRef = doc(firestore, 'event_secrets', eventId);
       const secretSnap = await getDoc(secretRef);
@@ -164,7 +188,7 @@ function EventDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [firestore, eventId]);
+  }, [firestore, eventId, editEventForm]);
 
   useEffect(() => {
     fetchEventDetails();
@@ -312,6 +336,35 @@ function EventDetailPage() {
         }
     });
   }
+  
+  const onEditEventSubmit = async (values: EditEventFormValues) => {
+    if (!firestore) return;
+
+    setIsProcessing(true);
+    try {
+        const eventRef = doc(firestore, 'events', eventId);
+        await updateDoc(eventRef, {
+            eventName: values.eventName,
+            dateTime: values.dateTime,
+            venue: values.venue,
+        });
+        
+        // Update local state to reflect changes instantly
+        handleEventUpdate({
+            event_name: values.eventName,
+            date_time: values.dateTime,
+            venue: values.venue,
+        });
+
+        toast({ title: 'Éxito', description: 'Los detalles del evento han sido actualizados.' });
+        setIsEditModalOpen(false); // Close modal on success
+    } catch (e: any) {
+        toast({ variant: 'destructive', title: 'Error al actualizar', description: e.message });
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
 
   if (loading) {
     return (
@@ -340,7 +393,46 @@ function EventDetailPage() {
       <>
         {stats && (
             <div className="mb-8 no-print">
-                <h2 className="text-2xl font-headline mb-4">Dashboard del Evento</h2>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-2xl font-headline">Dashboard del Evento</h2>
+                   <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+                      <DialogTrigger asChild>
+                          <Button variant="outline"><Edit className="mr-2 h-4 w-4" /> Editar Evento</Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                          <DialogHeader>
+                              <DialogTitle>Editar Detalles del Evento</DialogTitle>
+                              <DialogDescription>
+                                  Realiza cambios al nombre, fecha y lugar del evento. Estos cambios se reflejarán en todos los tickets.
+                              </DialogDescription>
+                          </DialogHeader>
+                          <form onSubmit={editEventForm.handleSubmit(onEditEventSubmit)} className="space-y-4">
+                              <div>
+                                  <Label htmlFor="eventName">Nombre del Evento</Label>
+                                  <Input id="eventName" {...editEventForm.register("eventName")} />
+                                  <p className="text-sm text-destructive">{editEventForm.formState.errors.eventName?.message}</p>
+                              </div>
+                              <div>
+                                  <Label htmlFor="dateTime">Fecha y Hora</Label>
+                                  <Input id="dateTime" {...editEventForm.register("dateTime")} />
+                                   <p className="text-sm text-destructive">{editEventForm.formState.errors.dateTime?.message}</p>
+                              </div>
+                              <div>
+                                  <Label htmlFor="venue">Lugar</Label>
+                                  <Input id="venue" {...editEventForm.register("venue")} />
+                                   <p className="text-sm text-destructive">{editEventForm.formState.errors.venue?.message}</p>
+                              </div>
+                              <DialogFooter>
+                                  <Button type="button" variant="ghost" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button>
+                                  <Button type="submit" disabled={isProcessing}>
+                                      {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                      Guardar Cambios
+                                  </Button>
+                              </DialogFooter>
+                          </form>
+                      </DialogContent>
+                  </Dialog>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
