@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -8,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw, XCircle, ShieldCheck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { Html5Qrcode, Html5QrcodeScanner } from 'html5-qrcode';
+import type { Html5Qrcode } from 'html5-qrcode';
 import { useFirestore, useUser } from '@/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,87 +25,23 @@ type ValidationResult = {
 
 const readerId = "qr-reader-online";
 
-// Wrapper de control del escáner para evitar ráfagas y manejar el ciclo de vida
-class ScannerController {
-  private scanner: Html5QrcodeScanner | null = null;
-  private lastScan: { text: string; time: number } | null = null;
-  private isScanning: boolean = false;
-
-  async initialize(elementId: string, onScan: (text: string) => void, onError: (message: string) => void) {
-    if (this.scanner) await this.destroy();
-
-    try {
-      const { Html5QrcodeScanner } = await import("html5-qrcode");
-      this.scanner = new Html5QrcodeScanner(
-        elementId,
-        {
-          fps: 2,
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0,
-          disableFlip: true,
-        },
-        false // Verbose
-      );
-
-      this.scanner.render(
-        (decodedText) => {
-          const now = Date.now();
-          if (this.lastScan && this.lastScan.text === decodedText && (now - this.lastScan.time) < 3000) {
-            return;
-          }
-          this.lastScan = { text: decodedText, time: now };
-          this.pause();
-          onScan(decodedText);
-        },
-        (error) => { /* ignorar */ }
-      );
-      this.isScanning = true;
-    } catch (err: any) {
-      onError(err.message || "No se pudo inicializar el escáner.");
-    }
-  }
-
-  pause() {
-    if (this.scanner && this.isScanning) {
-      try { this.scanner.pause(true); } catch {}
-    }
-  }
-
-  resume() {
-    if (this.scanner && this.isScanning) {
-      try { this.scanner.resume(); } catch {}
-    }
-  }
-
-  async destroy() {
-    if (this.scanner) {
-      try {
-        if ((this.scanner as any).getState() === 2) { // state 2 is SCANNING
-            await this.scanner.clear();
-        }
-      } catch {}
-      this.scanner = null;
-    }
-    this.isScanning = false;
-  }
-}
-
 export function TicketValidatorOnline() {
   const [isScanning, setIsScanning] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
-  const scannerControllerRef = useRef<ScannerController | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const { toast } = useToast();
   const firestore = useFirestore();
   const { user, loading: userLoading } = useUser();
   
-  // Inicializa el controlador una sola vez
   useEffect(() => {
-    scannerControllerRef.current = new ScannerController();
+    // Cleanup on unmount
     return () => {
-        scannerControllerRef.current?.destroy();
+        if (scannerRef.current && (scannerRef.current as any).isScanning) {
+            scannerRef.current.stop().catch(() => {});
+        }
     }
   }, []);
 
@@ -199,28 +134,59 @@ export function TicketValidatorOnline() {
     }
   };
 
-  const startScanner = useCallback(() => {
-    setIsScanning(true);
-    setValidationResult(null);
-    scannerControllerRef.current?.initialize(readerId, 
-    (decodedText) => {
+  const stopScanner = useCallback(async () => {
+    try {
+      if (scannerRef.current && (scannerRef.current as any).isScanning) {
+        await scannerRef.current.stop();
+        const el = document.getElementById(readerId);
+        if (el) el.innerHTML = "";
+      }
+    } catch (err) {
+      console.error("Error al detener el escáner:", err);
+    } finally {
         setIsScanning(false);
-        handleValidate(decodedText);
-    }, 
-    (errorMessage) => {
-        toast({ variant: 'destructive', title: 'Error de Cámara', description: errorMessage });
-        setIsScanning(false);
-    });
-  }, [handleValidate, toast]);
-
-  const stopScanner = useCallback(() => {
-    scannerControllerRef.current?.destroy();
-    setIsScanning(false);
+    }
   }, []);
+
+  const startScanner = useCallback(async () => {
+    if (isScanning) return;
+    setValidationResult(null);
+    setIsScanning(true);
+
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      
+      const readerEl = document.getElementById(readerId);
+      if (!readerEl) {
+        throw new Error("Contenedor del lector no encontrado en el DOM.");
+      }
+      readerEl.innerHTML = "";
+
+      if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(readerId);
+      }
+      
+      const scanner = scannerRef.current as any;
+      if (scanner.isScanning) return;
+      
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        async (decodedText: string) => {
+          await stopScanner();
+          handleValidate(decodedText);
+        },
+        () => {} // onError silenciado
+      );
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Error de Cámara', description: err.message || "No se pudo iniciar el escaneo. Revisa los permisos." });
+      setIsScanning(false);
+    }
+  }, [isScanning, stopScanner, handleValidate, toast]);
 
   const resetValidation = () => {
     setValidationResult(null);
-    stopScanner(); // Asegura que el escáner se detenga
+    stopScanner(); 
   };
 
   const getAlertInfo = () => {

@@ -33,97 +33,98 @@ export function TicketValidator() {
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const processingRef = useRef(false);
-  const redeemedInSessionRef = useRef(new Set(redeemed));
+  const redeemedRef = useRef(new Set(redeemed));
 
   const { toast } = useToast();
 
   useEffect(() => {
-    redeemedInSessionRef.current = new Set(redeemed);
+    redeemedRef.current = new Set(redeemed);
   }, [redeemed]);
-  
+
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
-        if (scannerRef.current && (scannerRef.current as any).isScanning) {
-            scannerRef.current.stop().catch(() => {});
-        }
-    }
+      if (scannerRef.current && (scannerRef.current as any).isScanning) {
+        scannerRef.current.stop().catch(() => {});
+      }
+    };
   }, []);
 
-  const stopScanner = useCallback(async () => {
-    if (scannerRef.current && (scannerRef.current as any).isScanning) {
-        try {
-            await scannerRef.current.stop();
-            const el = document.getElementById(readerId);
-            if(el) el.innerHTML = "";
-        } catch (e) {
-            console.error("Error stopping scanner", e);
-        }
-    }
-    setIsScanning(false);
-  }, []);
+  const markRedeemed = useCallback((key: string) => {
+    if (redeemedRef.current.has(key)) return false;
+    redeemedRef.current.add(key);
 
-  const markAsRedeemed = useCallback((key: string) => {
-      if(redeemedInSessionRef.current.has(key)) return false;
+    try {
+      sessionStorage.setItem(key, "redeemed");
+    } catch {}
 
-      redeemedInSessionRef.current.add(key);
-      setRedeemed(prev => {
-          if (prev.includes(key)) return prev;
-          return [...prev, key];
-      });
-      return true;
+    setRedeemed((prev) => {
+      if (prev.includes(key)) return prev;
+      const next = [...prev, key];
+      return next;
+    });
+
+    return true;
   }, [setRedeemed]);
 
   const validateTicket = useCallback(async (payload: string) => {
-      if (processingRef.current) return;
-      processingRef.current = true;
+    if (processingRef.current) return;
+    processingRef.current = true;
 
-      try {
-        if (!secretKey.trim() || !payload.trim()) {
-          toast({ variant: "destructive", title: "Falta información", description: "Clave secreta y QR son requeridos." });
-          return;
-        }
-
-        let data: any;
-        try {
-          data = JSON.parse(payload);
-        } catch {
-          setValidationResult({ status: "invalid", message: "El QR no contiene JSON válido." });
-          return;
-        }
-
-        const { v, eid, tid, sig } = data ?? {};
-        if (v == null || eid == null || tid == null || sig == null) {
-          setValidationResult({ status: "invalid", message: "Estructura del QR inválida." });
-          return;
-        }
-        
-        const key = canonicalId(eid, tid);
-        
-        if (redeemedInSessionRef.current.has(key)) {
-            setValidationResult({ status: "redeemed", message: `El ticket ${String(tid).slice(0, 8)}… ya fue canjeado.` });
-            return;
-        }
-
-        const expectedSig = await createHmacSha256(secretKey, `${eid}|${tid}|${v}`);
-        
-        if (expectedSig === sig) {
-          markAsRedeemed(key);
-          setValidationResult({ status: "valid", message: `El ticket ${String(tid).slice(0, 8)}… es válido y se marcó como canjeado.` });
-        } else {
-          setValidationResult({ status: "invalid", message: "Firma inválida: ticket falsificado o clave incorrecta." });
-        }
-
-      } finally {
-        processingRef.current = false;
+    try {
+      if (!secretKey.trim() || !payload.trim()) {
+        toast({ variant: "destructive", title: "Falta información", description: "Clave secreta y QR son requeridos." });
+        return;
       }
-    },
-    [secretKey, toast, markAsRedeemed]
-  );
-  
+
+      let data: any;
+      try {
+        data = JSON.parse(payload);
+      } catch {
+        setValidationResult({ status: "invalid", message: "El QR no contiene JSON válido." });
+        return;
+      }
+
+      const { v, eid, tid, sig } = data ?? {};
+      if (!v || !eid || !tid || !sig) {
+        setValidationResult({ status: "invalid", message: "Estructura del QR inválida." });
+        return;
+      }
+
+      const key = canonicalId(eid, tid);
+      if (redeemedRef.current.has(key) || sessionStorage.getItem(key) === 'redeemed') {
+        setValidationResult({ status: "redeemed", message: `El ticket ${String(tid).slice(0, 8)}… ya fue canjeado.` });
+        return;
+      }
+
+      const expectedSig = await createHmacSha256(secretKey, `${eid}|${tid}|${v}`);
+
+      if (expectedSig === sig) {
+        const added = markRedeemed(key);
+        setValidationResult({ status: "valid", message: `El ticket ${String(tid).slice(0, 8)}… es válido y se marcó como canjeado.` });
+      } else {
+        setValidationResult({ status: "invalid", message: "Firma inválida: ticket falsificado o clave incorrecta." });
+      }
+    } finally {
+      processingRef.current = false;
+    }
+  }, [secretKey, toast, markRedeemed]);
+
+  const stopScanner = useCallback(async () => {
+    try {
+        if (scannerRef.current && (scannerRef.current as any).isScanning) {
+            await scannerRef.current.stop();
+            const el = document.getElementById(readerId);
+            if(el) el.innerHTML = "";
+        }
+    } catch (e) {
+        console.error("Error stopping scanner", e);
+    } finally {
+        setIsScanning(false);
+    }
+  }, []);
+
   const startScanner = useCallback(async () => {
     if (isScanning || processingRef.current) return;
-
     setValidationResult(null);
     setIsScanning(true);
 
@@ -144,12 +145,9 @@ export function TicketValidator() {
             setQrPayload(decodedText);
             await validateTicket(decodedText);
         },
-        (errorMessage: string) => {
-            // Se ignora para no llenar la consola con mensajes de "QR not found"
-        }
+        (errorMessage: string) => {}
       );
     } catch (err: any) {
-        console.error("Error al iniciar el escáner:", err);
         toast({ variant: "destructive", title: "Error de cámara", description: err.message || "No se pudo iniciar el escáner. Revisa los permisos." });
         setIsScanning(false);
     }
@@ -162,6 +160,12 @@ export function TicketValidator() {
 
   const clearRedeemed = () => {
     setRedeemed([]);
+    try {
+      const keys = Object.keys(sessionStorage);
+      for(const key of keys) {
+        if(key.includes('::')) sessionStorage.removeItem(key);
+      }
+    } catch {}
     toast({ title: "Lista de canjeados limpiada." });
   };
 
@@ -273,4 +277,3 @@ export function TicketValidator() {
     </Card>
   );
 }
-
