@@ -19,34 +19,53 @@ export default function ScannerTestPage() {
     const [scanError, setScanError] = useState<string | null>(null);
     const { toast } = useToast();
 
+    const stopScanner = useCallback(() => {
+        if (scannerRef.current) {
+            // Check state before stopping
+            const state = scannerRef.current.getState();
+            if (state === 2 /* SCANNING */) {
+                scannerRef.current.stop()
+                    .then(() => setIsScanning(false))
+                    .catch(err => {
+                        console.error("Failed to stop scanner:", err);
+                        setIsScanning(false); // Force state anyway
+                    });
+            } else {
+                setIsScanning(false);
+            }
+        } else {
+             setIsScanning(false);
+        }
+    }, []);
+
     // The library is imported dynamically only on the client-side
     useEffect(() => {
-        import('html5-qrcode').then(lib => {
-            if (!scannerRef.current) {
+        if (!scannerRef.current) {
+             import('html5-qrcode').then(lib => {
                 scannerRef.current = new lib.Html5Qrcode(readerId, false);
-            }
-        }).catch(err => {
-            console.error("Failed to load html5-qrcode lib", err);
-            setScanError("Could not load scanner library.");
-        });
-
+            }).catch(err => {
+                console.error("Failed to load html5-qrcode lib", err);
+                setScanError("Could not load scanner library.");
+            });
+        }
+        
         // Cleanup function to stop the scanner on component unmount
         return () => {
-            if (scannerRef.current && (scannerRef.current as any).isScanning) {
-                scannerRef.current.stop().catch(err => {
-                    console.error("Error stopping scanner on cleanup:", err);
-                });
+            if (scannerRef.current) {
+                stopScanner();
             }
         };
-    }, []);
+    }, [stopScanner]);
 
     const startScanner = useCallback(async () => {
         if (!scannerRef.current) {
             toast({ variant: 'destructive', title: 'Error', description: 'Scanner library not loaded yet.' });
             return;
         }
+
         const scanner = scannerRef.current;
-        if ((scanner as any).isScanning) return;
+        const state = scanner.getState();
+        if (state === 2) return; // Already scanning
 
         setScanResult(null);
         setScanError(null);
@@ -81,20 +100,7 @@ export default function ScannerTestPage() {
                 description: errorMessage,
             });
         }
-    }, [toast]);
-
-    const stopScanner = useCallback(() => {
-        if (scannerRef.current && (scannerRef.current as any).isScanning) {
-            scannerRef.current.stop()
-                .then(() => {
-                    setIsScanning(false);
-                })
-                .catch(err => {
-                    console.error("Failed to stop scanner:", err);
-                    setIsScanning(false); // Force state anyway
-                });
-        }
-    }, []);
+    }, [toast, stopScanner]);
 
 
     return (

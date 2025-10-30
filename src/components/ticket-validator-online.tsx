@@ -15,7 +15,7 @@ import { TicketValidator } from './ticket-validator';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import type { TicketStatus } from '@/lib/types';
-import type { Html5Qrcode } from 'html5-qrcode';
+import type { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 
 type ValidationResult = {
   status: TicketStatus | 'invalid';
@@ -62,38 +62,44 @@ export function TicketValidatorOnline() {
   }, []);
 
   const stopScanner = useCallback(() => {
-    addLog('info', 'Intentando detener el escáner...');
-    if (scannerRef.current && (scannerRef.current as any).isScanning) {
-        scannerRef.current.stop()
-            .then(() => {
-              setIsScanning(false);
-              addLog('success', 'Escáner detenido.');
-            })
-            .catch(err => {
-                console.error("Fallo al detener el escáner:", err);
-                setIsScanning(false); 
-                addLog('error', 'Fallo al detener el escáner.', err);
-            });
+    if (scannerRef.current) {
+        // Use getState to check if the scanner is active
+        const state = scannerRef.current.getState();
+        if (state === 2 /* SCANNING */) {
+            addLog('info', 'Intentando detener el escáner...');
+            scannerRef.current.stop()
+                .then(() => {
+                    setIsScanning(false);
+                    addLog('success', 'Escáner detenido.');
+                })
+                .catch(err => {
+                    console.error("Fallo al detener el escáner:", err);
+                    setIsScanning(false); 
+                    addLog('error', 'Fallo al detener el escáner.', err);
+                });
+        } else {
+             setIsScanning(false);
+        }
     } else {
-      setIsScanning(false);
+        setIsScanning(false);
     }
   }, [addLog]);
 
   useEffect(() => {
-    import('html5-qrcode').then(lib => {
-      if (!scannerRef.current) {
-        scannerRef.current = new lib.Html5Qrcode(readerId, false);
-        addLog('info', 'Librería de escáner inicializada.');
-      }
-    }).catch(err => {
-      addLog('error', 'No se pudo cargar la librería de escaneo', err);
-    });
+    if (!scannerRef.current) {
+        import('html5-qrcode').then(lib => {
+            scannerRef.current = new lib.Html5Qrcode(readerId, false);
+            addLog('info', 'Librería de escáner inicializada.');
+        }).catch(err => {
+            addLog('error', 'No se pudo cargar la librería de escaneo', err);
+        });
+    }
     
     return () => {
-      if (scannerRef.current && (scannerRef.current as any).isScanning) {
+      if (scannerRef.current) {
         stopScanner();
       }
-    }
+    };
   }, [addLog, stopScanner]);
 
   const handleValidate = useCallback(async (payload: string) => {
@@ -212,7 +218,10 @@ export function TicketValidatorOnline() {
   };
 
   const startScanner = useCallback(() => {
-    if (isScanning || !scannerRef.current) return;
+    if (isScanning || !scannerRef.current) {
+        if (!scannerRef.current) addLog('warn', 'startScanner llamado, pero scannerRef es nulo.');
+        return;
+    };
     
     addLog('info', 'Iniciando escáner...');
     setValidationResult(null);
