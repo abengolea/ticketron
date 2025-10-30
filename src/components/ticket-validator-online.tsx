@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -9,7 +10,7 @@ import { CheckCircle2, AlertTriangle, Camera, Loader2, AlertCircle, RotateCcw, X
 import { useToast } from '@/hooks/use-toast';
 import type { Html5Qrcode } from 'html5-qrcode';
 import { useFirestore, useUser } from '@/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TicketValidator } from './ticket-validator';
 import { errorEmitter } from '@/firebase/error-emitter';
@@ -21,6 +22,7 @@ type ValidationResult = {
   message: string;
   ticketId?: string;
   eventId?: string;
+  qrPayload?: string;
 };
 
 const readerId = "qr-reader-online";
@@ -84,7 +86,7 @@ export function TicketValidatorOnline() {
       } else if (ticketData.status === 'redeemed') {
           setValidationResult({ status: 'redeemed', message: `Este ticket YA FUE CANJEADO el ${new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()}.` });
       } else {
-          setValidationResult({ status: 'active', message: 'Ticket VÁLIDO para ingresar.', ticketId, eventId });
+          setValidationResult({ status: 'active', message: 'Ticket VÁLIDO para ingresar.', ticketId, eventId, qrPayload: payload });
       }
 
     } catch (error: any) {
@@ -109,16 +111,24 @@ export function TicketValidatorOnline() {
     }
     
     setIsRedeeming(true);
-    const { eventId, ticketId } = validationResult;
+    const { eventId, ticketId, qrPayload } = validationResult;
     const ticketRef = doc(firestore, 'events', eventId, 'tickets', ticketId);
 
     try {
-      await updateDoc(ticketRef, { status: 'redeemed', redeemedAt: new Date() });
-      setValidationResult({
-        status: 'redeemed',
-        message: `¡Éxito! El ticket ${ticketId.substring(0,8)}... ha sido canjeado.`
-      });
+      await updateDoc(ticketRef, { status: 'redeemed', redeemedAt: serverTimestamp() });
+      
       toast({ title: 'Ticket Canjeado', description: 'El estado se ha actualizado en la base de datos.'});
+
+      // Forzar la re-validación para mostrar el estado actualizado
+      if(qrPayload) {
+        await handleValidate(qrPayload);
+      } else {
+         setValidationResult({
+            status: 'redeemed',
+            message: `¡Éxito! El ticket ${ticketId.substring(0,8)}... ha sido canjeado.`
+         });
+      }
+
     } catch (e: any) {
       if (e.code === 'permission-denied') {
         errorEmitter.emit('permission-error', new FirestorePermissionError({
