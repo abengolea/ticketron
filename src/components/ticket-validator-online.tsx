@@ -22,6 +22,7 @@ type ValidationResult = {
   message: string;
   ticketId?: string;
   eventId?: string;
+  ticketNumber?: number;
 };
 
 // Define un estado final para cuando el ticket se marca como canjeado en la sesión actual
@@ -102,7 +103,7 @@ export function TicketValidatorOnline() {
       } else if (ticketData.status === 'redeemed') {
           setValidationResult({ status: 'redeemed', message: `Este ticket YA FUE CANJEADO el ${new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()}.` });
       } else {
-          setValidationResult({ status: 'active', message: 'Ticket VÁLIDO y listo para ser canjeado.', ticketId, eventId });
+          setValidationResult({ status: 'active', message: `Ticket VÁLIDO (Nº ${ticketData.ticketNumber}) y listo para ser canjeado.`, ticketId, eventId, ticketNumber: ticketData.ticketNumber });
       }
 
     } catch (error: any) {
@@ -128,30 +129,36 @@ export function TicketValidatorOnline() {
     }
     
     setIsRedeeming(true);
-    const { eventId, ticketId } = validationResult;
+    const { eventId, ticketId, ticketNumber } = validationResult;
     const ticketRef = doc(firestore, 'events', eventId, 'tickets', ticketId);
 
-    try {
-      await updateDoc(ticketRef, { status: 'redeemed', redeemedAt: serverTimestamp() });
-      
-      // Transición a un estado final. No se necesita revalidar.
-      // Esto proporciona feedback inmediato al usuario.
-      setFinalRedeemedState({ isRedeemed: true, message: `¡Canje exitoso! El ticket ha sido utilizado.` });
-      setValidationResult(null); // Limpiar el estado de validación para mostrar el estado final
+    const updateData = {
+      status: 'redeemed',
+      redeemedAt: serverTimestamp(),
+      redeemedBy: user.uid,
+    };
 
-    } catch (e: any) {
-      if (e.code === 'permission-denied') {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({
-          path: ticketRef.path,
-          operation: 'update',
-          requestResourceData: { status: 'redeemed' }
-        }));
-      } else {
-        toast({ variant: 'destructive', title: 'Error al Canjear', description: e.message });
-      }
-    } finally {
-      setIsRedeeming(false);
-    }
+    updateDoc(ticketRef, updateData)
+      .then(() => {
+        // Transición a un estado final. No se necesita revalidar.
+        // Esto proporciona feedback inmediato al usuario.
+        setFinalRedeemedState({ isRedeemed: true, message: `¡Canje exitoso! Ticket Nº ${ticketNumber} ha sido utilizado.` });
+        setValidationResult(null); // Limpiar el estado de validación para mostrar el estado final
+      })
+      .catch((e: any) => {
+        if (e.code === 'permission-denied') {
+          errorEmitter.emit('permission-error', new FirestorePermissionError({
+            path: ticketRef.path,
+            operation: 'update',
+            requestResourceData: updateData
+          }));
+        } else {
+          toast({ variant: 'destructive', title: 'Error al Canjear', description: e.message });
+        }
+      })
+      .finally(() => {
+        setIsRedeeming(false);
+      });
   };
 
   // Función para iniciar el escáner
