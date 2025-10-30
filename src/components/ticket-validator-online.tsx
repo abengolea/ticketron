@@ -90,23 +90,22 @@ export function TicketValidatorOnline() {
   }, [addLog]);
 
   useEffect(() => {
-    import('html5-qrcode').then(lib => {
-        if (document.getElementById(readerId)) {
+    // Only initialize if the component is mounted and scanner is not already set up.
+    if (document.getElementById(readerId) && !scannerRef.current) {
+        import('html5-qrcode').then(lib => {
             scannerRef.current = new lib.Html5Qrcode(readerId, false);
             addLog('info', 'Librería de escáner inicializada.');
-        } else {
-            addLog('error', `Error de inicialización: Elemento con id=${readerId} no encontrado en el DOM.`);
-        }
-    }).catch(err => {
-        addLog('error', 'No se pudo cargar la librería de escaneo', err);
-    });
+        }).catch(err => {
+            addLog('error', 'No se pudo cargar la librería de escaneo', err);
+        });
+    }
     
     return () => {
       if (scannerRef.current) {
         stopScanner();
       }
     };
-  }, [stopScanner, addLog]);
+  }, [addLog, stopScanner]);
 
   const handleValidate = useCallback(async (payload: string) => {
     setIsLoading(true);
@@ -305,6 +304,8 @@ export function TicketValidatorOnline() {
     
     if (!alertInfo) return null;
 
+    const isTicketActive = validationResult?.status === 'active';
+
     return (
         <div className="space-y-4">
             <Alert variant={alertInfo.variant as any} className={cn(alertInfo.className)}>
@@ -313,17 +314,17 @@ export function TicketValidatorOnline() {
                 <AlertDescription>{message}</AlertDescription>
             </Alert>
 
-            {validationResult?.status === 'active' && user && (
+            {isTicketActive && user ? (
               <Button onClick={handleRedeem} className="w-full" disabled={isRedeeming}>
                 {isRedeeming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
                 Confirmar Canje del Ticket
               </Button>
+            ) : (
+              <Button onClick={resetValidation} variant="outline" className="w-full">
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Validar Otro Ticket
+              </Button>
             )}
-            
-            <Button onClick={resetValidation} variant="outline" className="w-full">
-              <RotateCcw className="mr-2 h-4 w-4" />
-              Validar Otro Ticket
-            </Button>
         </div>
     );
   }
@@ -395,5 +396,3 @@ export function TicketValidatorOnline() {
     </div>
   );
 }
-
-    
