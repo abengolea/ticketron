@@ -21,43 +21,58 @@ type ValidationResult = {
 
 const readerId = "qr-reader-offline";
 
-// Helper para normalizar el ID de ticket y evento a una clave única
-const getCanonicalKey = (eid: unknown, tid: unknown): string => {
-  const eventId = String(eid ?? "").trim().toLowerCase();
-  const ticketId = String(tid ?? "").trim().toLowerCase();
-  return `${eventId}::${ticketId}`;
-};
+const canonicalId = (eid: unknown, tid: unknown) =>
+  `${String(eid ?? "").trim().toLowerCase()}::${String(tid ?? "").trim().toLowerCase()}`;
 
 export function TicketValidator() {
   const [secretKey, setSecretKey] = useState("");
   const [qrPayload, setQrPayload] = useState("");
-  const [redeemedTickets, setRedeemedTickets] = useLocalStorage<string[]>("redeemedTickets", []);
+  const [redeemed, setRedeemed] = useLocalStorage<string[]>("redeemedTickets", []);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const processingRef = useRef(false);
-  const redeemedInSessionRef = useRef(new Set<string>());
+  const redeemedInSessionRef = useRef(new Set(redeemed));
 
   const { toast } = useToast();
 
   useEffect(() => {
-    // Sincronizar el set en memoria con lo que venga de localStorage
-    redeemedInSessionRef.current = new Set(redeemedTickets);
-  }, [redeemedTickets]);
+    redeemedInSessionRef.current = new Set(redeemed);
+  }, [redeemed]);
+  
+  useEffect(() => {
+    // Cleanup on unmount
+    return () => {
+        if (scannerRef.current && (scannerRef.current as any).isScanning) {
+            scannerRef.current.stop().catch(() => {});
+        }
+    }
+  }, []);
 
   const stopScanner = useCallback(async () => {
     if (scannerRef.current && (scannerRef.current as any).isScanning) {
-      try {
-        await scannerRef.current.stop();
-        const readerEl = document.getElementById(readerId);
-        if (readerEl) readerEl.innerHTML = "";
-      } catch (e) {
-        console.error("Fallo al detener el escáner:", e);
-      }
+        try {
+            await scannerRef.current.stop();
+            const el = document.getElementById(readerId);
+            if(el) el.innerHTML = "";
+        } catch (e) {
+            console.error("Error stopping scanner", e);
+        }
     }
     setIsScanning(false);
   }, []);
+
+  const markAsRedeemed = useCallback((key: string) => {
+      if(redeemedInSessionRef.current.has(key)) return false;
+
+      redeemedInSessionRef.current.add(key);
+      setRedeemed(prev => {
+          if (prev.includes(key)) return prev;
+          return [...prev, key];
+      });
+      return true;
+  }, [setRedeemed]);
 
   const validateTicket = useCallback(async (payload: string) => {
       if (processingRef.current) return;
@@ -69,7 +84,7 @@ export function TicketValidator() {
           return;
         }
 
-        let data;
+        let data: any;
         try {
           data = JSON.parse(payload);
         } catch {
@@ -82,22 +97,18 @@ export function TicketValidator() {
           setValidationResult({ status: "invalid", message: "Estructura del QR inválida." });
           return;
         }
-
-        const key = getCanonicalKey(eid, tid);
-
-        // Chequeo inmediato contra el Set en memoria (el más rápido)
+        
+        const key = canonicalId(eid, tid);
+        
         if (redeemedInSessionRef.current.has(key)) {
-          setValidationResult({ status: "redeemed", message: `El ticket ${String(tid).slice(0, 8)}… ya fue canjeado.` });
-          return;
+            setValidationResult({ status: "redeemed", message: `El ticket ${String(tid).slice(0, 8)}… ya fue canjeado.` });
+            return;
         }
 
         const expectedSig = await createHmacSha256(secretKey, `${eid}|${tid}|${v}`);
         
         if (expectedSig === sig) {
-          // Marcar como canjeado AHORA
-          redeemedInSessionRef.current.add(key);
-          setRedeemedTickets(prev => [...prev, key]);
-          
+          markAsRedeemed(key);
           setValidationResult({ status: "valid", message: `El ticket ${String(tid).slice(0, 8)}… es válido y se marcó como canjeado.` });
         } else {
           setValidationResult({ status: "invalid", message: "Firma inválida: ticket falsificado o clave incorrecta." });
@@ -106,16 +117,19 @@ export function TicketValidator() {
       } finally {
         processingRef.current = false;
       }
-    }, [secretKey, toast, setRedeemedTickets]);
-
-
+    },
+    [secretKey, toast, markAsRedeemed]
+  );
+  
   const startScanner = useCallback(async () => {
-    if (isScanning) return;
+    if (isScanning || processingRef.current) return;
+
     setValidationResult(null);
     setIsScanning(true);
 
     try {
       const { Html5Qrcode } = await import("html5-qrcode");
+      
       const readerEl = document.getElementById(readerId);
       if (!readerEl) throw new Error("Contenedor del lector no encontrado.");
       
@@ -124,40 +138,30 @@ export function TicketValidator() {
 
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 5, qrbox: { width: 250, height: 250 } },
-        async (decodedText, decodedResult) => {
-          // Detener inmediatamente para evitar ráfagas
-          await stopScanner();
-          setQrPayload(decodedText);
-          await validateTicket(decodedText);
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        async (decodedText: string) => {
+            await stopScanner();
+            setQrPayload(decodedText);
+            await validateTicket(decodedText);
         },
-        (errorMessage) => { /* Ignorar errores continuos */ }
+        (errorMessage: string) => {
+            // Se ignora para no llenar la consola con mensajes de "QR not found"
+        }
       );
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Error de cámara", description: "No se pudo iniciar el escáner. Revisa los permisos." });
-      setIsScanning(false);
+        console.error("Error al iniciar el escáner:", err);
+        toast({ variant: "destructive", title: "Error de cámara", description: err.message || "No se pudo iniciar el escáner. Revisa los permisos." });
+        setIsScanning(false);
     }
   }, [isScanning, stopScanner, toast, validateTicket]);
-  
-  // Efecto de limpieza para desmontar el componente
-  useEffect(() => {
-    return () => {
-      stopScanner();
-    };
-  }, [stopScanner]);
 
-  const handleManualValidation = () => {
-    validateTicket(qrPayload);
-  };
-  
   const resetValidation = () => {
     setValidationResult(null);
     setQrPayload("");
   };
 
   const clearRedeemed = () => {
-    setRedeemedTickets([]);
-    redeemedInSessionRef.current.clear();
+    setRedeemed([]);
     toast({ title: "Lista de canjeados limpiada." });
   };
 
@@ -249,7 +253,7 @@ export function TicketValidator() {
               </Button>
             )}
             <Button
-              onClick={handleManualValidation}
+              onClick={() => validateTicket(qrPayload)}
               className="w-full"
               disabled={isScanning || !qrPayload}
             >
@@ -258,7 +262,7 @@ export function TicketValidator() {
           </div>
           <div className="text-xs text-muted-foreground flex items-center gap-4 bg-muted p-3 rounded-lg">
             <p>
-              Tickets canjeados: <span className="font-bold">{redeemedTickets.length}</span>
+              Tickets canjeados: <span className="font-bold">{redeemed.length}</span>
             </p>
             <Button variant="outline" size="sm" className="ml-auto" onClick={clearRedeemed}>
               Limpiar Lista
@@ -270,4 +274,3 @@ export function TicketValidator() {
   );
 }
 
-    
