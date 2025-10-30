@@ -44,8 +44,8 @@ export function TicketValidatorOnline() {
   const firestore = useFirestore();
   const { user } = useUser();
   
+  // Función de limpieza para detener el escáner al desmontar el componente
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
         if (scannerRef.current && (scannerRef.current as any).isScanning) {
             scannerRef.current.stop().catch(err => console.error("Failed to stop scanner on unmount", err));
@@ -53,7 +53,21 @@ export function TicketValidatorOnline() {
     }
   }, []);
 
+  // Función para detener el escáner
+  const stopScanner = useCallback(() => {
+    if (scannerRef.current && (scannerRef.current as any).isScanning) {
+        scannerRef.current.stop()
+            .then(() => setIsScanning(false))
+            .catch(err => {
+                console.error("Fallo al detener el escáner:", err);
+                setIsScanning(false); 
+            });
+    } else {
+      setIsScanning(false);
+    }
+  }, []);
 
+  // Función para validar el payload del QR contra Firestore
   const handleValidate = useCallback(async (payload: string) => {
     if (!firestore) {
       toast({ variant: 'destructive', title: 'Error', description: 'Firestore no está conectado.' });
@@ -61,7 +75,7 @@ export function TicketValidatorOnline() {
     }
 
     setIsLoading(true);
-    setValidationResult(null); // Limpiar resultado anterior
+    setValidationResult(null);
 
     let ticketRef: any;
     try {
@@ -84,8 +98,7 @@ export function TicketValidatorOnline() {
       const ticketData = ticketDoc.data();
       
       if (ticketData.status === 'voided') {
-          const reason = ticketData.voidedReason || 'Anulado por el administrador.';
-          setValidationResult({ status: 'voided', message: `Ticket ANULADO. ${reason}` });
+          setValidationResult({ status: 'voided', message: `Ticket ANULADO. ${ticketData.voidedReason || 'Anulado por el administrador.'}` });
       } else if (ticketData.status === 'redeemed') {
           setValidationResult({ status: 'redeemed', message: `Este ticket YA FUE CANJEADO el ${new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()}.` });
       } else {
@@ -107,6 +120,7 @@ export function TicketValidatorOnline() {
     }
   }, [firestore, toast]);
   
+  // Función para marcar el ticket como canjeado
   const handleRedeem = async () => {
     if (!firestore || !user || !validationResult?.ticketId || !validationResult?.eventId) {
       toast({ variant: 'destructive', title: 'Error', description: 'No se puede canjear el ticket. Debes ser administrador e iniciar sesión.' });
@@ -119,11 +133,11 @@ export function TicketValidatorOnline() {
 
     try {
       await updateDoc(ticketRef, { status: 'redeemed', redeemedAt: serverTimestamp() });
-      toast({ title: 'Éxito', description: `El ticket fue marcado como canjeado.`});
-
+      
       // Transición a un estado final. No se necesita revalidar.
+      // Esto proporciona feedback inmediato al usuario.
       setFinalRedeemedState({ isRedeemed: true, message: `¡Canje exitoso! El ticket ha sido utilizado.` });
-      setValidationResult(null); // Limpiar el estado de validación
+      setValidationResult(null); // Limpiar el estado de validación para mostrar el estado final
 
     } catch (e: any) {
       if (e.code === 'permission-denied') {
@@ -140,10 +154,10 @@ export function TicketValidatorOnline() {
     }
   };
 
+  // Función para iniciar el escáner
   const startScanner = useCallback(() => {
     if (isScanning) return;
     
-    // Limpiar todos los estados antes de escanear
     setValidationResult(null);
     setFinalRedeemedState(null);
 
@@ -154,11 +168,11 @@ export function TicketValidatorOnline() {
         const config = { fps: 5, qrbox: { width: 250, height: 250 } };
         
         const onScanSuccess = (decodedText: string) => {
-            scanner.stop();
-            setIsScanning(false);
+            stopScanner(); // Detener el escáner inmediatamente después de una lectura exitosa
             handleValidate(decodedText);
         };
-        const onScanFailure = (error: any) => { /* Silenciado */ };
+        
+        const onScanFailure = (error: any) => { /* Silenciado a propósito */ };
         
         setIsScanning(true);
         scanner.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
@@ -170,25 +184,16 @@ export function TicketValidatorOnline() {
     }).catch(err => {
         toast({ variant: 'destructive', title: 'Error', description: "No se pudo cargar la librería de escaneo." });
     });
-  }, [isScanning, handleValidate, toast]);
+  }, [isScanning, handleValidate, toast, stopScanner]);
 
-  const stopScanner = useCallback(() => {
-    if (scannerRef.current && (scannerRef.current as any).isScanning) {
-        scannerRef.current.stop()
-            .then(() => setIsScanning(false))
-            .catch(err => {
-                console.error("Fallo al detener el escáner:", err);
-                setIsScanning(false); 
-            });
-    }
-  }, []);
-
+  // Función para reiniciar el estado y permitir un nuevo escaneo
   const resetValidation = () => {
     setValidationResult(null);
     setFinalRedeemedState(null);
-    stopScanner();
+    stopScanner(); // Asegurarse de que el scanner esté detenido
   };
 
+  // Renderiza el estado inicial o el botón para escanear
   const renderInitialState = () => (
     <div className="flex justify-center items-center h-48 border-2 border-dashed rounded-lg">
         <Button onClick={startScanner} variant="secondary" size="lg" disabled={isLoading}>
@@ -198,6 +203,7 @@ export function TicketValidatorOnline() {
     </div>
   );
 
+  // Renderiza el visor del escáner
   const renderScanningState = () => (
     <div className="space-y-2">
         <div id={readerId} className="w-full rounded-md border aspect-video bg-muted"></div>
@@ -205,6 +211,7 @@ export function TicketValidatorOnline() {
     </div>
   );
 
+  // Renderiza el resultado de la validación o del canje
   const renderResultState = () => {
     let alertInfo: { variant: string, Icon: React.ElementType, title: string, className: string } | null = null;
     let message: string = '';
