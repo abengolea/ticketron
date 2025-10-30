@@ -1,264 +1,178 @@
 
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { ValidatorService, ValidateOutcome } from "@/core/validator-service";
+import { ScannerController } from "@/core/scanner-controller";
+import { registry } from "@/core/ticket-registry";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./ui/card";
 import { Label } from "./ui/label";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { cn } from "@/lib/utils";
-import { CheckCircle2, XCircle, ScanLine, KeyRound, AlertTriangle, Camera, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Html5Qrcode } from "html5-qrcode";
-import { createHmacSha256 } from "@/lib/utils";
-import { useLocalStorage } from "@/hooks/use-local-storage";
+import { cn } from "@/lib/utils";
+import { Camera, CheckCircle2, KeyRound, Loader2, RotateCcw, XCircle, AlertTriangle } from "lucide-react";
 
-type ValidationResult = {
-  status: "valid" | "invalid" | "redeemed";
+const SCANNER_CONTAINER_ID = "qr-reader-offline-v2";
+
+type ValidationDisplayResult = {
+  outcome: ValidateOutcome;
   message: string;
 };
 
-const readerId = "qr-reader-offline";
-
-const canonicalId = (eid: unknown, tid: unknown) =>
-  `${String(eid ?? "").trim().toLowerCase()}::${String(tid ?? "").trim().toLowerCase()}`;
-
 export function TicketValidator() {
-  const [secretKey, setSecretKey] = useState("");
-  const [qrPayload, setQrPayload] = useState("");
-  const [redeemed, setRedeemed] = useLocalStorage<string[]>("redeemedTickets", []);
-  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [secret, setSecret] = useState("");
+  const [result, setResult] = useState<ValidationDisplayResult | null>(null);
+  const [redeemedCount, setRedeemedCount] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
-
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  const scannerRef = useRef<ScannerController | null>(null);
   const { toast } = useToast();
 
-  const stopScanner = useCallback(async () => {
-    try {
-      if (scannerRef.current && (scannerRef.current as any).isScanning) {
-        await scannerRef.current.stop();
-        const el = document.getElementById(readerId);
-        if (el) el.innerHTML = "";
-      }
-    } catch {
-      // Silenciar errores al detener, es un cleanup.
-    } finally {
-      setIsScanning(false);
-    }
+  const validatorService = useMemo(() => new ValidatorService(() => secret), [secret]);
+
+  // Suscribe to registry changes to update redeemed count
+  useEffect(() => {
+    const updateCount = () => {
+      const snapshot = registry.snapshot();
+      const count = snapshot.filter(r => r.state === 'redeemed').length;
+      setRedeemedCount(count);
+    };
+
+    const unsubscribe = registry.subscribe(updateCount);
+    updateCount(); // Initial count
+
+    return unsubscribe;
   }, []);
 
-  const validateTicket = useCallback(async (payload: string) => {
-    if (!secretKey.trim() || !payload.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Falta información",
-        description: "Por favor ingresa la clave secreta y el QR.",
-      });
+  const handleDecode = useCallback(async (text: string) => {
+    setIsLoading(true);
+    setResult(null);
+    if (!secret) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Por favor, introduce la clave secreta antes de escanear.'});
+      setIsLoading(false);
       return;
     }
-
-    let data: any;
-    try {
-      data = JSON.parse(payload);
-    } catch {
-      setValidationResult({ status: "invalid", message: "El QR no contiene JSON válido." });
-      return;
-    }
-
-    const { v, eid, tid, sig } = data ?? {};
-    if (!v || !eid || !tid || !sig) {
-      setValidationResult({ status: "invalid", message: "Estructura del QR inválida o incompleta." });
-      return;
-    }
-
-    const key = canonicalId(eid, tid);
-    
-    // CHEQUEO DIRECTO CONTRA EL ESTADO PERSISTENTE
-    if (redeemed.includes(key)) {
-      setValidationResult({
-        status: "redeemed",
-        message: `El ticket ${String(tid).slice(0, 8)}… ya fue canjeado.`,
-      });
-      return;
-    }
-
-    const expectedSig = await createHmacSha256(secretKey, `${eid}|${tid}|${v}`);
-
-    if (expectedSig === sig) {
-      // VÁLIDO: Añadir a la lista de canjeados y actualizar estado/storage
-      setRedeemed(prev => [...prev, key]);
-      setValidationResult({
-        status: "valid",
-        message: `El ticket ${String(tid).slice(0, 8)}… es válido y se marcó como canjeado.`,
-      });
-    } else {
-      setValidationResult({
-        status: "invalid",
-        message: "Firma inválida: clave incorrecta o ticket adulterado.",
-      });
-    }
-  }, [secretKey, redeemed, setRedeemed, toast]);
-
+    const res = await validatorService.validateAndRedeem(text);
+    setResult({ outcome: res.outcome, message: res.msg });
+    setIsLoading(false);
+  }, [validatorService, secret, toast]);
 
   const startScanner = useCallback(async () => {
-    if (isScanning) return;
-    setValidationResult(null);
+    setResult(null);
     setIsScanning(true);
-
-    try {
-      const { Html5Qrcode } = await import("html5-qrcode");
-      const readerEl = document.getElementById(readerId);
-      if (!readerEl) throw new Error("No se encontró el contenedor del lector.");
-      readerEl.innerHTML = "";
-
-      const scanner = new Html5Qrcode(readerId);
-      scannerRef.current = scanner;
-
-      await scanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        async (decodedText: string) => {
-          await stopScanner();
-          setQrPayload(decodedText); // Opcional: mostrar el payload en el textarea
-          await validateTicket(decodedText);
-        },
-        () => {} // onError silenciado
-      );
-    } catch (err: any) {
-        toast({
-          variant: "destructive",
-          title: "Error de cámara",
-          description: err.message || "No se pudo iniciar el escaneo. Revisa los permisos.",
-        });
-        setIsScanning(false);
+    if (!scannerRef.current) {
+      scannerRef.current = new ScannerController(SCANNER_CONTAINER_ID);
     }
-  }, [isScanning, stopScanner, toast, validateTicket]);
+    try {
+      await scannerRef.current.start(handleDecode);
+    } catch(err: any) {
+      toast({ variant: 'destructive', title: 'Error de Escáner', description: err.message });
+      setIsScanning(false);
+    }
+  }, [handleDecode, toast]);
 
-  // Limpieza al desmontar el componente
-  useEffect(() => {
-    return () => {
-      stopScanner();
-    };
-  }, [stopScanner]);
-
-  const resetValidation = useCallback(() => {
-    setValidationResult(null);
-    setQrPayload("");
+  const stopScanner = useCallback(async () => {
+    if (scannerRef.current) {
+      await scannerRef.current.pause();
+    }
+    setIsScanning(false);
   }, []);
+  
+  const reset = () => {
+    setResult(null);
+    stopScanner();
+  };
 
-  const clearRedeemed = useCallback(() => {
-    setRedeemed([]);
-    toast({ title: "Lista de canjeados limpiada." });
-  }, [setRedeemed, toast]);
+  const clearRedeemed = () => {
+    registry.clear();
+    toast({ title: "Registro de canjes limpiado." });
+  };
+  
+  const renderResult = () => {
+    if (!result) return null;
+
+    const alertConfig = {
+        valid: { variant: 'default', Icon: CheckCircle2, title: 'Válido', className: 'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300' },
+        already_redeemed: { variant: 'default', Icon: AlertTriangle, title: 'Ya Canjeado', className: 'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300' },
+        invalid: { variant: 'destructive', Icon: XCircle, title: 'Inválido' },
+        void: { variant: 'destructive', Icon: XCircle, title: 'Anulado' },
+        malformed: { variant: 'destructive', Icon: XCircle, title: 'QR Malformado' },
+    }[result.outcome];
+
+    if (!alertConfig) return null;
+
+    return (
+        <div className="space-y-4">
+            <Alert variant={alertConfig.variant as any} className={cn(alertConfig.className)}>
+                <alertConfig.Icon className="h-4 w-4" />
+                <AlertTitle>{alertConfig.title}</AlertTitle>
+                <AlertDescription>{result.message}</AlertDescription>
+            </Alert>
+            <Button onClick={reset} className="w-full">
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Validar Otro Ticket
+            </Button>
+        </div>
+    );
+  }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Validador Offline</CardTitle>
+        <CardTitle>Validador Offline V2</CardTitle>
         <CardDescription>
-          Escanea o pega un QR y verifica su validez. Cada ticket se quema automáticamente tras el canje.
+          Valida tickets usando la clave secreta, sin conexión a internet. El estado se guarda en este dispositivo.
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-6">
-        {!validationResult && (
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="secret-key" className="flex items-center gap-2">
-                <KeyRound className="w-4 h-4" /> Clave Secreta
-              </Label>
-              <Textarea
-                id="secret-key"
-                placeholder="Pega la clave secreta de 32 bytes"
-                value={secretKey}
-                onChange={(e) => setSecretKey(e.target.value)}
-                className="font-mono text-sm"
-                disabled={isScanning}
-              />
+        {result ? renderResult() : (
+            <div className="space-y-4">
+                <div>
+                  <Label htmlFor="secret-key" className="flex items-center gap-2 mb-2">
+                    <KeyRound className="w-4 h-4" /> Clave Secreta
+                  </Label>
+                  <Textarea
+                    id="secret-key"
+                    placeholder="Pega la clave secreta del evento"
+                    value={secret}
+                    onChange={(e) => setSecret(e.target.value)}
+                    className="font-mono text-sm"
+                    disabled={isScanning}
+                  />
+                </div>
+
+                <div id={SCANNER_CONTAINER_ID} className={cn("w-full aspect-video border rounded-lg bg-muted flex items-center justify-center text-muted-foreground", { 'hidden': !isScanning })}>
+                  {isScanning && <Loader2 className="h-8 w-8 animate-spin" />}
+                </div>
+
+                {!isScanning && (
+                   <Button onClick={startScanner} variant="secondary" className="w-full" disabled={!secret}>
+                      <Camera className="mr-2 h-4 w-4" /> Escanear QR
+                  </Button>
+                )}
+                {isScanning && (
+                  <Button onClick={stopScanner} variant="outline" className="w-full">
+                      Cancelar
+                  </Button>
+                )}
             </div>
-
-            {isScanning ? (
-              <div>
-                <div id={readerId} className="w-full rounded-md border aspect-video bg-muted" />
-                <Button variant="outline" onClick={stopScanner} className="w-full mt-2">
-                  Cancelar Escaneo
-                </Button>
-              </div>
-            ) : (
-              <div>
-                <Label htmlFor="qr-payload" className="flex items-center gap-2">
-                  <ScanLine className="w-4 h-4" /> Contenido del QR
-                </Label>
-                <Textarea
-                  id="qr-payload"
-                  placeholder="Pega aquí el JSON del código QR"
-                  value={qrPayload}
-                  onChange={(e) => setQrPayload(e.target.value)}
-                  className="font-mono text-sm"
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {validationResult && (
-          <div className="space-y-4">
-            <Alert
-              variant={validationResult.status === "invalid" ? "destructive" : "default"}
-              className={cn({
-                "bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300":
-                  validationResult.status === "valid",
-                "bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300":
-                  validationResult.status === "redeemed",
-              })}
-            >
-              {validationResult.status === "valid" && <CheckCircle2 className="h-4 w-4" />}
-              {validationResult.status === "redeemed" && <AlertTriangle className="h-4 w-4" />}
-              {validationResult.status === "invalid" && <XCircle className="h-4 w-4" />}
-              <AlertTitle className="capitalize">
-                {validationResult.status === "valid"
-                  ? "Válido"
-                  : validationResult.status === "invalid"
-                  ? "Inválido"
-                  : "Canjeado"}
-              </AlertTitle>
-              <AlertDescription>{validationResult.message}</AlertDescription>
-            </Alert>
-            <Button onClick={resetValidation} className="w-full">
-              <RotateCcw className="mr-2 h-4 w-4" />
-              Validar Otro Ticket
-            </Button>
-          </div>
         )}
       </CardContent>
 
-      {!validationResult && (
-        <CardFooter className="flex-col items-stretch gap-4">
-          <div className="flex gap-2">
-            {!isScanning && (
-              <Button onClick={startScanner} variant="secondary" className="w-full">
-                <Camera className="mr-2" /> Escanear QR
-              </Button>
-            )}
-            <Button
-              onClick={() => validateTicket(qrPayload)}
-              className="w-full"
-              disabled={isScanning || !qrPayload}
-            >
-              Validar Ticket
-            </Button>
-          </div>
+      <CardFooter className="flex-col items-stretch gap-4">
           <div className="text-xs text-muted-foreground flex items-center gap-4 bg-muted p-3 rounded-lg">
             <p>
-              Tickets canjeados: <span className="font-bold">{redeemed.length}</span>
+              Tickets canjeados en este dispositivo: <span className="font-bold">{redeemedCount}</span>
             </p>
             <Button variant="outline" size="sm" className="ml-auto" onClick={clearRedeemed}>
-              Limpiar Lista
+              Limpiar
             </Button>
           </div>
         </CardFooter>
-      )}
     </Card>
   );
 }
