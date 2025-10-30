@@ -21,6 +21,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { TicketCard } from '@/components/ticket-card';
@@ -119,7 +120,7 @@ function PDFTestPage() {
         tickets.sort((a, b) => a.ticketNumber - b.ticketNumber);
 
         const eventParams: EventParameters = {
-            eventName: eventData.eventName,
+            event_name: eventData.eventName,
             event_id: eventId,
             date_time: eventData.dateTime,
             venue: eventData.venue,
@@ -212,73 +213,90 @@ function PDFTestPage() {
             <CardTitle className='flex items-center gap-2'><Settings /> Parámetros de Impresión</CardTitle>
             <CardDescription>Modifica estos valores para ajustar el layout del PDF final.</CardDescription>
           </CardHeader>
-          <form onSubmit={form.handleSubmit(handleGeneratePdf)}>
-            <CardContent className="space-y-4 max-h-[65vh] overflow-y-auto pr-4">
-                <div className='grid grid-cols-2 gap-4'>
-                    <Controller name="pageFormat" control={form.control} render={({ field }) => (
-                         <FormItem>
-                            <Label>Formato Página</Label>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(handleGeneratePdf)}>
+              <CardContent className="space-y-4 max-h-[65vh] overflow-y-auto pr-4">
+                  <div className='grid grid-cols-2 gap-4'>
+                      <FormField
+                        control={form.control}
+                        name="pageFormat"
+                        render={({ field }) => (
+                           <FormItem>
+                              <Label>Formato Página</Label>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger><SelectValue /></SelectTrigger>
+                                </FormControl>
                                 <SelectContent><SelectItem value="a4">A4</SelectItem><SelectItem value="letter">Letter</SelectItem></SelectContent>
-                            </Select>
-                        </FormItem>
-                    )} />
-                     <Controller name="pageOrientation" control={form.control} render={({ field }) => (
-                         <FormItem>
-                            <Label>Orientación</Label>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
+                              </Select>
+                          </FormItem>
+                      )} />
+                       <FormField
+                        control={form.control}
+                        name="pageOrientation"
+                        render={({ field }) => (
+                           <FormItem>
+                              <Label>Orientación</Label>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger><SelectValue /></SelectTrigger>
+                                </FormControl>
                                 <SelectContent><SelectItem value="portrait">Vertical</SelectItem><SelectItem value="landscape">Horizontal</SelectItem></SelectContent>
-                            </Select>
-                        </FormItem>
-                    )} />
-                </div>
-                <Label>Márgenes (mm)</Label>
-                <div className='grid grid-cols-2 lg:grid-cols-4 gap-2'>
-                    <FormItem><Input type="number" placeholder='Sup.' {...form.register('marginTop')} /></FormItem>
-                    <FormItem><Input type="number" placeholder='Inf.' {...form.register('marginBottom')} /></FormItem>
-                    <FormItem><Input type="number" placeholder='Izq.' {...form.register('marginLeft')} /></FormItem>
-                    <FormItem><Input type="number" placeholder='Der.' {...form.register('marginRight')} /></FormItem>
-                </div>
-                 <Label>Dimensiones Ticket (mm)</Label>
-                <div className='grid grid-cols-2 gap-2'>
-                    <FormItem><Input type="number" placeholder='Ancho' {...form.register('ticketWidth')} /></FormItem>
-                    <FormItem><Input type="number" placeholder='Alto' {...form.register('ticketHeight')} /></FormItem>
-                </div>
-                <Label>Grilla y Espaciado (mm)</Label>
-                <div className='grid grid-cols-2 lg:grid-cols-4 gap-2'>
-                    <FormItem><Input type="number" placeholder='Filas' {...form.register('rows')} /></FormItem>
-                    <FormItem><Input type="number" placeholder='Cols' {...form.register('cols')} /></FormItem>
-                    <FormItem><Input type="number" placeholder='Gutter X' {...form.register('gutterX')} /></FormItem>
-                    <FormItem><Input type="number" placeholder='Gutter Y' {...form.register('gutterY')} /></FormItem>
-                </div>
-                <Label>Opciones de Renderizado</Label>
-                 <div className='grid grid-cols-2 gap-4'>
-                    <FormItem>
-                        <Label>Escala Captura</Label>
-                        <Input type="number" step="0.1" {...form.register('scale')} />
-                    </FormItem>
-                     <FormItem>
-                        <Label>Tickets a Generar</Label>
-                        <Input type="number" {...form.register('quantity')} />
-                    </FormItem>
-                </div>
-                 <Controller name="cropMarks" control={form.control} render={({ field }) => (
-                    <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3">
-                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                        <Label className='font-normal'>Incluir Marcas de Corte</Label>
-                    </FormItem>
-                )} />
+                              </Select>
+                          </FormItem>
+                      )} />
+                  </div>
+                  <Label>Márgenes (mm)</Label>
+                  <div className='grid grid-cols-2 lg:grid-cols-4 gap-2'>
+                      <FormItem><Input type="number" placeholder='Sup.' {...form.register('marginTop')} /></FormItem>
+                      <FormItem><Input type="number" placeholder='Inf.' {...form.register('marginBottom')} /></FormItem>
+                      <FormItem><Input type="number" placeholder='Izq.' {...form.register('marginLeft')} /></FormItem>
+                      <FormItem><Input type="number" placeholder='Der.' {...form.register('marginRight')} /></FormItem>
+                  </div>
+                   <Label>Dimensiones Ticket (mm)</Label>
+                  <div className='grid grid-cols-2 gap-2'>
+                      <FormItem><Input type="number" placeholder='Ancho' {...form.register('ticketWidth')} /></FormItem>
+                      <FormItem><Input type="number" placeholder='Alto' {...form.register('ticketHeight')} /></FormItem>
+                  </div>
+                  <Label>Grilla y Espaciado (mm)</Label>
+                  <div className='grid grid-cols-2 lg:grid-cols-4 gap-2'>
+                      <FormItem><Input type="number" placeholder='Filas' {...form.register('rows')} /></FormItem>
+                      <FormItem><Input type="number" placeholder='Cols' {...form.register('cols')} /></FormItem>
+                      <FormItem><Input type="number" placeholder='Gutter X' {...form.register('gutterX')} /></FormItem>
+                      <FormItem><Input type="number" placeholder='Gutter Y' {...form.register('gutterY')} /></FormItem>
+                  </div>
+                  <Label>Opciones de Renderizado</Label>
+                   <div className='grid grid-cols-2 gap-4'>
+                      <FormItem>
+                          <Label>Escala Captura</Label>
+                          <Input type="number" step="0.1" {...form.register('scale')} />
+                      </FormItem>
+                       <FormItem>
+                          <Label>Tickets a Generar</Label>
+                          <Input type="number" {...form.register('quantity')} />
+                      </FormItem>
+                  </div>
+                   <FormField
+                    control={form.control}
+                    name="cropMarks"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3">
+                          <FormControl>
+                            <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                          </FormControl>
+                          <Label className='font-normal'>Incluir Marcas de Corte</Label>
+                      </FormItem>
+                  )} />
 
-            </CardContent>
-            <CardFooter>
-              <Button type="submit" className="w-full" disabled={isGenerating}>
-                {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
-                Generar PDF de Prueba ({quantity} tickets)
-              </Button>
-            </CardFooter>
-          </form>
+              </CardContent>
+              <CardFooter>
+                <Button type="submit" className="w-full" disabled={isGenerating}>
+                  {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
+                  Generar PDF de Prueba ({quantity} tickets)
+                </Button>
+              </CardFooter>
+            </form>
+          </Form>
         </Card>
         
         <div className="md:col-span-2 space-y-4">
@@ -317,5 +335,3 @@ export default function PDFTestWrapper() {
     </PrivateRoute>
   )
 }
-
-    
