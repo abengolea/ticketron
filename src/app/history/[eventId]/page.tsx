@@ -8,7 +8,7 @@ import { doc, getDoc, collection, getDocs, writeBatch, query, where, serverTimes
 import { TicketPreview } from "@/components/ticket-preview";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, PlusCircle, MinusCircle, Ticket, Activity, CheckCheck, XCircle, RotateCcw, Edit } from "lucide-react";
+import { Loader2, PlusCircle, MinusCircle, Ticket, Activity, CheckCheck, XCircle, RotateCcw, Edit, Printer } from "lucide-react";
 import type { GenerationResult, EventParameters, TicketData, TicketStatus } from "@/lib/types";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import Link from "next/link";
 
 
 type EventData = {
@@ -173,7 +174,7 @@ function EventDetailPage() {
           date_time: eventData.dateTime,
           venue: eventData.venue,
           quantity: eventData.ticketCount,
-          tickets_per_page: 4, 
+          tickets_per_page: 3, 
           page_size: 'A4'
       };
       
@@ -394,44 +395,54 @@ function EventDetailPage() {
         {stats && (
             <div className="mb-8 no-print">
                 <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-2xl font-headline">Dashboard del Evento</h2>
-                   <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-                      <DialogTrigger asChild>
-                          <Button variant="outline"><Edit className="mr-2 h-4 w-4" /> Editar Evento</Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                          <DialogHeader>
-                              <DialogTitle>Editar Detalles del Evento</DialogTitle>
-                              <DialogDescription>
-                                  Realiza cambios al nombre, fecha y lugar del evento. Estos cambios se reflejarán en todos los tickets.
-                              </DialogDescription>
-                          </DialogHeader>
-                          <form onSubmit={editEventForm.handleSubmit(onEditEventSubmit)} className="space-y-4">
-                              <div>
-                                  <Label htmlFor="eventName">Nombre del Evento</Label>
-                                  <Input id="eventName" {...editEventForm.register("eventName")} />
-                                  <p className="text-sm text-destructive">{editEventForm.formState.errors.eventName?.message}</p>
-                              </div>
-                              <div>
-                                  <Label htmlFor="dateTime">Fecha y Hora</Label>
-                                  <Input id="dateTime" {...editEventForm.register("dateTime")} />
-                                   <p className="text-sm text-destructive">{editEventForm.formState.errors.dateTime?.message}</p>
-                              </div>
-                              <div>
-                                  <Label htmlFor="venue">Lugar</Label>
-                                  <Input id="venue" {...editEventForm.register("venue")} />
-                                   <p className="text-sm text-destructive">{editEventForm.formState.errors.venue?.message}</p>
-                              </div>
-                              <DialogFooter>
-                                  <Button type="button" variant="ghost" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button>
-                                  <Button type="submit" disabled={isProcessing}>
-                                      {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                      Guardar Cambios
-                                  </Button>
-                              </DialogFooter>
-                          </form>
-                      </DialogContent>
-                  </Dialog>
+                    <div>
+                        <h2 className="text-2xl font-headline">Dashboard del Evento</h2>
+                        <p className="text-muted-foreground">Herramientas de gestión para "{generationResult.eventParams.event_name}"</p>
+                    </div>
+                   <div className="flex gap-2">
+                        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+                            <DialogTrigger asChild>
+                                <Button variant="outline"><Edit className="mr-2 h-4 w-4" /> Editar Evento</Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Editar Detalles del Evento</DialogTitle>
+                                    <DialogDescription>
+                                        Realiza cambios al nombre, fecha y lugar del evento. Estos cambios se reflejarán en todos los tickets.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <form onSubmit={editEventForm.handleSubmit(onEditEventSubmit)} className="space-y-4">
+                                    <div>
+                                        <Label htmlFor="eventName">Nombre del Evento</Label>
+                                        <Input id="eventName" {...editEventForm.register("eventName")} />
+                                        <p className="text-sm text-destructive">{editEventForm.formState.errors.eventName?.message}</p>
+                                    </div>
+                                    <div>
+                                        <Label htmlFor="dateTime">Fecha y Hora</Label>
+                                        <Input id="dateTime" {...editEventForm.register("dateTime")} />
+                                        <p className="text-sm text-destructive">{editEventForm.formState.errors.dateTime?.message}</p>
+                                    </div>
+                                    <div>
+                                        <Label htmlFor="venue">Lugar</Label>
+                                        <Input id="venue" {...editEventForm.register("venue")} />
+                                        <p className="text-sm text-destructive">{editEventForm.formState.errors.venue?.message}</p>
+                                    </div>
+                                    <DialogFooter>
+                                        <Button type="button" variant="ghost" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button>
+                                        <Button type="submit" disabled={isProcessing}>
+                                            {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            Guardar Cambios
+                                        </Button>
+                                    </DialogFooter>
+                                </form>
+                            </DialogContent>
+                        </Dialog>
+                        <Button asChild variant="secondary">
+                           <Link href={`/pdf-test?eventId=${eventId}`}>
+                             <Printer className="mr-2 h-4 w-4" /> Test de Impresión PDF
+                           </Link>
+                        </Button>
+                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <Card>
@@ -612,5 +623,3 @@ export default function EventDetailWrapper() {
     </PrivateRoute>
   );
 }
-
-    
