@@ -134,11 +134,11 @@ export async function buildPdfFromPngs(
   const { default: jsPDF } = await import('jspdf');
 
   const options: GridOptions = opts ?? {
-    cols: 3,
+    cols: 1,
     rows: 3,
-    marginMm: 4,
-    gutterXmm: 3.0,
-    gutterYmm: 4.0,
+    marginMm: 15,
+    gutterXmm: 0,
+    gutterYmm: 14.5,
     orientation: "portrait",
   };
 
@@ -165,7 +165,7 @@ export async function buildPdfFromPngs(
       const col = i % options.cols;
       
       const x = options.marginMm + col * (cellW + options.gutterXmm);
-      const y = options.marginMm + row * (cellH + options.gutterYmm);
+      const y = (options.marginMm + 5) + row * (cellH + options.gutterYmm); // +5mm extra top margin
 
       const pngData = pngs[ticketIndex];
       const jpegData = await pngToJpegDataUrl(pngData, 0.95);
@@ -227,12 +227,12 @@ export async function generateOneBatchPdf(
     const fileName = `${base}_${humanStart}-${humanEnd}.pdf`;
     
     await buildPdfFromPngs(images, fileName, {
-        cols: 3,
+        cols: 1,
         rows: 3,
         orientation: "portrait",
-        marginMm: 4,
-        gutterXmm: 3.0,
-        gutterYmm: 4.0,
+        marginMm: 15,
+        gutterXmm: 0,
+        gutterYmm: 14.5,
     });
 
   } catch (error) {

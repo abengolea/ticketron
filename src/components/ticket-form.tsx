@@ -34,7 +34,7 @@ const formSchema = z.object({
   date_time: z.string().min(5, "La fecha y hora son requeridas."),
   venue: z.string().min(3, "El lugar es requerido."),
   quantity: z.coerce.number().int().positive().max(1000, "La cantidad no puede exceder los 1000."),
-  tickets_per_page: z.literal(4),
+  tickets_per_page: z.literal(3),
   page_size: z.enum(["A4", "Letter"]),
 });
 
@@ -158,7 +158,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
       date_time: "Fecha y hora a confirmar",
       venue: "Lugar a confirmar",
       quantity: 100,
-      tickets_per_page: 4,
+      tickets_per_page: 3,
       page_size: "A4",
     },
   });
@@ -181,7 +181,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
 
   function onTestSubmit() {
     const values = form.getValues();
-    const testValues = { ...values, quantity: 16 };
+    const testValues = { ...values, quantity: 15 };
     
     const validation = formSchema.safeParse(testValues);
     if (!validation.success) {
@@ -286,7 +286,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
                         </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                            <SelectItem value="4">4</SelectItem>
+                            <SelectItem value="3">3</SelectItem>
                         </SelectContent>
                     </Select>
                     <FormMessage />
@@ -327,7 +327,7 @@ export function TicketForm({ onGenerate, setIsLoading }: TicketFormProps) {
               </Alert>
             )}
             <div className="flex justify-end gap-4 w-full">
-                <Button type="button" variant="outline" onClick={onTestSubmit} disabled={isDisabled}>Generar 16 Tickets de Prueba</Button>
+                <Button type="button" variant="outline" onClick={onTestSubmit} disabled={isDisabled}>Generar 15 Tickets de Prueba</Button>
                 <Button type="submit" disabled={isDisabled}>Generar Tickets</Button>
             </div>
           </CardFooter>
