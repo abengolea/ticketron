@@ -63,7 +63,6 @@ export function TicketValidatorOnline() {
 
   const stopScanner = useCallback(() => {
     if (scannerRef.current) {
-        // Use getState to check if the scanner is active
         try {
             const state = scannerRef.current.getState();
             if (state === 2 /* SCANNING */) {
@@ -91,23 +90,17 @@ export function TicketValidatorOnline() {
   }, [addLog]);
 
   useEffect(() => {
-    // Dynamically import and initialize the scanner library.
-    // This effect runs once on component mount.
-    if (!scannerRef.current) {
-        import('html5-qrcode').then(lib => {
-            // Ensure the element exists before initialization.
-            if (document.getElementById(readerId)) {
-                scannerRef.current = new lib.Html5Qrcode(readerId, false);
-                addLog('info', 'Librería de escáner inicializada.');
-            } else {
-                addLog('error', `Error de inicialización: Elemento con id=${readerId} no encontrado en el DOM.`);
-            }
-        }).catch(err => {
-            addLog('error', 'No se pudo cargar la librería de escaneo', err);
-        });
-    }
+    import('html5-qrcode').then(lib => {
+        if (document.getElementById(readerId)) {
+            scannerRef.current = new lib.Html5Qrcode(readerId, false);
+            addLog('info', 'Librería de escáner inicializada.');
+        } else {
+            addLog('error', `Error de inicialización: Elemento con id=${readerId} no encontrado en el DOM.`);
+        }
+    }).catch(err => {
+        addLog('error', 'No se pudo cargar la librería de escaneo', err);
+    });
     
-    // Cleanup function to stop the scanner on component unmount
     return () => {
       if (scannerRef.current) {
         stopScanner();
@@ -272,7 +265,6 @@ export function TicketValidatorOnline() {
 
   const renderInitialState = () => (
     <div className="flex flex-col items-center justify-center space-y-4">
-      <div id={readerId} className="w-full rounded-md border aspect-video bg-muted hidden"></div>
       <Button onClick={startScanner} variant="secondary" size="lg" disabled={isLoading}>
           {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Camera className="mr-2 h-5 w-5" />}
           {isLoading ? 'Verificando...' : 'Escanear Código QR'}
@@ -282,7 +274,6 @@ export function TicketValidatorOnline() {
 
   const renderScanningState = () => (
     <div className="space-y-2">
-        <div id={readerId} className="w-full rounded-md border aspect-video bg-muted"></div>
         <Button variant="outline" onClick={stopScanner} className="w-full">Cancelar Escaneo</Button>
     </div>
   );
@@ -316,7 +307,6 @@ export function TicketValidatorOnline() {
 
     return (
         <div className="space-y-4">
-            <div id={readerId} className="w-full rounded-md border aspect-video bg-muted hidden"></div>
             <Alert variant={alertInfo.variant as any} className={cn(alertInfo.className)}>
                 <alertInfo.Icon className="h-4 w-4" />
                 <AlertTitle>{alertInfo.title}</AlertTitle>
@@ -346,8 +336,8 @@ export function TicketValidatorOnline() {
   };
   
   const currentView = () => {
-    if(isScanning) return renderScanningState();
-    if(validationResult || finalRedeemedState) return renderResultState();
+    if (validationResult || finalRedeemedState) return renderResultState();
+    if (isScanning) return renderScanningState();
     return renderInitialState();
   }
 
@@ -365,6 +355,7 @@ export function TicketValidatorOnline() {
                 <CardDescription>Escanea un ticket para validarlo en tiempo real contra la base de datos. Requiere conexión a internet.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                <div id={readerId} className={cn("w-full rounded-md border aspect-video bg-muted", !isScanning && "hidden")}></div>
                 {currentView()}
               </CardContent>
             </Card>
