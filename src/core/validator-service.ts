@@ -20,7 +20,7 @@ export class ValidatorService {
     }
 
     const expected = await createHmacSha256(secret, `${eid}|${tid}|${v}`);
-    if (expected !== sig) return { outcome: "invalid", id, msg: "Firma inválida" };
+    if (expected !== sig) return { outcome: "invalid", id, msg: "Firma inválida. Revisa que la clave secreta sea la correcta para este evento." };
 
     const rec = registry.get(id);
     if (rec?.state === "void") return { outcome: "void", id, msg: "Ticket anulado" };
