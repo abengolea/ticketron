@@ -39,20 +39,20 @@ export function base32Encode(buffer: Buffer): string {
     return result;
 }
 
-// Helper to convert Base64 string to ArrayBuffer
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
+// Helper to convert Base64 string to Uint8Array
+function base64ToUint8Array(base64: string): Uint8Array {
     const binaryString = window.atob(base64);
     const len = binaryString.length;
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) {
         bytes[i] = binaryString.charCodeAt(i);
     }
-    return bytes.buffer;
+    return bytes;
 }
 
 // New HMAC function using Web Crypto API
 export async function createHmacSha256(secret: string, data: string): Promise<string> {
-    const secretKeyData = base64ToArrayBuffer(secret);
+    const secretKeyData = base64ToUint8Array(secret);
     const dataToSign = new TextEncoder().encode(data);
 
     const key = await window.crypto.subtle.importKey(
