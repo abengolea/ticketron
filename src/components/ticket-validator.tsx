@@ -14,7 +14,6 @@ import { createHmacSha256 } from "@/lib/utils";
 import type { Html5Qrcode } from "html5-qrcode";
 
 // --- START: Core logic safely re-implemented inside the component ---
-
 // These classes are defined here to ensure they are NEVER part of the server-side bundle.
 
 class StorageAdapter {
@@ -201,7 +200,7 @@ export function TicketValidator() {
   useEffect(() => {
     // This effect runs ONLY on the client.
     registryRef.current = new TicketRegistry();
-    validatorServiceRef.current = new ValidatorService(() => secret, registryRef.current);
+    validatorServiceRef.current = new ValidatorService(() => secret, registryRef.current!);
     
     // We dynamically import the scanner library here.
     import('html5-qrcode').then(lib => {
@@ -212,8 +211,10 @@ export function TicketValidator() {
     });
 
     // Set initial count
-    setRedeemedCount(registryRef.current.snapshot().filter(r => r.state === 'redeemed').length);
-  }, [secret]); // Re-create validator service if secret changes
+    if (registryRef.current) {
+        setRedeemedCount(registryRef.current.snapshot().filter(r => r.state === 'redeemed').length);
+    }
+  }, [secret, toast]); 
 
   const handleDecode = useCallback(async (text: string) => {
     if (!validatorServiceRef.current) return;
@@ -274,9 +275,9 @@ export function TicketValidator() {
     const alertConfig = {
         valid: { variant: 'default', Icon: CheckCircle2, title: 'Válido', className: 'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300' },
         already_redeemed: { variant: 'default', Icon: AlertTriangle, title: 'Ya Canjeado', className: 'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/50 dark:border-yellow-700 dark:text-yellow-300' },
-        invalid: { variant: 'destructive', Icon: XCircle, title: 'Inválido' },
-        void: { variant: 'destructive', Icon: XCircle, title: 'Anulado' },
-        malformed: { variant: 'destructive', Icon: XCircle, title: 'QR Malformado' },
+        invalid: { variant: 'destructive', Icon: XCircle, title: 'Inválido', className: '' },
+        void: { variant: 'destructive', Icon: XCircle, title: 'Anulado', className: '' },
+        malformed: { variant: 'destructive', Icon: XCircle, title: 'QR Malformado', className: '' },
     }[result.outcome];
 
     if (!alertConfig) return null;

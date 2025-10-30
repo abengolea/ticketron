@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { Camera, KeyRound, Loader2, RotateCcw, Terminal, RefreshCw, Trash2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { Camera, KeyRound, Loader2, RotateCcw, Terminal, RefreshCw, Trash2 } from "lucide-react";
 import { createHmacSha256 } from "@/lib/utils";
 import type { Html5Qrcode } from "html5-qrcode";
 
@@ -220,7 +220,9 @@ export default function ValidatorDebugPage() {
     registryRef.current = reg;
     
     const unsub = reg.subscribe(() => {
-        setRedeemedCount(reg.snapshot().filter(r => r.state === 'redeemed').length);
+        if (registryRef.current) {
+            setRedeemedCount(registryRef.current.snapshot().filter(r => r.state === 'redeemed').length);
+        }
     });
     setRedeemedCount(reg.snapshot().filter(r => r.state === 'redeemed').length);
 
@@ -231,7 +233,7 @@ export default function ValidatorDebugPage() {
     });
     
     return unsub;
-  }, []); // Empty dependency array ensures this runs once.
+  }, []); // addLog is not a dependency as it's stable via useCallback
 
   useEffect(() => {
     if (registryRef.current) {
@@ -267,7 +269,7 @@ export default function ValidatorDebugPage() {
     } finally {
         setIsLoading(false);
     }
-  }, []);
+  }, [addLog]);
 
   const startScanner = useCallback(async () => {
     if (!scannerRef.current) {
