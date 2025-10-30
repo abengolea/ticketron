@@ -21,16 +21,20 @@ export default function ScannerTestPage() {
 
     const stopScanner = useCallback(() => {
         if (scannerRef.current) {
-            // Check state before stopping
-            const state = scannerRef.current.getState();
-            if (state === 2 /* SCANNING */) {
-                scannerRef.current.stop()
-                    .then(() => setIsScanning(false))
-                    .catch(err => {
-                        console.error("Failed to stop scanner:", err);
-                        setIsScanning(false); // Force state anyway
-                    });
-            } else {
+            try {
+                const state = scannerRef.current.getState();
+                if (state === 2 /* SCANNING */) {
+                    scannerRef.current.stop()
+                        .then(() => setIsScanning(false))
+                        .catch(err => {
+                            console.error("Failed to stop scanner:", err);
+                            setIsScanning(false); // Force state anyway
+                        });
+                } else {
+                    setIsScanning(false);
+                }
+            } catch (e) {
+                console.error("Error getting scanner state, forcing UI stop:", e);
                 setIsScanning(false);
             }
         } else {
@@ -38,18 +42,18 @@ export default function ScannerTestPage() {
         }
     }, []);
 
-    // The library is imported dynamically only on the client-side
     useEffect(() => {
         if (!scannerRef.current) {
              import('html5-qrcode').then(lib => {
-                scannerRef.current = new lib.Html5Qrcode(readerId, false);
+                if(document.getElementById(readerId)) {
+                    scannerRef.current = new lib.Html5Qrcode(readerId, false);
+                }
             }).catch(err => {
                 console.error("Failed to load html5-qrcode lib", err);
                 setScanError("Could not load scanner library.");
             });
         }
         
-        // Cleanup function to stop the scanner on component unmount
         return () => {
             if (scannerRef.current) {
                 stopScanner();
@@ -63,10 +67,6 @@ export default function ScannerTestPage() {
             return;
         }
 
-        const scanner = scannerRef.current;
-        const state = scanner.getState();
-        if (state === 2) return; // Already scanning
-
         setScanResult(null);
         setScanError(null);
         setIsScanning(true);
@@ -78,7 +78,7 @@ export default function ScannerTestPage() {
         };
 
         try {
-            await scanner.start(
+            await scannerRef.current.start(
                 { facingMode: "environment" },
                 config,
                 (decodedText: string) => {
@@ -150,3 +150,5 @@ export default function ScannerTestPage() {
         </div>
     );
 }
+
+    

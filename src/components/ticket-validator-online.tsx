@@ -15,7 +15,7 @@ import { TicketValidator } from './ticket-validator';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import type { TicketStatus } from '@/lib/types';
-import type { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import type { Html5Qrcode } from 'html5-qrcode';
 
 type ValidationResult = {
   status: TicketStatus | 'invalid';
@@ -64,21 +64,26 @@ export function TicketValidatorOnline() {
   const stopScanner = useCallback(() => {
     if (scannerRef.current) {
         // Use getState to check if the scanner is active
-        const state = scannerRef.current.getState();
-        if (state === 2 /* SCANNING */) {
-            addLog('info', 'Intentando detener el escáner...');
-            scannerRef.current.stop()
-                .then(() => {
-                    setIsScanning(false);
-                    addLog('success', 'Escáner detenido.');
-                })
-                .catch(err => {
-                    console.error("Fallo al detener el escáner:", err);
-                    setIsScanning(false); 
-                    addLog('error', 'Fallo al detener el escáner.', err);
-                });
-        } else {
-             setIsScanning(false);
+        try {
+            const state = scannerRef.current.getState();
+            if (state === 2 /* SCANNING */) {
+                addLog('info', 'Intentando detener el escáner...');
+                scannerRef.current.stop()
+                    .then(() => {
+                        setIsScanning(false);
+                        addLog('success', 'Escáner detenido.');
+                    })
+                    .catch(err => {
+                        console.error("Fallo al detener el escáner:", err);
+                        setIsScanning(false); 
+                        addLog('error', 'Fallo al detener el escáner.', err);
+                    });
+            } else {
+                 setIsScanning(false);
+            }
+        } catch (e) {
+            console.error("Error al obtener el estado del escáner, forzando detención de UI:", e);
+            setIsScanning(false);
         }
     } else {
         setIsScanning(false);
@@ -86,21 +91,29 @@ export function TicketValidatorOnline() {
   }, [addLog]);
 
   useEffect(() => {
+    // Dynamically import and initialize the scanner library.
+    // This effect runs once on component mount.
     if (!scannerRef.current) {
         import('html5-qrcode').then(lib => {
-            scannerRef.current = new lib.Html5Qrcode(readerId, false);
-            addLog('info', 'Librería de escáner inicializada.');
+            // Ensure the element exists before initialization.
+            if (document.getElementById(readerId)) {
+                scannerRef.current = new lib.Html5Qrcode(readerId, false);
+                addLog('info', 'Librería de escáner inicializada.');
+            } else {
+                addLog('error', `Error de inicialización: Elemento con id=${readerId} no encontrado en el DOM.`);
+            }
         }).catch(err => {
             addLog('error', 'No se pudo cargar la librería de escaneo', err);
         });
     }
     
+    // Cleanup function to stop the scanner on component unmount
     return () => {
       if (scannerRef.current) {
         stopScanner();
       }
     };
-  }, [addLog, stopScanner]);
+  }, [stopScanner, addLog]);
 
   const handleValidate = useCallback(async (payload: string) => {
     setIsLoading(true);
@@ -218,10 +231,12 @@ export function TicketValidatorOnline() {
   };
 
   const startScanner = useCallback(() => {
-    if (isScanning || !scannerRef.current) {
-        if (!scannerRef.current) addLog('warn', 'startScanner llamado, pero scannerRef es nulo.');
+    if (!scannerRef.current) {
+        addLog('warn', 'startScanner llamado, pero scannerRef es nulo.');
+        toast({variant: 'destructive', title: 'Error', description: 'El componente de escaneo no está listo aún.'});
         return;
     };
+    if (isScanning) return;
     
     addLog('info', 'Iniciando escáner...');
     setValidationResult(null);
@@ -256,11 +271,12 @@ export function TicketValidatorOnline() {
   };
 
   const renderInitialState = () => (
-    <div className="flex justify-center items-center h-48 border-2 border-dashed rounded-lg">
-        <Button onClick={startScanner} variant="secondary" size="lg" disabled={isLoading}>
-            {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Camera className="mr-2 h-5 w-5" />}
-            {isLoading ? 'Verificando...' : 'Escanear Código QR'}
-        </Button>
+    <div className="flex flex-col items-center justify-center space-y-4">
+      <div id={readerId} className="w-full rounded-md border aspect-video bg-muted hidden"></div>
+      <Button onClick={startScanner} variant="secondary" size="lg" disabled={isLoading}>
+          {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Camera className="mr-2 h-5 w-5" />}
+          {isLoading ? 'Verificando...' : 'Escanear Código QR'}
+      </Button>
     </div>
   );
 
@@ -300,6 +316,7 @@ export function TicketValidatorOnline() {
 
     return (
         <div className="space-y-4">
+            <div id={readerId} className="w-full rounded-md border aspect-video bg-muted hidden"></div>
             <Alert variant={alertInfo.variant as any} className={cn(alertInfo.className)}>
                 <alertInfo.Icon className="h-4 w-4" />
                 <AlertTitle>{alertInfo.title}</AlertTitle>
@@ -327,6 +344,12 @@ export function TicketValidatorOnline() {
     error: 'text-red-400',
     warn: 'text-yellow-400'
   };
+  
+  const currentView = () => {
+    if(isScanning) return renderScanningState();
+    if(validationResult || finalRedeemedState) return renderResultState();
+    return renderInitialState();
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
@@ -342,10 +365,7 @@ export function TicketValidatorOnline() {
                 <CardDescription>Escanea un ticket para validarlo en tiempo real contra la base de datos. Requiere conexión a internet.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {isScanning 
-                  ? renderScanningState() 
-                  : (validationResult || finalRedeemedState ? renderResultState() : renderInitialState())
-                }
+                {currentView()}
               </CardContent>
             </Card>
           </TabsContent>
@@ -384,3 +404,5 @@ export function TicketValidatorOnline() {
     </div>
   );
 }
+
+    
