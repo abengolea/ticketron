@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
@@ -63,6 +62,7 @@ export function TicketValidator() {
   const startScanner = useCallback(async () => {
     setResult(null);
     setIsScanning(true);
+    // Initialize the scanner controller only on the client-side when the user clicks the button.
     if (!scannerRef.current) {
       scannerRef.current = new ScannerController(SCANNER_CONTAINER_ID);
     }

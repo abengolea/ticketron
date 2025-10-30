@@ -1,7 +1,5 @@
-
-// NO import 'html5-qrcode' here to avoid server-side rendering issues.
-
-// Forward declaration of the type for internal use.
+// Forward declaration of the type for internal use, to avoid direct import on server.
+// This tells TypeScript what the class looks like without actually importing the module.
 declare class Html5Qrcode {
     constructor(containerId: string, verbose?: boolean);
     start(cameraConfig: any, config: any, success: (text: string) => void, error: (err: any) => void): Promise<null>;
@@ -20,12 +18,16 @@ export class ScannerController {
 
   async init() {
     // Dynamically import the library only on the client-side
+    // This ensures the module is not part of the server-side bundle.
     const { Html5Qrcode } = await import("html5-qrcode");
-    if (!this.scanner) this.scanner = new Html5Qrcode(this.containerId, false);
+    if (!this.scanner) {
+        this.scanner = new Html5Qrcode(this.containerId, false);
+    }
   }
 
   async start(onDecode: (text: string) => Promise<void>) {
     if (this.running) return;
+    // Ensure init() is called and awaited.
     await this.init();
     
     // Ensure scanner is initialized
@@ -35,7 +37,7 @@ export class ScannerController {
 
     const el = document.getElementById(this.containerId);
     if (!el) throw new Error("Contenedor del lector no existe");
-    el.innerHTML = "";
+    el.innerHTML = ""; // Clear previous content
     this.running = true;
 
     await this.scanner.start(
