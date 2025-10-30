@@ -56,6 +56,7 @@ function EventDetailPage() {
   const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
   const [stats, setStats] = useState<EventStats | null>(null);
   const [voidedTickets, setVoidedTickets] = useState<number[]>([]);
+  const [redeemedTickets, setRedeemedTickets] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -97,13 +98,17 @@ function EventDetailPage() {
 
       const eventStats: EventStats = { total: 0, active: 0, redeemed: 0, voided: 0 };
       const currentVoidedTickets: number[] = [];
+      const currentRedeemedTickets: number[] = [];
       
       const ticketsPromises = ticketsSnap.docs.map(async (docSnap) => {
           const ticketDocData = docSnap.data() as TicketDoc;
 
           // Update stats
           eventStats.total++;
-          if (ticketDocData.status === 'redeemed') eventStats.redeemed++;
+          if (ticketDocData.status === 'redeemed') {
+            eventStats.redeemed++;
+            currentRedeemedTickets.push(ticketDocData.ticketNumber);
+          }
           else if (ticketDocData.status === 'voided') {
             eventStats.voided++;
             currentVoidedTickets.push(ticketDocData.ticketNumber);
@@ -133,8 +138,10 @@ function EventDetailPage() {
 
       tickets.sort((a,b) => a.ticketNumber - b.ticketNumber);
       currentVoidedTickets.sort((a, b) => a - b);
+      currentRedeemedTickets.sort((a, b) => a - b);
       setStats(eventStats);
       setVoidedTickets(currentVoidedTickets);
+      setRedeemedTickets(currentRedeemedTickets);
 
       const eventParams: EventParameters = {
           event_name: eventData.eventName,
@@ -275,11 +282,11 @@ function EventDetailPage() {
         const ticketDoc = querySnapshot.docs[0];
         const ticketData = ticketDoc.data();
 
-        if (ticketData.status !== 'redeemed') {
-            throw new Error(`El ticket ${ticketNum} no está canjeado (estado actual: ${ticketData.status}).`);
+        if (!['redeemed', 'voided'].includes(ticketData.status)) {
+            throw new Error(`El ticket ${ticketNum} no está canjeado o anulado (estado actual: ${ticketData.status}).`);
         }
 
-        await updateDoc(ticketDoc.ref, { status: 'active', redeemedAt: null });
+        await updateDoc(ticketDoc.ref, { status: 'active', redeemedAt: null, voidedReason: null });
 
         toast({ title: 'Éxito', description: `El ticket número ${ticketNum} ha sido rehabilitado.` });
         setRehabilitateTicketNum('');
@@ -349,13 +356,34 @@ function EventDetailPage() {
                         </CardHeader>
                         <CardContent><div className="text-2xl font-bold">{stats.active}</div></CardContent>
                     </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Canjeados</CardTitle>
-                            <CheckCheck className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent><div className="text-2xl font-bold">{stats.redeemed}</div></CardContent>
-                    </Card>
+                    <Dialog>
+                        <DialogTrigger asChild>
+                            <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <CardTitle className="text-sm font-medium">Canjeados</CardTitle>
+                                    <CheckCheck className="h-4 w-4 text-muted-foreground" />
+                                </CardHeader>
+                                <CardContent><div className="text-2xl font-bold">{stats.redeemed}</div></CardContent>
+                            </Card>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[425px]">
+                            <DialogHeader>
+                                <DialogTitle>Tickets Canjeados</DialogTitle>
+                                <DialogDescription>
+                                    Lista de los números de ticket que han sido canjeados en este evento.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <ScrollArea className="h-72 w-full rounded-md border">
+                                <div className="p-4 flex flex-wrap gap-2">
+                                    {redeemedTickets.length > 0 ? (
+                                        redeemedTickets.map(num => <Badge key={num} variant="secondary">{String(num).padStart(4, '0')}</Badge>)
+                                    ) : (
+                                        <p className="text-sm text-muted-foreground">No hay tickets canjeados.</p>
+                                    )}
+                                </div>
+                            </ScrollArea>
+                        </DialogContent>
+                    </Dialog>
 
                     <Dialog>
                         <DialogTrigger asChild>
@@ -454,7 +482,7 @@ function EventDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><RotateCcw /> Rehabilitar Ticket</CardTitle>
-              <CardDescription>Revierte un ticket canjeado a su estado activo.</CardDescription>
+              <CardDescription>Revierte un ticket canjeado o anulado a su estado activo.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -492,3 +520,5 @@ export default function EventDetailWrapper() {
     </PrivateRoute>
   );
 }
+
+    
