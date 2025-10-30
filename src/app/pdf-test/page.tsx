@@ -1,7 +1,7 @@
 
 'use client';
 
-import { Suspense, useEffect, useState, useMemo } from 'react';
+import { Suspense, useEffect, useState, useMemo, createRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useFirestore } from '@/firebase';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { TicketCard } from '@/components/ticket-card';
 
 
 const layoutSchema = z.object({
@@ -35,7 +36,7 @@ const layoutSchema = z.object({
   ticketWidth: z.coerce.number().default(180),
   ticketHeight: z.coerce.number().default(65),
   rows: z.coerce.number().int().positive().default(3),
-  cols: zcoerce.number().int().positive().default(1),
+  cols: z.coerce.number().int().positive().default(1),
   gutterX: z.coerce.number().default(0),
   gutterY: z.coerce.number().default(14.5),
   cropMarks: z.boolean().default(false),
@@ -56,7 +57,7 @@ function PDFTestPage() {
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
-  const ticketRefs = useMemo(() => Array.from({ length: 50 }, () => React.createRef<HTMLDivElement>()), []);
+  const ticketRefs = useMemo(() => Array.from({ length: 50 }, () => createRef<HTMLDivElement>()), []);
 
   const form = useForm<LayoutFormValues>({
     resolver: zodResolver(layoutSchema),
@@ -118,7 +119,7 @@ function PDFTestPage() {
         tickets.sort((a, b) => a.ticketNumber - b.ticketNumber);
 
         const eventParams: EventParameters = {
-            event_name: eventData.eventName,
+            eventName: eventData.eventName,
             event_id: eventId,
             date_time: eventData.dateTime,
             venue: eventData.venue,
@@ -316,3 +317,5 @@ export default function PDFTestWrapper() {
     </PrivateRoute>
   )
 }
+
+    
