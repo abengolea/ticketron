@@ -76,9 +76,12 @@ export function TicketValidatorOnline() {
             });
     } else {
       setIsScanning(false);
-      if(logs.length > 0) addLog('info', 'El escáner ya estaba detenido.');
+      // Evitar loguear si no hay logs, para no causar un bucle en el primer render
+      if (logs.length > 0) {
+        addLog('info', 'El escáner ya estaba detenido.');
+      }
     }
-  }, [addLog, logs]);
+  }, [addLog]);
 
   useEffect(() => {
     // Inicializar el scanner una vez
