@@ -2,20 +2,19 @@
 'use client';
 
 import { Suspense, useEffect, useState, useMemo, createRef } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useFirestore } from '@/firebase';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import PrivateRoute from '@/components/private-route';
 import { Loader2, Printer, Settings } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import type { GenerationResult, EventParameters, TicketData } from '@/lib/types';
+import type { GenerationResult, EventParameters } from '@/lib/types';
 import { createHmacSha256 } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { TicketPreview } from '@/components/ticket-preview';
-import { buildPdfFromPngs as buildPdfExperimental, captureTicketPNG } from '@/lib/pdf-utils-experimental';
+import { buildPdfFromPngsWithTemplate, captureTicketPNG, getPlanoCDRTemplate } from '@/lib/pdf-utils-experimental';
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,19 +27,6 @@ import { TicketCard } from '@/components/ticket-card';
 
 
 const layoutSchema = z.object({
-  pageFormat: z.enum(['a4', 'letter']).default('a4'),
-  pageOrientation: z.enum(['portrait', 'landscape']).default('portrait'),
-  marginLeft: z.coerce.number().default(15),
-  marginRight: z.coerce.number().default(15),
-  marginTop: z.coerce.number().default(20),
-  marginBottom: z.coerce.number().default(20),
-  ticketWidth: z.coerce.number().default(180),
-  ticketHeight: z.coerce.number().default(65),
-  rows: z.coerce.number().int().positive().default(3),
-  cols: z.coerce.number().int().positive().default(1),
-  gutterX: z.coerce.number().default(0),
-  gutterY: z.coerce.number().default(14.5),
-  cropMarks: z.boolean().default(false),
   scale: z.coerce.number().min(1).max(5).default(3),
   quantity: z.coerce.number().int().positive().max(50).default(20),
 });
@@ -52,7 +38,6 @@ function PDFTestPage() {
   const eventId = searchParams.get('eventId');
   const firestore = useFirestore();
   const { toast } = useToast();
-  const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,19 +48,6 @@ function PDFTestPage() {
   const form = useForm<LayoutFormValues>({
     resolver: zodResolver(layoutSchema),
     defaultValues: {
-      pageFormat: 'a4',
-      pageOrientation: 'portrait',
-      marginLeft: 15,
-      marginRight: 15,
-      marginTop: 20,
-      marginBottom: 20,
-      ticketWidth: 180,
-      ticketHeight: 65,
-      rows: 3,
-      cols: 1,
-      gutterX: 0,
-      gutterY: 14.5,
-      cropMarks: false,
       scale: 3,
       quantity: 20,
     },
@@ -164,13 +136,11 @@ function PDFTestPage() {
       
         await new Promise(r => setTimeout(r, 150));
 
-        const fileName = `TEST_${generationResult.eventParams.event_id}_${values.quantity}_tickets.pdf`;
+        const fileName = `TEST_IMPRENTA_${generationResult.eventParams.event_id}_${values.quantity}_tickets.pdf`;
 
-        await buildPdfExperimental(images, fileName, {
-            ...values
-        });
+        await buildPdfFromPngsWithTemplate(images, fileName, getPlanoCDRTemplate());
 
-      toast({ title: "PDF de prueba generado", description: "La descarga debería comenzar en breve." });
+      toast({ title: "PDF de prueba de imprenta generado", description: "La descarga debería comenzar en breve." });
     } catch (e: any) {
       console.error("Fallo la generacion del PDF:", e);
       toast({ title: "Error de PDF", description: e?.message ?? String(e), variant: "destructive" });
@@ -197,97 +167,59 @@ function PDFTestPage() {
   }
   
   const quantity = form.watch('quantity');
+  const template = getPlanoCDRTemplate();
 
   return (
     <div className="space-y-8">
       <div className="text-center">
-        <h1 className="text-4xl font-headline text-primary">Test de Impresión PDF</h1>
+        <h1 className="text-4xl font-headline text-primary">Test de Impresión de Alta Precisión</h1>
         <p className="text-muted-foreground mt-2">
-          Ajusta los parámetros de imprenta y genera un PDF de prueba para el evento: {generationResult.eventParams.event_name}
+          Esta página utiliza una plantilla de coordenadas fijas para generar un PDF listo para imprenta.
         </p>
       </div>
       
       <div className="grid md:grid-cols-3 gap-8 items-start">
         <Card className="md:col-span-1 sticky top-20">
           <CardHeader>
-            <CardTitle className='flex items-center gap-2'><Settings /> Parámetros de Impresión</CardTitle>
-            <CardDescription>Modifica estos valores para ajustar el layout del PDF final.</CardDescription>
+            <CardTitle className='flex items-center gap-2'><Settings /> Parámetros de Prueba</CardTitle>
+            <CardDescription>Ajusta la cantidad de tickets y la calidad de la captura.</CardDescription>
           </CardHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(handleGeneratePdf)}>
-              <CardContent className="space-y-4 max-h-[65vh] overflow-y-auto pr-4">
-                  <div className='grid grid-cols-2 gap-4'>
+              <CardContent className="space-y-4 pr-4">
+                  <div className="grid grid-cols-1 gap-4">
                       <FormField
                         control={form.control}
-                        name="pageFormat"
+                        name="quantity"
                         render={({ field }) => (
                            <FormItem>
-                              <Label>Formato Página</Label>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl>
-                                  <SelectTrigger><SelectValue /></SelectTrigger>
-                                </FormControl>
-                                <SelectContent><SelectItem value="a4">A4</SelectItem><SelectItem value="letter">Letter</SelectItem></SelectContent>
-                              </Select>
+                              <Label>Tickets a Generar en la Prueba</Label>
+                              <Input type="number" {...field} />
+                              <FormMessage />
                           </FormItem>
                       )} />
-                       <FormField
+                      <FormField
                         control={form.control}
-                        name="pageOrientation"
+                        name="scale"
                         render={({ field }) => (
                            <FormItem>
-                              <Label>Orientación</Label>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl>
-                                  <SelectTrigger><SelectValue /></SelectTrigger>
-                                </FormControl>
-                                <SelectContent><SelectItem value="portrait">Vertical</SelectItem><SelectItem value="landscape">Horizontal</SelectItem></SelectContent>
-                              </Select>
+                              <Label>Escala de Captura (Calidad)</Label>
+                              <Input type="number" step="0.1" {...field} />
+                              <FormDescription>Un valor más alto (ej: 3) genera imágenes más nítidas para impresión.</FormDescription>
+                              <FormMessage />
                           </FormItem>
                       )} />
                   </div>
-                  <Label>Márgenes (mm)</Label>
-                  <div className='grid grid-cols-2 lg:grid-cols-4 gap-2'>
-                      <FormItem><Input type="number" step="0.1" placeholder='Sup.' {...form.register('marginTop')} /></FormItem>
-                      <FormItem><Input type="number" step="0.1" placeholder='Inf.' {...form.register('marginBottom')} /></FormItem>
-                      <FormItem><Input type="number" step="0.1" placeholder='Izq.' {...form.register('marginLeft')} /></FormItem>
-                      <FormItem><Input type="number" step="0.1" placeholder='Der.' {...form.register('marginRight')} /></FormItem>
-                  </div>
-                   <Label>Dimensiones Ticket (mm)</Label>
-                  <div className='grid grid-cols-2 gap-2'>
-                      <FormItem><Input type="number" step="0.1" placeholder='Ancho' {...form.register('ticketWidth')} /></FormItem>
-                      <FormItem><Input type="number" step="0.1" placeholder='Alto' {...form.register('ticketHeight')} /></FormItem>
-                  </div>
-                  <Label>Grilla y Espaciado (mm)</Label>
-                  <div className='grid grid-cols-2 lg:grid-cols-4 gap-2'>
-                      <FormItem><Input type="number" placeholder='Filas' {...form.register('rows')} /></FormItem>
-                      <FormItem><Input type="number" placeholder='Cols' {...form.register('cols')} /></FormItem>
-                      <FormItem><Input type="number" step="0.1" placeholder='Gutter X' {...form.register('gutterX')} /></FormItem>
-                      <FormItem><Input type="number" step="0.1" placeholder='Gutter Y' {...form.register('gutterY')} /></FormItem>
-                  </div>
-                  <Label>Opciones de Renderizado</Label>
-                   <div className='grid grid-cols-2 gap-4'>
-                      <FormItem>
-                          <Label>Escala Captura</Label>
-                          <Input type="number" step="0.1" {...form.register('scale')} />
-                      </FormItem>
-                       <FormItem>
-                          <Label>Tickets a Generar</Label>
-                          <Input type="number" {...form.register('quantity')} />
-                      </FormItem>
-                  </div>
-                   <FormField
-                    control={form.control}
-                    name="cropMarks"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3">
-                          <FormControl>
-                            <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                          </FormControl>
-                          <Label className='font-normal'>Incluir Marcas de Corte</Label>
-                      </FormItem>
-                  )} />
-
+                  <Card className="bg-muted/50">
+                    <CardHeader>
+                      <CardTitle className="text-base">Plantilla de Imprenta Activa</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-xs space-y-2 font-mono">
+                      <p>Formato: {template.page.format.toUpperCase()} {template.page.orientation}</p>
+                      <p>Tickets por Hoja: {template.slots.length}</p>
+                      <p>Dimensiones Ticket: {template.slots[0].w}mm x {template.slots[0].h}mm</p>
+                    </CardContent>
+                  </Card>
               </CardContent>
               <CardFooter>
                 <Button type="submit" className="w-full" disabled={isGenerating}>
@@ -301,9 +233,9 @@ function PDFTestPage() {
         
         <div className="md:col-span-2 space-y-4">
              <Alert>
-                <AlertTitle>Previsualización</AlertTitle>
+                <AlertTitle>Previsualización de Tickets</AlertTitle>
                 <AlertDescription>
-                    Mostrando los primeros {quantity} tickets para la captura. El PDF final usará los parámetros del panel.
+                    Mostrando los primeros {quantity} tickets que se usarán para generar el PDF de prueba.
                 </AlertDescription>
             </Alert>
             {generationResult.tickets.slice(0, quantity).map((ticket, i) => (
@@ -335,5 +267,3 @@ export default function PDFTestWrapper() {
     </PrivateRoute>
   )
 }
-
-    

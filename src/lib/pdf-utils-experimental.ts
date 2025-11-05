@@ -3,6 +3,91 @@
 
 import type { jsPDF } from "jspdf";
 
+// ---------- NUEVA LÓGICA BASADA EN PLANTILLA DE IMPRENTA ----------
+
+type ImprentaTemplate = {
+  page: { format: "a4"; orientation: "portrait" | "landscape" };
+  slots: Array<{ x: number; y: number; w: number; h: number }>; // mm
+};
+
+export function getPlanoCDRTemplate(): ImprentaTemplate {
+  // A4 vertical — posiciones exactas del plano
+  return {
+    page: { format: "a4", orientation: "portrait" },
+    slots: [
+      { x: 15, y: 20,   w: 180, h: 65 },   // fila 1
+      { x: 15, y: 99.5, w: 180, h: 65 },   // fila 2 (20 + 65 + 14.5)
+      { x: 15, y: 179,  w: 180, h: 65 },   // fila 3 (99.5 + 65 + 14.5)
+    ],
+  };
+}
+
+function round2(n: number) { return Math.round(n * 100) / 100; }
+
+async function pngToJpegDataUrl(pngDataUrl: string, quality = 0.95): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement("canvas");
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext("2d");
+        if (!ctx) {
+            reject(new Error("Could not get 2D context from canvas."));
+            return;
+        }
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0);
+        resolve(c.toDataURL("image/jpeg", quality));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = (e) => reject(e);
+    img.src = pngDataUrl;
+  });
+}
+
+
+export async function buildPdfFromPngsWithTemplate(
+  pngs: string[],
+  fileName: string,
+  template: ImprentaTemplate = getPlanoCDRTemplate()
+) {
+  const { default: jsPDF } = await import("jspdf");
+  const pdf = new jsPDF({
+    unit: "mm",
+    format: template.page.format,
+    orientation: template.page.orientation,
+  });
+
+  const perPage = template.slots.length;
+  for (let i = 0; i < pngs.length; i++) {
+    const idxInPage = i % perPage;
+    if (i > 0 && idxInPage === 0) pdf.addPage();
+
+    const slot = template.slots[idxInPage];
+    const img = await pngToJpegDataUrl(pngs[i], 0.95);
+
+    pdf.addImage(
+      img,
+      "JPEG",
+      round2(slot.x),
+      round2(slot.y),
+      round2(slot.w),
+      round2(slot.h),
+      undefined,
+      "FAST"
+    );
+  }
+
+  pdf.save(fileName);
+}
+
+
+// --- LÓGICA ANTERIOR Y HELPERS (AÚN DISPONIBLES SI SE NECESITAN) ---
+
 export type ExperimentalLayoutOpts = {
   pageOrientation?: "portrait" | "landscape";
   cropMarks?: boolean;
@@ -18,48 +103,6 @@ export type ExperimentalLayoutOpts = {
   gutterX?: number;
   gutterY?: number;
 };
-
-function mm2(n: number) { return Math.round(n * 100) / 100; }
-
-async function pngToJpegDataUrl(pngDataUrl: string, quality = 0.95): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const c = document.createElement('canvas');
-        c.width = img.width;
-        c.height = img.height;
-        const ctx = c.getContext('2d');
-        if (!ctx) {
-            reject(new Error("Could not get 2D context from canvas."));
-            return;
-        }
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, c.width, c.height);
-        ctx.drawImage(img, 0, 0);
-        resolve(c.toDataURL('image/jpeg', quality));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    img.onerror = (e) => reject(e);
-    img.src = pngDataUrl;
-  });
-}
-
-function drawCropMarks(pdf: any, x: number, y: number, w: number, h: number, len = 3) {
-  const lw = pdf.getLineWidth();
-  pdf.setLineWidth(0.2);
-  pdf.line(x - len, y, x, y);
-  pdf.line(x, y - len, x, y);
-  pdf.line(x + w, y - len, x + w, y);
-  pdf.line(x + w, y, x + w + len, y);
-  pdf.line(x - len, y + h, x, y + h);
-  pdf.line(x, y + h, x, y + h + len);
-  pdf.line(x + w, y + h, x + w + len, y + h);
-  pdf.line(x + w, y + h - len, x + w, y + h);
-  pdf.setLineWidth(lw);
-}
 
 
 function detachCrossOriginStyleLinks(): HTMLLinkElement[] {
@@ -96,7 +139,6 @@ export async function captureTicketPNG(node: HTMLElement, scale: number = 3): Pr
   const removedLinks = detachCrossOriginStyleLinks();
   
   try {
-    // Clone node to handle canvas replacement safely
     const cloned = node.cloneNode(true) as HTMLElement;
     cloned.querySelectorAll('canvas').forEach((c) => {
       try {
@@ -138,59 +180,4 @@ export async function captureTicketPNG(node: HTMLElement, scale: number = 3): Pr
   } finally {
     reattachStyleLinks(removedLinks);
   }
-}
-
-export async function buildPdfFromPngs(
-  pngs: string[],
-  fileName: string,
-  opts: ExperimentalLayoutOpts = {}
-) {
-  const { default: jsPDF } = await import("jspdf");
-
-  const M_LEFT = opts.marginLeft ?? 15;
-  const M_RIGHT = opts.marginRight ?? 15;
-  const M_TOP = opts.marginTop ?? 20;
-  const M_BOTTOM = opts.marginBottom ?? 20;
-  const TICKET_W = opts.ticketWidth ?? 180;
-  const TICKET_H = opts.ticketHeight ?? 65;
-  const ROWS = opts.rows ?? 3;
-  const COLS = opts.cols ?? 1;
-  const GUTTER_X = opts.gutterX ?? 0;
-  const GUTTER_Y = opts.gutterY ?? 14.5;
-
-  const pdf = new jsPDF({ 
-    orientation: opts.pageOrientation ?? "portrait", 
-    unit: "mm", 
-    format: opts.pageFormat ?? "a4" 
-  });
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
-
-  const usableW = pageW - M_LEFT - M_RIGHT;
-  const usableH = pageH - M_TOP - M_BOTTOM;
-  const requireH = ROWS * TICKET_H + (ROWS - 1) * GUTTER_Y;
-
-  const baseX = M_LEFT + (usableW - (COLS * TICKET_W + (COLS - 1) * GUTTER_X)) / 2;
-  const baseY = M_TOP + (usableH - requireH) / 2;
-
-  const perPage = ROWS * COLS;
-  for (let i = 0; i < pngs.length; i++) {
-    const iInPage = i % perPage;
-    if (i > 0 && iInPage === 0) pdf.addPage();
-
-    const row = Math.floor(iInPage / COLS);
-    const col = iInPage % COLS;
-
-    const x = mm2(baseX + col * (TICKET_W + GUTTER_X));
-    const y = mm2(baseY + row * (TICKET_H + GUTTER_Y));
-
-    const img = await pngToJpegDataUrl(pngs[i], 0.95);
-    pdf.addImage(img, "JPEG", x, y, mm2(TICKET_W), mm2(TICKET_H), undefined, "FAST");
-
-    if (opts.cropMarks) {
-      drawCropMarks(pdf, x, y, mm2(TICKET_W), mm2(TICKET_H), 3);
-    }
-  }
-
-  pdf.save(fileName);
 }
