@@ -394,7 +394,7 @@ function EventDetailPage() {
       <>
         {stats && (
             <div className="mb-8 no-print">
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex justify-between items-start mb-6">
                     <div>
                         <h2 className="text-2xl font-headline">Dashboard del Evento</h2>
                         <p className="text-muted-foreground">Herramientas de gestión para "{generationResult.eventParams.event_name}"</p>
@@ -437,13 +437,18 @@ function EventDetailPage() {
                                 </form>
                             </DialogContent>
                         </Dialog>
-                        <Button asChild variant="secondary">
-                           <Link href={`/pdf-test?eventId=${eventId}`}>
-                             <Printer className="mr-2 h-4 w-4" /> Test de Impresión PDF
-                           </Link>
-                        </Button>
                    </div>
                 </div>
+
+                <div className="border bg-card text-card-foreground shadow-sm rounded-lg p-4 mb-6">
+                  <h3 className="font-semibold mb-2">Impresión</h3>
+                   <Button asChild variant="secondary">
+                       <Link href={`/pdf-test?eventId=${eventId}`}>
+                         <Printer className="mr-2 h-4 w-4" /> Test de Impresión PDF
+                       </Link>
+                    </Button>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -623,3 +628,5 @@ export default function EventDetailWrapper() {
     </PrivateRoute>
   );
 }
+
+    
