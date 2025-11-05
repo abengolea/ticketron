@@ -21,7 +21,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { TicketCard } from '@/components/ticket-card';
@@ -248,22 +248,22 @@ function PDFTestPage() {
                   </div>
                   <Label>Márgenes (mm)</Label>
                   <div className='grid grid-cols-2 lg:grid-cols-4 gap-2'>
-                      <FormItem><Input type="number" placeholder='Sup.' {...form.register('marginTop')} /></FormItem>
-                      <FormItem><Input type="number" placeholder='Inf.' {...form.register('marginBottom')} /></FormItem>
-                      <FormItem><Input type="number" placeholder='Izq.' {...form.register('marginLeft')} /></FormItem>
-                      <FormItem><Input type="number" placeholder='Der.' {...form.register('marginRight')} /></FormItem>
+                      <FormItem><Input type="number" step="0.1" placeholder='Sup.' {...form.register('marginTop')} /></FormItem>
+                      <FormItem><Input type="number" step="0.1" placeholder='Inf.' {...form.register('marginBottom')} /></FormItem>
+                      <FormItem><Input type="number" step="0.1" placeholder='Izq.' {...form.register('marginLeft')} /></FormItem>
+                      <FormItem><Input type="number" step="0.1" placeholder='Der.' {...form.register('marginRight')} /></FormItem>
                   </div>
                    <Label>Dimensiones Ticket (mm)</Label>
                   <div className='grid grid-cols-2 gap-2'>
-                      <FormItem><Input type="number" placeholder='Ancho' {...form.register('ticketWidth')} /></FormItem>
-                      <FormItem><Input type="number" placeholder='Alto' {...form.register('ticketHeight')} /></FormItem>
+                      <FormItem><Input type="number" step="0.1" placeholder='Ancho' {...form.register('ticketWidth')} /></FormItem>
+                      <FormItem><Input type="number" step="0.1" placeholder='Alto' {...form.register('ticketHeight')} /></FormItem>
                   </div>
                   <Label>Grilla y Espaciado (mm)</Label>
                   <div className='grid grid-cols-2 lg:grid-cols-4 gap-2'>
                       <FormItem><Input type="number" placeholder='Filas' {...form.register('rows')} /></FormItem>
                       <FormItem><Input type="number" placeholder='Cols' {...form.register('cols')} /></FormItem>
-                      <FormItem><Input type="number" placeholder='Gutter X' {...form.register('gutterX')} /></FormItem>
-                      <FormItem><Input type="number" placeholder='Gutter Y' {...form.register('gutterY')} /></FormItem>
+                      <FormItem><Input type="number" step="0.1" placeholder='Gutter X' {...form.register('gutterX')} /></FormItem>
+                      <FormItem><Input type="number" step="0.1" placeholder='Gutter Y' {...form.register('gutterY')} /></FormItem>
                   </div>
                   <Label>Opciones de Renderizado</Label>
                    <div className='grid grid-cols-2 gap-4'>
@@ -335,3 +335,5 @@ export default function PDFTestWrapper() {
     </PrivateRoute>
   )
 }
+
+    
