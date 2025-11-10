@@ -39,28 +39,24 @@ function PDFTestPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingA, setIsGeneratingA] = useState(false);
   const [isGeneratingB, setIsGeneratingB] = useState(false);
   const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
   
-  const form = useForm<LayoutFormValues>({
+  const formA = useForm<LayoutFormValues>({
     resolver: zodResolver(layoutSchema),
-    defaultValues: { scale: 3, quantity: 20 },
+    defaultValues: { scale: 3, quantity: 3 },
   });
   
   const formB = useForm<LayoutFormValues>({
     resolver: zodResolver(layoutSchema),
-    defaultValues: { scale: 3, quantity: 24 },
+    defaultValues: { scale: 3, quantity: 8 },
   });
 
-  const quantity = form.watch('quantity');
-  const ticketSize = 'large';
-
+  const quantityA = formA.watch('quantity');
   const quantityB = formB.watch('quantity');
-  const ticketSizeB = 'small';
   
-  // Create refs for both sets of tickets
-  const ticketRefs = useMemo(() => Array.from({ length: quantity }, () => createRef<HTMLDivElement>()), [quantity]);
+  const ticketRefsA = useMemo(() => Array.from({ length: quantityA }, () => createRef<HTMLDivElement>()), [quantityA]);
   const ticketRefsB = useMemo(() => Array.from({ length: quantityB }, () => createRef<HTMLDivElement>()), [quantityB]);
 
 
@@ -131,8 +127,8 @@ function PDFTestPage() {
     if (!generationResult) return;
     
     const isTemplateB = template === 'B';
-    const currentRefs = isTemplateB ? ticketRefsB : ticketRefs;
-    const setGenerating = isTemplateB ? setIsGeneratingB : setIsGenerating;
+    const currentRefs = isTemplateB ? ticketRefsB : ticketRefsA;
+    const setGenerating = isTemplateB ? setIsGeneratingB : setIsGeneratingA;
     const imprenta = isTemplateB ? 'B' : 'A';
     
     setGenerating(true);
@@ -144,7 +140,10 @@ function PDFTestPage() {
         const images: string[] = [];
         for (let i = 0; i < ticketsToRender.length; i++) {
           const ref = currentRefs[i];
-          if (!ref?.current) continue;
+          if (!ref?.current) {
+            console.warn(`Ref para el ticket ${i} no encontrada. Saltando.`);
+            continue;
+          }
           
           const png = await captureTicketPNG(ref.current, values.scale);
           images.push(png);
@@ -202,11 +201,11 @@ function PDFTestPage() {
             <CardTitle className='flex items-center gap-2'><Settings /> Parámetros de Prueba (Imprenta A)</CardTitle>
             <CardDescription>Genera un PDF con 3 tickets por hoja A4 vertical.</CardDescription>
           </CardHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit((values) => handleGeneratePdf(values, 'A'))}>
+          <Form {...formA}>
+            <form onSubmit={formA.handleSubmit((values) => handleGeneratePdf(values, 'A'))}>
               <CardContent className="space-y-4 pr-4">
-                  <FormField control={form.control} name="quantity" render={({ field }) => ( <FormItem> <Label>Tickets a Generar</Label> <Input type="number" {...field} /> <FormMessage /> </FormItem> )}/>
-                  <FormField control={form.control} name="scale" render={({ field }) => ( <FormItem> <Label>Escala de Captura (Calidad)</Label> <Input type="number" step="0.1" {...field} /> <FormDescription>Valor más alto = más nítido.</FormDescription> <FormMessage /> </FormItem> )}/>
+                  <FormField control={formA.control} name="quantity" render={({ field }) => ( <FormItem> <Label>Tickets a Generar</Label> <Input type="number" {...field} /> <FormMessage /> </FormItem> )}/>
+                  <FormField control={formA.control} name="scale" render={({ field }) => ( <FormItem> <Label>Escala de Captura (Calidad)</Label> <Input type="number" step="0.1" {...field} /> <FormDescription>Un valor más alto (ej: 3) genera imágenes más nítidas para impresión.</FormDescription> <FormMessage /> </FormItem> )}/>
                   <Card className="bg-muted/50"><CardHeader><CardTitle className="text-base">Plantilla Activa</CardTitle></CardHeader><CardContent className="text-xs space-y-2 font-mono">
                       <p>Formato: {templateA.page.format.toUpperCase()} {templateA.page.orientation}</p>
                       <p>Tickets por Hoja: {templateA.slots.length}</p>
@@ -214,8 +213,8 @@ function PDFTestPage() {
                   </CardContent></Card>
               </CardContent>
               <CardFooter>
-                <Button type="submit" className="w-full" disabled={isGenerating || isGeneratingB}>
-                  {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
+                <Button type="submit" className="w-full" disabled={isGeneratingA || isGeneratingB}>
+                  {isGeneratingA ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
                   Generar PDF (Imprenta A)
                 </Button>
               </CardFooter>
@@ -225,9 +224,9 @@ function PDFTestPage() {
         
         {/* Previsualización Imprenta A */}
         <div className="space-y-4">
-             <Alert><AlertTitle>Previsualización (Imprenta A)</AlertTitle><AlertDescription>Mostrando los primeros {quantity} tickets a 180x65mm.</AlertDescription></Alert>
-            {generationResult.tickets.slice(0, quantity).map((ticket, i) => (
-                <div key={ticket.ticketId} ref={ticketRefs[i]} className="ticket-print mb-4 flex justify-center">
+             <Alert><AlertTitle>Previsualización (Imprenta A)</AlertTitle><AlertDescription>Mostrando los primeros {quantityA} tickets a 180x65mm.</AlertDescription></Alert>
+            {generationResult.tickets.slice(0, quantityA).map((ticket, i) => (
+                <div key={ticket.ticketId} ref={ticketRefsA[i]} className="ticket-print mb-4 inline-block">
                     <TicketCard {...generationResult.eventParams} ticketNumber={ticket.ticketNumber} qrPayload={ticket.qrPayload} shortCode={ticket.shortCode} size="large" eventName={generationResult.eventParams.event_name} dateTime={generationResult.eventParams.date_time} venue={generationResult.eventParams.venue} />
                 </div>
             ))}
@@ -243,7 +242,7 @@ function PDFTestPage() {
             <form onSubmit={formB.handleSubmit((values) => handleGeneratePdf(values, 'B'))}>
               <CardContent className="space-y-4 pr-4">
                   <FormField control={formB.control} name="quantity" render={({ field }) => ( <FormItem> <Label>Tickets a Generar</Label> <Input type="number" {...field} /> <FormMessage /> </FormItem> )}/>
-                  <FormField control={formB.control} name="scale" render={({ field }) => ( <FormItem> <Label>Escala de Captura (Calidad)</Label> <Input type="number" step="0.1" {...field} /> <FormDescription>Valor más alto = más nítido.</FormDescription> <FormMessage /> </FormItem> )}/>
+                  <FormField control={formB.control} name="scale" render={({ field }) => ( <FormItem> <Label>Escala de Captura (Calidad)</Label> <Input type="number" step="0.1" {...field} /> <FormDescription>Un valor más alto (ej: 3) genera imágenes más nítidas para impresión.</FormDescription> <FormMessage /> </FormItem> )}/>
                   <Card className="bg-muted/50"><CardHeader><CardTitle className="text-base">Plantilla Activa</CardTitle></CardHeader><CardContent className="text-xs space-y-2 font-mono">
                       <p>Formato: {templateB.page.format.toUpperCase()} {templateB.page.orientation}</p>
                       <p>Tickets por Hoja: {templateB.slots.length}</p>
@@ -251,7 +250,7 @@ function PDFTestPage() {
                   </CardContent></Card>
               </CardContent>
               <CardFooter>
-                <Button type="submit" className="w-full" disabled={isGenerating || isGeneratingB}>
+                <Button type="submit" className="w-full" disabled={isGeneratingA || isGeneratingB}>
                   {isGeneratingB ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
                   Generar PDF (Imprenta B)
                 </Button>
@@ -264,7 +263,7 @@ function PDFTestPage() {
         <div className="space-y-4">
             <Alert><AlertTitle>Previsualización (Imprenta B)</AlertTitle><AlertDescription>Mostrando los primeros {quantityB} tickets a 145x50mm.</AlertDescription></Alert>
             {generationResult.tickets.slice(0, quantityB).map((ticket, i) => (
-                <div key={ticket.ticketId} ref={ticketRefsB[i]} className="ticket-print mb-4 flex justify-center">
+                <div key={ticket.ticketId} ref={ticketRefsB[i]} className="ticket-print mb-4 inline-block">
                     <TicketCard {...generationResult.eventParams} ticketNumber={ticket.ticketNumber} qrPayload={ticket.qrPayload} shortCode={ticket.shortCode} size="small" eventName={generationResult.eventParams.event_name} dateTime={generationResult.eventParams.date_time} venue={generationResult.eventParams.venue} />
                 </div>
             ))}
