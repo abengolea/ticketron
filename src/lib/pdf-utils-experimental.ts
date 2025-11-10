@@ -25,26 +25,18 @@ export function getPlanoCDRTemplate(): ImprentaTemplate {
 
 /** Plantilla para Imprenta B: 8 tickets de 145x50mm en A4 horizontal. */
 export function getImprentaBTemplate(): ImprentaTemplate {
-  // A4 horizontal (297x210mm)
-  // 2 columnas, 4 filas
-  const ticketW = 145;
-  const ticketH = 50;
-  const marginX = (297 - ticketW * 2) / 2; // Centrado horizontal
-  const marginY = (210 - ticketH * 4) / 2; // Centrado vertical
-
+  // A4 horizontal (297x210mm) - Layout 8-up
   return {
     page: { format: "a4", orientation: "landscape" },
     slots: [
-      // Columna 1
-      { x: marginX, y: marginY, w: ticketW, h: ticketH },
-      { x: marginX, y: marginY + ticketH, w: ticketW, h: ticketH },
-      { x: marginX, y: marginY + ticketH * 2, w: ticketW, h: ticketH },
-      { x: marginX, y: marginY + ticketH * 3, w: ticketW, h: ticketH },
-      // Columna 2
-      { x: marginX + ticketW, y: marginY, w: ticketW, h: ticketH },
-      { x: marginX + ticketW, y: marginY + ticketH, w: ticketW, h: ticketH },
-      { x: marginX + ticketW, y: marginY + ticketH * 2, w: ticketW, h: ticketH },
-      { x: marginX + ticketW, y: marginY + ticketH * 3, w: ticketW, h: ticketH },
+      { x: 3.5, y: 3.5, w: 145, h: 50 },
+      { x: 148.5, y: 3.5, w: 145, h: 50 },
+      { x: 3.5, y: 54.5, w: 145, h: 50 },
+      { x: 148.5, y: 54.5, w: 145, h: 50 },
+      { x: 3.5, y: 105.5, w: 145, h: 50 },
+      { x: 148.5, y: 105.5, w: 145, h: 50 },
+      { x: 3.5, y: 156.5, w: 145, h: 50 },
+      { x: 148.5, y: 156.5, w: 145, h: 50 },
     ],
   };
 }
