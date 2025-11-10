@@ -3,13 +3,14 @@
 
 import type { jsPDF } from "jspdf";
 
-// ---------- NUEVA LÓGICA BASADA EN PLANTILLA DE IMPRENTA ----------
+// ---------- LÓGICA DE PLANTILLAS DE IMPRENTA ----------
 
 type ImprentaTemplate = {
   page: { format: "a4"; orientation: "portrait" | "landscape" };
   slots: Array<{ x: number; y: number; w: number; h: number }>; // mm
 };
 
+/** Plantilla para Imprenta A: 3 tickets de 180x65mm en A4 vertical. */
 export function getPlanoCDRTemplate(): ImprentaTemplate {
   // A4 vertical — posiciones exactas del plano
   return {
@@ -21,6 +22,33 @@ export function getPlanoCDRTemplate(): ImprentaTemplate {
     ],
   };
 }
+
+/** Plantilla para Imprenta B: 8 tickets de 145x50mm en A4 horizontal. */
+export function getImprentaBTemplate(): ImprentaTemplate {
+  // A4 horizontal (297x210mm)
+  // 2 columnas, 4 filas
+  const ticketW = 145;
+  const ticketH = 50;
+  const marginX = (297 - ticketW * 2) / 2; // Centrado horizontal
+  const marginY = (210 - ticketH * 4) / 2; // Centrado vertical
+
+  return {
+    page: { format: "a4", orientation: "landscape" },
+    slots: [
+      // Columna 1
+      { x: marginX, y: marginY, w: ticketW, h: ticketH },
+      { x: marginX, y: marginY + ticketH, w: ticketW, h: ticketH },
+      { x: marginX, y: marginY + ticketH * 2, w: ticketW, h: ticketH },
+      { x: marginX, y: marginY + ticketH * 3, w: ticketW, h: ticketH },
+      // Columna 2
+      { x: marginX + ticketW, y: marginY, w: ticketW, h: ticketH },
+      { x: marginX + ticketW, y: marginY + ticketH, w: ticketW, h: ticketH },
+      { x: marginX + ticketW, y: marginY + ticketH * 2, w: ticketW, h: ticketH },
+      { x: marginX + ticketW, y: marginY + ticketH * 3, w: ticketW, h: ticketH },
+    ],
+  };
+}
+
 
 function round2(n: number) { return Math.round(n * 100) / 100; }
 
@@ -53,7 +81,7 @@ async function pngToJpegDataUrl(pngDataUrl: string, quality = 0.95): Promise<str
 export async function buildPdfFromPngsWithTemplate(
   pngs: string[],
   fileName: string,
-  template: ImprentaTemplate = getPlanoCDRTemplate()
+  template: ImprentaTemplate
 ) {
   const { default: jsPDF } = await import("jspdf");
   const pdf = new jsPDF({
@@ -85,25 +113,7 @@ export async function buildPdfFromPngsWithTemplate(
   pdf.save(fileName);
 }
 
-
-// --- LÓGICA ANTERIOR Y HELPERS (AÚN DISPONIBLES SI SE NECESITAN) ---
-
-export type ExperimentalLayoutOpts = {
-  pageOrientation?: "portrait" | "landscape";
-  cropMarks?: boolean;
-  pageFormat?: "a4" | "letter";
-  marginLeft?: number;
-  marginRight?: number;
-  marginTop?: number;
-  marginBottom?: number;
-  ticketWidth?: number;
-  ticketHeight?: number;
-  rows?: number;
-  cols?: number;
-  gutterX?: number;
-  gutterY?: number;
-};
-
+// --- HELPERS ---
 
 function detachCrossOriginStyleLinks(): HTMLLinkElement[] {
   const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
@@ -123,57 +133,58 @@ function reattachStyleLinks(links: HTMLLinkElement[]) {
   for (const l of links) head.appendChild(l);
 }
 
-function applyCaptureStyles(el: HTMLElement) {
-  el.querySelectorAll<HTMLElement>('*').forEach(n => {
-    n.style.boxShadow = 'none';
-    n.style.textShadow = 'none';
-    n.style.outline = 'none';
-    n.style.border = '0';
-    n.style.borderImage = 'initial';
-    n.style.backgroundClip = 'padding-box';
-  });
-}
-
 export async function captureTicketPNG(node: HTMLElement, scale: number = 3): Promise<string> {
   const { default: domtoimage } = await import('dom-to-image-more');
   const removedLinks = detachCrossOriginStyleLinks();
   
   try {
-    const cloned = node.cloneNode(true) as HTMLElement;
-    cloned.querySelectorAll('canvas').forEach((c) => {
-      try {
-        const img = document.createElement('img');
-        img.src = c.toDataURL('image/png');
-        img.width = c.width;
-        img.height = c.height;
-        c.replaceWith(img);
-      } catch {}
+    // Clone the node to avoid modifying the original
+    const clonedNode = node.cloneNode(true) as HTMLElement;
+
+    // Replace canvas elements with images to ensure they are captured
+    const canvases = clonedNode.querySelectorAll('canvas');
+    canvases.forEach(canvas => {
+      const image = new Image();
+      image.src = canvas.toDataURL();
+      image.width = canvas.width;
+      image.height = canvas.height;
+      canvas.parentNode?.replaceChild(image, canvas);
     });
 
+    // Create a temporary wrapper for consistent rendering
     const wrapper = document.createElement('div');
-    wrapper.style.cssText = `background:#ffffff; padding:1px; border-radius:18px; display:inline-block;`;
-    wrapper.appendChild(cloned);
+    wrapper.style.cssText = `
+        position: absolute;
+        left: -9999px;
+        top: -9999px;
+        display: inline-block;
+        padding: 0;
+        margin: 0;
+        background: white;
+    `;
+    wrapper.appendChild(clonedNode);
+    document.body.appendChild(wrapper);
     
-    const temp = document.createElement('div');
-    temp.style.cssText = `position:fixed; left:-99999px; top:0; z-index:-1;`;
-    temp.appendChild(wrapper);
-    document.body.appendChild(temp);
+    // Ensure fonts and images are loaded
+    await new Promise(resolve => setTimeout(resolve, 200));
 
-    applyCaptureStyles(wrapper);
-    const { width, height } = wrapper.getBoundingClientRect();
-
+    const { width, height } = clonedNode.getBoundingClientRect();
+    
     const dataUrl = await domtoimage.toPng(wrapper, {
+      width: Math.round(width),
+      height: Math.round(height),
+      style: {
+        transform: `scale(${scale})`,
+        'transform-origin': 'top left',
+        background: 'white',
+      },
+      quality: 1,
       cacheBust: true,
-      bgcolor: '#ffffff',
-      copyStyles: false,
-      filter: (n) => !(n instanceof HTMLLinkElement),
-      width: Math.round(width * scale),
-      height: Math.round(height * scale),
-      style: { transform: `scale(${scale})`, transformOrigin: 'top left', background: '#ffffff' },
     });
-
-    temp.remove();
+    
+    document.body.removeChild(wrapper);
     return dataUrl;
+
   } catch (error) {
     console.error("Error capturing ticket:", error);
     throw error;
