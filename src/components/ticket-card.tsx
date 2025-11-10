@@ -12,13 +12,13 @@ type TicketCardProps = {
   ticketNumber: number;
   qrPayload: string;
   shortCode: string;
-  size?: 'large' | 'small';
+  variant?: 'large' | 'small';
 };
 
-export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload, shortCode, size = 'large' }: TicketCardProps) {
+export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload, shortCode, variant = 'large' }: TicketCardProps) {
   const formattedTicketNumber = `#${String(ticketNumber).padStart(4, '0')}`;
   
-  const isSmall = size === 'small';
+  const isSmall = variant === 'small';
 
   const qrSize = isSmall ? 140 : 200;
   const { dataUrl: qrBase64, error: qrError } = useQRAsBase64(qrPayload, { size: qrSize, margin: 1 });

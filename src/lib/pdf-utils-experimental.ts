@@ -25,21 +25,23 @@ export function getPlanoCDRTemplate(): ImprentaTemplate {
 
 /** Plantilla para Imprenta B: 8 tickets de 145x50mm en A4 horizontal. */
 export function getImprentaBTemplate(): ImprentaTemplate {
-  // A4 horizontal (297x210mm) - Layout 8-up
-  return {
-    page: { format: "a4", orientation: "landscape" },
-    slots: [
-      { x: 3.5, y: 3.5, w: 145, h: 50 },
-      { x: 148.5, y: 3.5, w: 145, h: 50 },
-      { x: 3.5, y: 54.5, w: 145, h: 50 },
-      { x: 148.5, y: 54.5, w: 145, h: 50 },
-      { x: 3.5, y: 105.5, w: 145, h: 50 },
-      { x: 148.5, y: 105.5, w: 145, h: 50 },
-      { x: 3.5, y: 156.5, w: 145, h: 50 },
-      { x: 148.5, y: 156.5, w: 145, h: 50 },
-    ],
-  };
-}
+    return {
+      page: { format: "a4", orientation: "landscape" },
+      slots: [
+        { x: 3.5, y: 3.5, w: 145, h: 50 },
+        { x: 148.5, y: 3.5, w: 145, h: 50 },
+  
+        { x: 3.5, y: 54.5, w: 145, h: 50 },
+        { x: 148.5, y: 54.5, w: 145, h: 50 },
+  
+        { x: 3.5, y: 105.5, w: 145, h: 50 },
+        { x: 148.5, y: 105.5, w: 145, h: 50 },
+  
+        { x: 3.5, y: 156.5, w: 145, h: 50 },
+        { x: 148.5, y: 156.5, w: 145, h: 50 },
+      ],
+    };
+  }
 
 
 function round2(n: number) { return Math.round(n * 100) / 100; }
@@ -136,11 +138,15 @@ export async function captureTicketPNG(node: HTMLElement, scale: number = 3): Pr
     // Replace canvas elements with images to ensure they are captured
     const canvases = clonedNode.querySelectorAll('canvas');
     canvases.forEach(canvas => {
-      const image = new Image();
-      image.src = canvas.toDataURL();
-      image.width = canvas.width;
-      image.height = canvas.height;
-      canvas.parentNode?.replaceChild(image, canvas);
+      try {
+        const image = new Image();
+        image.src = canvas.toDataURL();
+        image.width = canvas.width;
+        image.height = canvas.height;
+        canvas.parentNode?.replaceChild(image, canvas);
+      } catch (e) {
+        console.error("Could not replace canvas with image during capture", e);
+      }
     });
 
     // Create a temporary wrapper for consistent rendering
@@ -163,8 +169,8 @@ export async function captureTicketPNG(node: HTMLElement, scale: number = 3): Pr
     const { width, height } = clonedNode.getBoundingClientRect();
     
     const dataUrl = await domtoimage.toPng(wrapper, {
-      width: Math.round(width),
-      height: Math.round(height),
+      width: Math.round(width * scale),
+      height: Math.round(height * scale),
       style: {
         transform: `scale(${scale})`,
         'transform-origin': 'top left',

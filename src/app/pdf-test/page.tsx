@@ -227,7 +227,7 @@ function PDFTestPage() {
              <Alert><AlertTitle>Previsualización (Imprenta A)</AlertTitle><AlertDescription>Mostrando los primeros {quantityA} tickets a 180x65mm.</AlertDescription></Alert>
             {generationResult.tickets.slice(0, quantityA).map((ticket, i) => (
                 <div key={ticket.ticketId} ref={ticketRefsA[i]} className="ticket-print mb-4 inline-block">
-                    <TicketCard {...generationResult.eventParams} ticketNumber={ticket.ticketNumber} qrPayload={ticket.qrPayload} shortCode={ticket.shortCode} size="large" eventName={generationResult.eventParams.event_name} dateTime={generationResult.eventParams.date_time} venue={generationResult.eventParams.venue} />
+                    <TicketCard {...generationResult.eventParams} ticketNumber={ticket.ticketNumber} qrPayload={ticket.qrPayload} shortCode={ticket.shortCode} variant="large" eventName={generationResult.eventParams.event_name} dateTime={generationResult.eventParams.date_time} venue={generationResult.eventParams.venue} />
                 </div>
             ))}
         </div>
@@ -264,7 +264,7 @@ function PDFTestPage() {
             <Alert><AlertTitle>Previsualización (Imprenta B)</AlertTitle><AlertDescription>Mostrando los primeros {quantityB} tickets a 145x50mm.</AlertDescription></Alert>
             {generationResult.tickets.slice(0, quantityB).map((ticket, i) => (
                 <div key={ticket.ticketId} ref={ticketRefsB[i]} className="ticket-print mb-4 inline-block">
-                    <TicketCard {...generationResult.eventParams} ticketNumber={ticket.ticketNumber} qrPayload={ticket.qrPayload} shortCode={ticket.shortCode} size="small" eventName={generationResult.eventParams.event_name} dateTime={generationResult.eventParams.date_time} venue={generationResult.eventParams.venue} />
+                    <TicketCard {...generationResult.eventParams} ticketNumber={ticket.ticketNumber} qrPayload={ticket.qrPayload} shortCode={ticket.shortCode} variant="small" eventName={generationResult.eventParams.event_name} dateTime={generationResult.eventParams.date_time} venue={generationResult.eventParams.venue} />
                 </div>
             ))}
         </div>
