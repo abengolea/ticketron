@@ -109,84 +109,83 @@ export async function buildPdfFromPngsWithTemplate(
 
 // --- HELPERS ---
 
-function detachCrossOriginStyleLinks(): HTMLLinkElement[] {
-  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
-  const detached: HTMLLinkElement[] = [];
-  for (const l of links) {
-    const href = l.getAttribute("href") || "";
-    if (/^https?:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)/i.test(href)) {
-      l.parentElement?.removeChild(l);
-      detached.push(l);
-    }
+// --- helpers nuevos ---
+function inlineComputedStyles(root: HTMLElement) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+  let node = root as HTMLElement;
+  while (node) {
+    const cs = window.getComputedStyle(node);
+    // Copiamos TODA la regla computada (rápido y efectivo)
+    (node.style as any).cssText = cs.cssText; // cssText está soportado en Chromium
+    node = walker.nextNode() as HTMLElement;
   }
-  return detached;
 }
 
-function reattachStyleLinks(links: HTMLLinkElement[]) {
-  const head = document.head || document.getElementsByTagName("head")[0];
-  for (const l of links) head.appendChild(l);
+function waitRAF() {
+  return new Promise<void>(r => requestAnimationFrame(() => r()));
 }
 
-export async function captureTicketPNG(node: HTMLElement, scale: number = 3): Promise<string> {
+// --- reemplazar tu captureTicketPNG por esta versión ---
+export async function captureTicketPNG(node: HTMLElement, scale = 3): Promise<string> {
   const { default: domtoimage } = await import('dom-to-image-more');
-  const removedLinks = detachCrossOriginStyleLinks();
-  
+
+  // 1) Asegurar fuentes listas (siempre que existan)
+  try { await (document as any).fonts?.ready; } catch {}
+
+  // 2) Clonar el nodo para trabajar aislado
+  const cloned = node.cloneNode(true) as HTMLElement;
+
+  // 3) Reemplazar canvas por imágenes (ej. QR)
+  cloned.querySelectorAll('canvas').forEach((c) => {
+    try {
+      const can = c as HTMLCanvasElement;
+      const img = document.createElement('img');
+      img.src = can.toDataURL('image/png');
+      img.width = can.width;
+      img.height = can.height;
+      img.style.width = `${can.width}px`;
+      img.style.height = `${can.height}px`;
+      can.replaceWith(img);
+    } catch {}
+  });
+
+  // 4) Inlinear estilos computados para NO depender de CSS externo
+  inlineComputedStyles(cloned);
+
+  // 5) Contenedor off-screen con fondo blanco
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = `
+    position: fixed; left: -99999px; top: 0; z-index: -1;
+    background: #ffffff; padding: 1px; display: inline-block;
+  `;
+  wrapper.appendChild(cloned);
+  document.body.appendChild(wrapper);
+
+  await waitRAF(); // asegurar layout
+  const rect = cloned.getBoundingClientRect();
+  const outW = Math.max(1, Math.round(rect.width * scale));
+  const outH = Math.max(1, Math.round(rect.height * scale));
+
   try {
-    // Clone the node to avoid modifying the original
-    const clonedNode = node.cloneNode(true) as HTMLElement;
-
-    // Replace canvas elements with images to ensure they are captured
-    const canvases = clonedNode.querySelectorAll('canvas');
-    canvases.forEach(canvas => {
-      try {
-        const image = new Image();
-        image.src = canvas.toDataURL();
-        image.width = canvas.width;
-        image.height = canvas.height;
-        canvas.parentNode?.replaceChild(image, canvas);
-      } catch (e) {
-        console.error("Could not replace canvas with image during capture", e);
-      }
-    });
-
-    // Create a temporary wrapper for consistent rendering
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = `
-        position: absolute;
-        left: -9999px;
-        top: -9999px;
-        display: inline-block;
-        padding: 0;
-        margin: 0;
-        background: white;
-    `;
-    wrapper.appendChild(clonedNode);
-    document.body.appendChild(wrapper);
-    
-    // Ensure fonts and images are loaded
-    await new Promise(resolve => setTimeout(resolve, 200));
-
-    const { width, height } = clonedNode.getBoundingClientRect();
-    
     const dataUrl = await domtoimage.toPng(wrapper, {
-      width: Math.round(width * scale),
-      height: Math.round(height * scale),
-      style: {
-        transform: `scale(${scale})`,
-        'transform-origin': 'top left',
-        background: 'white',
-      },
+      // CLAVE: NO copiar hojas de estilo → evita leer document.styleSheets
+      copyStyles: false,
+      // Evitar que se cuele un <link>/<style> residual
+      filter: (n) => !(n instanceof HTMLLinkElement || n instanceof HTMLStyleElement),
+      width: outW,
+      height: outH,
       quality: 1,
+      bgcolor: '#ffffff',
+      style: {
+        background: '#ffffff',
+        transform: 'scale(1)',
+        transformOrigin: 'top left'
+      },
       cacheBust: true,
     });
-    
-    document.body.removeChild(wrapper);
-    return dataUrl;
 
-  } catch (error) {
-    console.error("Error capturing ticket:", error);
-    throw error;
+    return dataUrl;
   } finally {
-    reattachStyleLinks(removedLinks);
+    wrapper.remove();
   }
 }
