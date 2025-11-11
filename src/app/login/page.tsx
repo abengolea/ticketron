@@ -128,11 +128,15 @@ export default function LoginPage() {
         toast({ title: 'Éxito', description: 'Has iniciado sesión con Google.' });
         router.push('/history');
     } catch (e: any) {
-        setError(e.message);
+        let errorMessage = e.message;
+        if (e.code === 'auth/unauthorized-domain') {
+            errorMessage = 'Este dominio no está autorizado para iniciar sesión con Google. Por favor, añade este dominio a la lista de "Dominios autorizados" en la configuración de Authentication de tu proyecto de Firebase.';
+        }
+        setError(errorMessage);
         toast({
             variant: 'destructive',
             title: 'Error de autenticación con Google',
-            description: e.message,
+            description: errorMessage,
         });
     } finally {
         setIsSubmitting(false);
