@@ -10,7 +10,8 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/comp
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/utils";
 // Usar la nueva lógica de generación de PDF
-import { captureTicketPNG, buildPdfFromPngsWithTemplate, getPlanoCDRTemplate } from "@/lib/pdf-utils";
+import { buildPdfFromPngsWithTemplate, captureTicketPNG, getPlanoCDRTemplate } from "@/lib/pdf-utils";
+import { waitForImagesInContainer } from "@/lib/image-utils";
 
 type TicketPreviewProps = {
   result: GenerationResult;
@@ -52,6 +53,9 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         for (let i = 0; i < ticketsToRender.length; i++) {
           const ref = refsToProcess[i];
           if (!ref?.current) continue;
+          
+          // **CLAVE**: Esperar a que el QR (y otras imgs) estén cargadas
+          await waitForImagesInContainer(ref.current);
           
           const png = await captureTicketPNG(ref.current, slotSize, 300);
           images.push(png);
