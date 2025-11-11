@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCardPrint } from "./ticket-card-print";
 import { Button } from "./ui/button";
@@ -24,7 +24,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const { tickets, eventParams, secretKey } = result;
   const { toast } = useToast();
   
-  // Create refs directly. No need for useMemo here as the component re-renders when `tickets` changes.
   const ticketRefs = React.useRef<React.RefObject<HTMLDivElement>[]>([]);
   if (ticketRefs.current.length !== tickets.length) {
     ticketRefs.current = tickets.map((_, i) => ticketRefs.current[i] ?? React.createRef());
@@ -32,17 +31,14 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   
   const [runningBatch, setRunningBatch] = useState<number | null>(null);
 
-  const batches = useMemo(
-    () => Math.ceil(tickets.length / PER_FILE),
-    [tickets.length]
-  );
+  const batches = Math.ceil(tickets.length / PER_FILE);
 
   async function handleBatchClick(batchIdx: number) {
-    // Add a small delay to allow the browser to paint the components.
-    // This is the key to fixing the blank PDF issue on the main page.
     await new Promise(resolve => setTimeout(resolve, 100));
 
     setRunningBatch(batchIdx);
+    
+    // Usar siempre la plantilla de 3 tickets, ya que es la única opción en el formulario principal.
     const pdfTemplate = getPlanoCDRTemplate();
     const slotSize = { w: pdfTemplate.slots[0].w, h: pdfTemplate.slots[0].h };
 
@@ -159,7 +155,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             </div>
         </div>
       
-      {/* Hidden container for rendering tickets for capture */}
       <div className="absolute left-[-9999px] top-0 opacity-0 pointer-events-none">
         {tickets.map((ticket, i) => (
           <div key={ticket.ticketId} ref={ticketRefs.current[i]} className="ticket-print mb-4 inline-block">
@@ -176,7 +171,6 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         ))}
       </div>
 
-      {/* Visible preview for the user (only a few tickets) */}
       <div className="space-y-4">
         <h3 className="font-headline text-xl">Previsualización (primeros 3 tickets)</h3>
         {tickets.slice(0, 3).map((ticket) => (
