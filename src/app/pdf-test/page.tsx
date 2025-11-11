@@ -21,12 +21,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormMessage, FormDescription } from '@/components/ui/form';
-import { TicketCard } from '@/components/ticket-card';
+import { TicketCardPrint } from '@/components/ticket-card-print';
 
 
 const layoutSchema = z.object({
   ppi: z.coerce.number().min(150).max(600).default(300),
-  quantity: z.coerce.number().int().positive().max(50).default(20),
+  quantity: z.coerce.number().int().positive().max(50).default(3),
 });
 
 type LayoutFormValues = z.infer<typeof layoutSchema>;
@@ -231,7 +231,7 @@ function PDFTestPage() {
              <Alert><AlertTitle>Previsualización (Imprenta A)</AlertTitle><AlertDescription>Mostrando los primeros {quantityA} tickets a 180x65mm.</AlertDescription></Alert>
             {generationResult.tickets.slice(0, quantityA).map((ticket, i) => (
                 <div key={ticket.ticketId} ref={ticketRefsA[i]} className="ticket-print mb-4 inline-block">
-                    <TicketCard {...generationResult.eventParams} ticketNumber={ticket.ticketNumber} qrPayload={ticket.qrPayload} shortCode={ticket.shortCode} variant="large" eventName={generationResult.eventParams.event_name} dateTime={generationResult.eventParams.date_time} venue={generationResult.eventParams.venue} />
+                    <TicketCardPrint {...generationResult.eventParams} ticketNumber={ticket.ticketNumber} qrPayload={ticket.qrPayload} shortCode={ticket.shortCode} variant="large" eventName={generationResult.eventParams.event_name} dateTime={generationResult.eventParams.date_time} venue={generationResult.eventParams.venue} />
                 </div>
             ))}
         </div>
@@ -268,7 +268,7 @@ function PDFTestPage() {
             <Alert><AlertTitle>Previsualización (Imprenta B)</AlertTitle><AlertDescription>Mostrando los primeros {quantityB} tickets a 145x50mm.</AlertDescription></Alert>
             {generationResult.tickets.slice(0, quantityB).map((ticket, i) => (
                 <div key={ticket.ticketId} ref={ticketRefsB[i]} className="ticket-print mb-4 inline-block">
-                    <TicketCard {...generationResult.eventParams} ticketNumber={ticket.ticketNumber} qrPayload={ticket.qrPayload} shortCode={ticket.shortCode} variant="small" eventName={generationResult.eventParams.event_name} dateTime={generationResult.eventParams.date_time} venue={generationResult.eventParams.venue} />
+                    <TicketCardPrint {...generationResult.eventParams} ticketNumber={ticket.ticketNumber} qrPayload={ticket.qrPayload} shortCode={ticket.shortCode} variant="small" eventName={generationResult.eventParams.event_name} dateTime={generationResult.eventParams.date_time} venue={generationResult.eventParams.venue} />
                 </div>
             ))}
         </div>
