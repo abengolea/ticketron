@@ -43,7 +43,6 @@ export function getImprentaBTemplate(): ImprentaTemplate {
     };
   }
 
-
 function round2(n: number) { return Math.round(n * 100) / 100; }
 
 export async function buildPdfFromPngsWithTemplate(
@@ -69,7 +68,7 @@ export async function buildPdfFromPngsWithTemplate(
     if (i > 0 && idx === 0) pdf.addPage();
 
     const slot = template.slots[idx];
-    const imgJpeg = pngs[i]; // ya viene en JPEG
+    const imgData = pngs[i]; 
 
     // 1) “Underpaint” blanco (mata cualquier costura / halo)
     const ux = round2(slot.x - UNDERPAINT);
@@ -87,34 +86,71 @@ export async function buildPdfFromPngsWithTemplate(
     const iw = round2(slot.w + BLEED * 2);
     const ih = round2(slot.h + BLEED * 2);
 
-    pdf.addImage(imgJpeg, "JPEG", ix, iy, iw, ih, undefined, "FAST");
+    pdf.addImage(imgData, "PNG", ix, iy, iw, ih, undefined, "FAST");
   }
 
   pdf.save(fileName);
 }
 
 
-// --- HELPERS ---
+// -------- Helpers --------
+function inlineAllComputedStylesDeep(root: HTMLElement) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
 
-function inlineComputedStyles(root: HTMLElement) {
-  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
-  let n = root as HTMLElement;
-  while (n) {
-    const cs = getComputedStyle(n);
-    (n.style as any).cssText = cs.cssText; // inlinéa TODO el estilo computado
-    n = w.nextNode() as HTMLElement;
-  }
+  const keepProps = new Set<string>([
+    // Layout
+    "display","position","top","left","right","bottom","z-index",
+    "box-sizing","width","height","min-width","min-height","max-width","max-height",
+    "padding","padding-top","padding-right","padding-bottom","padding-left",
+    "margin","margin-top","margin-right","margin-bottom","margin-left",
+    "overflow","overflow-x","overflow-y",
+    "transform","transform-origin",
+    "opacity","visibility",
+
+    // Flexbox
+    "flex","flex-basis","flex-direction","flex-flow","flex-grow","flex-shrink","flex-wrap",
+    "justify-content","align-items","align-content","align-self",
+
+    // Fondo / bordes
+    "background","background-color","background-image","background-size",
+    "background-position","background-repeat","background-clip",
+    "border-radius","border-top-left-radius","border-top-right-radius",
+    "border-bottom-left-radius","border-bottom-right-radius",
+
+    // Texto
+    "color","font","font-family","font-size","font-weight","line-height",
+    "letter-spacing","text-transform","text-decoration","text-align",
+    "white-space","word-break","word-wrap",
+
+    // Imagen
+    "object-fit","object-position",
+
+    // Para gradientes modernos
+    "background-origin","filter"
+  ]);
+
+  const apply = (el: Element) => {
+    const cs = getComputedStyle(el);
+    // serializamos sólo propiedades “confiables”
+    let style = "";
+    for (let i = 0; i < cs.length; i++) {
+      const prop = cs[i];
+      if (prop.startsWith("--")) continue; // ignorar custom props
+      if (!keepProps.has(prop)) continue;
+      const val = cs.getPropertyValue(prop);
+      if (val) style += `${prop}:${val};`;
+    }
+    (el as HTMLElement).setAttribute("style", style);
+  };
+
+  apply(root);
+  let n = walker.nextNode();
+  while (n) { apply(n as Element); n = walker.nextNode(); }
 }
 
-function walk(root: HTMLElement, fn: (el: HTMLElement)=>void) {
-  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
-  fn(root);
-  let n = w.nextNode() as HTMLElement | null;
-  while (n) { fn(n); n = w.nextNode() as HTMLElement | null; }
-}
-
-function stripBordersAndShadows(root: HTMLElement) {
-  walk(root, (el) => {
+function stripBordersAndShadowsOnly(root: HTMLElement) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+  const clear = (el: HTMLElement) => {
     const s = el.style;
     s.border = "none";
     s.borderWidth = "0";
@@ -123,65 +159,67 @@ function stripBordersAndShadows(root: HTMLElement) {
     s.boxShadow = "none";
     s.textShadow = "none";
     (s as any)["-webkit-text-stroke"] = "0";
-  });
+  };
+  clear(root);
+  let n = walker.nextNode() as HTMLElement | null;
+  while (n) { clear(n); n = walker.nextNode() as HTMLElement | null; }
 }
 
 function mmToPx(mm: number, ppi = 300) {
   return Math.round((ppi / 25.4) * mm);
 }
 
-const waitRAF = () => new Promise<void>(r => requestAnimationFrame(() => r()));
-
+// -------- Captura --------
 export async function captureTicketPNG(
   node: HTMLElement,
   targetMm?: { w: number; h: number },
   ppi = 300
 ): Promise<string> {
   const { default: domtoimage } = await import("dom-to-image-more");
+  try { await (document as any).fonts?.ready; } catch {}
 
+  // 1) Clonar
   const cloned = node.cloneNode(true) as HTMLElement;
 
-  // canvas → img (QR)
+  // 2) canvas → img (QR)
   cloned.querySelectorAll("canvas").forEach((c) => {
     try {
       const can = c as HTMLCanvasElement;
       const img = document.createElement("img");
       img.src = can.toDataURL("image/png");
       img.width = can.width; img.height = can.height;
-      img.style.width = `${can.width}px`; img.style.height = `${can.height}px`;
+      img.style.width = `${can.width}px`;
+      img.style.height = `${can.height}px`;
       can.replaceWith(img);
     } catch {}
   });
 
-  // 1) INLINE estilos computados (clave para no perder gradiente/colores)
-  inlineComputedStyles(cloned);
+  // 3) Inlinear estilos (prop x prop) — clave para conservar gradientes/colores
+  inlineAllComputedStylesDeep(cloned);
 
-  // 2) Quitar únicamente bordes/sombras/outline (sin tocar background/color)
-  stripBordersAndShadows(cloned);
+  // 4) Quitar sólo bordes/sombras (NO tocar background/color)
+  stripBordersAndShadowsOnly(cloned);
 
-  // Host off-screen
+  // 5) Host offscreen
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;left:-99999px;top:0;z-index:-1;background:#fff;display:inline-block;";
   host.appendChild(cloned);
   document.body.appendChild(host);
 
-  await waitRAF();
+  // 6) Escalado para llenar el slot
+  const r = cloned.getBoundingClientRect();
+  let outW = Math.max(1, Math.round(r.width));
+  let outH = Math.max(1, Math.round(r.height));
 
-  // Medidas y escala para llenar el slot
-  const rect = cloned.getBoundingClientRect();
-  let outW = Math.max(1, Math.round(rect.width));
-  let outH = Math.max(1, Math.round(rect.height));
   if (targetMm) {
     outW = mmToPx(targetMm.w, ppi);
     outH = mmToPx(targetMm.h, ppi);
-    const kx = outW / rect.width;
-    const ky = outH / rect.height;
-    const k = Math.min(kx, ky);
+    const k = Math.min(outW / r.width, outH / r.height);
     cloned.style.transform = `scale(${k})`;
     cloned.style.transformOrigin = "top left";
-    await waitRAF();
   }
 
+  // 7) Captura sin leer cssRules (anti-CORS)
   try {
     const dataUrl = await domtoimage.toPng(cloned, {
       width: outW,
@@ -189,7 +227,7 @@ export async function captureTicketPNG(
       bgcolor: "#ffffff",
       quality: 1,
       cacheBust: true,
-      copyStyles: false, // anti-CORS
+      copyStyles: false, // <- importantísimo, evita SecurityError
       filter: (n) => !(n instanceof HTMLLinkElement || n instanceof HTMLStyleElement),
       style: { background: "#ffffff" },
     });
