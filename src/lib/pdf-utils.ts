@@ -1,242 +1,143 @@
-
 'use client';
 
 import type { jsPDF } from "jspdf";
 
-function detachCrossOriginStyleLinks(): HTMLLinkElement[] {
-  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
-  const detached: HTMLLinkElement[] = [];
-  for (const l of links) {
-    const href = l.getAttribute("href") || "";
-    if (/^https?:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)/i.test(href)) {
-      l.parentElement?.removeChild(l);
-      detached.push(l);
+// -------- Helpers --------
+function inlineAllComputedStylesDeep(root: HTMLElement) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+
+  const keepProps = new Set<string>([
+    // Layout
+    "display","position","top","left","right","bottom","z-index",
+    "box-sizing","width","height","min-width","min-height","max-width","max-height",
+    "padding","padding-top","padding-right","padding-bottom","padding-left",
+    "margin","margin-top","margin-right","margin-bottom","margin-left",
+    "overflow","overflow-x","overflow-y",
+    "transform","transform-origin",
+    "opacity","visibility",
+
+    // Fondo / bordes
+    "background","background-color","background-image","background-size",
+    "background-position","background-repeat","background-clip",
+    "border-radius","border-top-left-radius","border-top-right-radius",
+    "border-bottom-left-radius","border-bottom-right-radius",
+
+    // Texto
+    "color","font","font-family","font-size","font-weight","line-height",
+    "letter-spacing","text-transform","text-decoration","text-align",
+    "white-space","word-break","word-wrap",
+
+    // Imagen
+    "object-fit","object-position",
+
+    // Para gradientes modernos
+    "background-origin","filter"
+  ]);
+
+  const apply = (el: Element) => {
+    const cs = getComputedStyle(el);
+    // serializamos sólo propiedades “confiables”
+    let style = "";
+    for (let i = 0; i < cs.length; i++) {
+      const prop = cs[i];
+      if (prop.startsWith("--")) continue; // ignorar custom props
+      if (!keepProps.has(prop)) continue;
+      const val = cs.getPropertyValue(prop);
+      if (val) style += `${prop}:${val};`;
     }
-  }
-  return detached;
-}
-
-function reattachStyleLinks(links: HTMLLinkElement[]) {
-  const head = document.head || document.getElementsByTagName("head")[0];
-  for (const l of links) head.appendChild(l);
-}
-
-
-/** Quita sombras/bordes durante la captura */
-function applyCaptureStyles(el: HTMLElement) {
-  el.querySelectorAll<HTMLElement>('*').forEach(n => {
-    n.style.boxShadow = 'none';
-    n.style.textShadow = 'none';
-    n.style.outline = 'none';
-    n.style.border = '0'; // quitar cualquier borde
-    n.style.borderImage = 'initial';
-    n.style.backgroundClip = 'padding-box'; // evita “sangrado” de fondos
-  });
-}
-
-
-async function pngToJpegDataUrl(pngDataUrl: string, quality = 0.95): Promise<string> {
-    const img = new Image();
-    img.src = pngDataUrl;
-    await img.decode();
-    const c = document.createElement('canvas');
-    c.width = img.width;
-    c.height = img.height;
-    const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, c.width, c.height);
-    ctx.drawImage(img, 0, 0);
-    return c.toDataURL('image/jpeg', quality);
-}
-
-export async function captureTicketPNG(node: HTMLElement): Promise<string> {
-  const { default: domtoimage } = await import('dom-to-image-more');
-  const removedLinks = detachCrossOriginStyleLinks();
-  const SCALE = 2; 
-
-  try {
-    const cloned = node.cloneNode(true) as HTMLElement;
-
-    cloned.querySelectorAll('canvas').forEach((c) => {
-      try {
-        const can = c as HTMLCanvasElement;
-        const img = document.createElement('img');
-        img.src = can.toDataURL('image/png');
-        img.width = can.width;
-        img.height = can.height;
-        img.style.width = `${can.width}px`;
-        img.style.height = `${can.height}px`;
-        can.replaceWith(img);
-      } catch {}
-    });
-
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = `
-      background:#ffffff;
-      padding:1px;
-      border-radius:18px;
-      display:inline-block;
-    `;
-    wrapper.appendChild(cloned);
-
-    const temp = document.createElement('div');
-    temp.style.cssText = `position:fixed; left:-99999px; top:0; z-index:-1;`;
-    temp.appendChild(wrapper);
-    document.body.appendChild(temp);
-
-    applyCaptureStyles(wrapper);
-
-    const { width, height } = wrapper.getBoundingClientRect();
-
-    const dataUrl = await domtoimage.toPng(wrapper, {
-      cacheBust: true,
-      bgcolor: '#ffffff',
-      copyStyles: false,
-      filter: (n) => !(n instanceof HTMLLinkElement),
-      width: Math.max(1, Math.round(width * SCALE)),
-      height: Math.max(1, Math.round(height * SCALE)),
-      style: {
-        transform: `scale(${SCALE})`,
-        transformOrigin: 'top left',
-        background: '#ffffff',
-      },
-    });
-
-    temp.remove();
-    return dataUrl;
-  } catch (error) {
-    console.error("Error capturando ticket:", error);
-    throw error; // Re-throw para que el caller lo maneje
-  } finally {
-    reattachStyleLinks(removedLinks);
-  }
-}
-
-
-function round2(n: number) {
-  return Math.round(n * 100) / 100;
-}
-
-type GridOptions = {
-    cols: number;
-    rows: number;
-    marginMm: number;
-    gutterXmm: number;
-    gutterYmm: number;
-    orientation: "portrait" | "landscape";
-}
-
-export async function buildPdfFromPngs(
-  pngs: string[],
-  fileName: string,
-  opts?: GridOptions
-) {
-  const { default: jsPDF } = await import('jspdf');
-
-  const options: GridOptions = opts ?? {
-    cols: 1,
-    rows: 3,
-    marginMm: 15,
-    gutterXmm: 0,
-    gutterYmm: 14.5,
-    orientation: "portrait",
+    (el as HTMLElement).setAttribute("style", style);
   };
 
-  const pdf = new jsPDF({ orientation: options.orientation, unit: 'mm', format: 'a4' });
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
-  const ticketsPerPage = options.cols * options.rows;
-
-  const contentW = pageW - options.marginMm * 2;
-  const contentH = pageH - options.marginMm * 2;
-  
-  const cellW = (contentW - (options.cols - 1) * options.gutterXmm) / options.cols;
-  const cellH = (contentH - (options.rows - 1) * options.gutterYmm) / options.rows;
-
-  let ticketIndex = 0;
-
-  for (let page = 0; page < Math.ceil(pngs.length / ticketsPerPage); page++) {
-    if (page > 0) pdf.addPage();
-    
-    for (let i = 0; i < ticketsPerPage; i++) {
-      if (ticketIndex >= pngs.length) break;
-
-      const row = Math.floor(i / options.cols);
-      const col = i % options.cols;
-      
-      const x = options.marginMm + col * (cellW + options.gutterXmm);
-      const y = (options.marginMm + 5) + row * (cellH + options.gutterYmm); // +5mm extra top margin
-
-      const pngData = pngs[ticketIndex];
-      const jpegData = await pngToJpegDataUrl(pngData, 0.95);
-      const imgProps = pdf.getImageProperties(jpegData);
-      
-      const imgAspect = imgProps.width / imgProps.height;
-      
-      let imgW = cellW;
-      let imgH = imgW / imgAspect;
-
-      if (imgH > cellH) {
-          imgH = cellH;
-          imgW = imgH * imgAspect;
-      }
-
-      const imgX = x + (cellW - imgW) / 2;
-      const imgY = y + (cellH - imgH) / 2;
-
-      pdf.addImage(jpegData, 'JPEG', round2(imgX), round2(imgY), round2(imgW), round2(imgH), undefined, 'FAST');
-      
-      ticketIndex++;
-    }
-  }
-
-  pdf.save(fileName);
+  apply(root);
+  let n = walker.nextNode();
+  while (n) { apply(n as Element); n = walker.nextNode(); }
 }
 
-const pad = (n: number) => String(n).padStart(4, "0");
-const slugify = (s: string) =>
-  s.normalize("NFKD").replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
+function stripBordersAndShadowsOnly(root: HTMLElement) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+  const clear = (el: HTMLElement) => {
+    const s = el.style;
+    s.border = "none";
+    s.borderWidth = "0";
+    s.borderColor = "transparent";
+    s.outline = "none";
+    s.boxShadow = "none";
+    s.textShadow = "none";
+    (s as any)["-webkit-text-stroke"] = "0";
+  };
+  clear(root);
+  let n = walker.nextNode() as HTMLElement | null;
+  while (n) { clear(n); n = walker.nextNode() as HTMLElement | null; }
+}
 
+function mmToPx(mm: number, ppi = 300) {
+  return Math.round((ppi / 25.4) * mm);
+}
 
-export async function generateOneBatchPdf(
-  ticketRefs: React.RefObject<HTMLDivElement>[],
-  eventName: string,
-  perFile: number,
-  batchIndex: number
-) {
-  const start = batchIndex * perFile;
-  const end = Math.min(start + perFile, ticketRefs.length);
+// -------- Captura --------
+export async function captureTicketPNG(
+  node: HTMLElement,
+  targetMm?: { w: number; h: number },
+  ppi = 300
+): Promise<string> {
+  const { default: domtoimage } = await import("dom-to-image-more");
+  try { await (document as any).fonts?.ready; } catch {}
 
-  const images: string[] = [];
+  // 1) Clonar
+  const cloned = node.cloneNode(true) as HTMLElement;
+
+  // 2) canvas → img (QR)
+  cloned.querySelectorAll("canvas").forEach((c) => {
+    try {
+      const can = c as HTMLCanvasElement;
+      const img = document.createElement("img");
+      img.src = can.toDataURL("image/png");
+      img.width = can.width; img.height = can.height;
+      img.style.width = `${can.width}px`;
+      img.style.height = `${can.height}px`;
+      can.replaceWith(img);
+    } catch {}
+  });
+
+  // 3) Inlinear estilos (prop x prop) — clave para conservar gradientes/colores
+  inlineAllComputedStylesDeep(cloned);
+
+  // 4) Quitar sólo bordes/sombras (NO tocar background/color)
+  stripBordersAndShadowsOnly(cloned);
+
+  // 5) Host offscreen
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-99999px;top:0;z-index:-1;background:#fff;display:inline-block;";
+  host.appendChild(cloned);
+  document.body.appendChild(host);
+
+  // 6) Escalado para llenar el slot
+  const r = cloned.getBoundingClientRect();
+  let outW = Math.max(1, Math.round(r.width));
+  let outH = Math.max(1, Math.round(r.height));
+
+  if (targetMm) {
+    outW = mmToPx(targetMm.w, ppi);
+    outH = mmToPx(targetMm.h, ppi);
+    const k = Math.min(outW / r.width, outH / r.height);
+    cloned.style.transform = `scale(${k})`;
+    cloned.style.transformOrigin = "top left";
+  }
+
+  // 7) Captura sin leer cssRules (anti-CORS)
   try {
-    for (let i = start; i < end; i++) {
-      const ref = ticketRefs[i];
-      if (!ref?.current) continue;
-      
-      const png = await captureTicketPNG(ref.current);
-      images.push(png);
-      
-      if ((i - start + 1) % 6 === 0) await new Promise(r => setTimeout(r, 60));
-    }
-
-    await new Promise(r => setTimeout(r, 150));
-
-    const base = slugify(eventName);
-    const humanStart = pad(start + 1);
-    const humanEnd = pad(end);
-    const fileName = `${base}_${humanStart}-${humanEnd}.pdf`;
-    
-    await buildPdfFromPngs(images, fileName, {
-        cols: 1,
-        rows: 3,
-        orientation: "portrait",
-        marginMm: 15,
-        gutterXmm: 0,
-        gutterYmm: 14.5,
+    const dataUrl = await domtoimage.toPng(cloned, {
+      width: outW,
+      height: outH,
+      bgcolor: "#ffffff",
+      quality: 1,
+      cacheBust: true,
+      copyStyles: false, // <- importantísimo, evita SecurityError
+      filter: (n) => !(n instanceof HTMLLinkElement || n instanceof HTMLStyleElement),
+      style: { background: "#ffffff" },
     });
-
-  } catch (error) {
-    console.error(`Error generando lote ${batchIndex}:`, error);
-    throw error;
+    return dataUrl;
+  } finally {
+    host.remove();
   }
 }

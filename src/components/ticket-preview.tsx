@@ -3,13 +3,14 @@
 
 import React, { useState, useMemo } from "react";
 import type { GenerationResult, EventParameters } from "@/lib/types";
-import { TicketCard } from "./ticket-card";
+import { TicketCardPrint } from "./ticket-card-print"; // Usar el componente de impresión
 import { Button } from "./ui/button";
 import { Download, ArrowLeft, Loader2, FileDown } from "lucide-react";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/utils";
-import { generateOneBatchPdf } from "@/lib/pdf-utils";
+// Usar la nueva lógica de generación de PDF
+import { captureTicketPNG, buildPdfFromPngsWithTemplate, getPlanoCDRTemplate } from "@/lib/pdf-utils-experimental";
 
 type TicketPreviewProps = {
   result: GenerationResult;
@@ -37,19 +38,42 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
   async function handleBatchClick(batchIdx: number) {
     setRunningBatch(batchIdx);
+    const pdfTemplate = getPlanoCDRTemplate();
+    const slotSize = { w: pdfTemplate.slots[0].w, h: pdfTemplate.slots[0].h };
+
     try {
-      await generateOneBatchPdf(
-        ticketRefs,
-        eventParams.event_name,
-        PER_FILE,
-        batchIdx
-      );
-      toast({ title: "PDF generado", description: `Lote ${batchIdx + 1} listo.` });
+        const start = batchIdx * PER_FILE;
+        const end = Math.min(start + PER_FILE, tickets.length);
+        
+        const ticketsToRender = tickets.slice(start, end);
+        const refsToProcess = ticketRefs.slice(start, end);
+
+        const images: string[] = [];
+        for (let i = 0; i < ticketsToRender.length; i++) {
+          const ref = refsToProcess[i];
+          if (!ref?.current) continue;
+          
+          const png = await captureTicketPNG(ref.current, slotSize, 300);
+          images.push(png);
+          
+          // Pausa para no congelar la UI en lotes grandes
+          if ((i + 1) % 8 === 0) await new Promise(r => setTimeout(r, 40));
+        }
+        
+        await new Promise(r => setTimeout(r, 150));
+
+        const base = eventParams.event_name.normalize("NFKD").replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
+        const humanStart = String(start + 1).padStart(4, "0");
+        const humanEnd = String(end).padStart(4, "0");
+        const fileName = `${base}_${humanStart}-${humanEnd}.pdf`;
+        
+        await buildPdfFromPngsWithTemplate(images, fileName, pdfTemplate);
+
+        toast({ title: "PDF generado", description: `Lote ${batchIdx + 1} listo.` });
     } catch (e: any) {
       console.error("Fallo la generacion del PDF:", e);
       toast({ title: "Error de PDF", description: e?.message ?? String(e), variant: "destructive" });
     } finally {
-      // Este finally asegura que el spinner se detenga incluso si hay un error
       setRunningBatch(null);
     }
   }
@@ -132,7 +156,8 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       <div>
         {tickets.map((ticket, i) => (
           <div key={ticket.ticketId} ref={ticketRefs[i]} className="ticket-print mb-4 flex justify-center">
-             <TicketCard
+             <TicketCardPrint
+                variant="large"
                 eventName={eventParams.event_name}
                 dateTime={eventParams.date_time}
                 venue={eventParams.venue}
