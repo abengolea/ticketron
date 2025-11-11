@@ -69,7 +69,7 @@ export async function buildPdfFromPngsWithTemplate(
     if (i > 0 && idx === 0) pdf.addPage();
 
     const slot = template.slots[idx];
-    const imgJpeg = pngs[i]; // La conversión a JPEG se hace en el handler que llama a esta función
+    const imgJpeg = pngs[i]; // ya viene en JPEG
 
     // 1) “Underpaint” blanco (mata cualquier costura / halo)
     const ux = round2(slot.x - UNDERPAINT);
@@ -96,111 +96,89 @@ export async function buildPdfFromPngsWithTemplate(
 
 // --- HELPERS ---
 
-function walk<T extends HTMLElement>(root: T, fn: (n: HTMLElement) => void) {
+function inlineComputedStyles(root: HTMLElement) {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+  let n = root as HTMLElement;
+  while (n) {
+    const cs = getComputedStyle(n);
+    (n.style as any).cssText = cs.cssText; // inlinéa TODO el estilo computado
+    n = w.nextNode() as HTMLElement;
+  }
+}
+
+function walk(root: HTMLElement, fn: (el: HTMLElement)=>void) {
   const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
   fn(root);
   let n = w.nextNode() as HTMLElement | null;
   while (n) { fn(n); n = w.nextNode() as HTMLElement | null; }
 }
 
-/** Quita TODO rastro de bordes/sombras/outline del clon */
 function stripBordersAndShadows(root: HTMLElement) {
   walk(root, (el) => {
-    const s = (el.style as CSSStyleDeclaration);
+    const s = el.style;
     s.border = "none";
     s.borderWidth = "0";
     s.borderColor = "transparent";
     s.outline = "none";
     s.boxShadow = "none";
     s.textShadow = "none";
-    s.filter = "none";
-    // casos raros que generan “marcos”
     (s as any)["-webkit-text-stroke"] = "0";
-    s.backgroundClip = "padding-box";
   });
 }
 
-/** Fuerza fondos neutros donde haga falta (evita halos) */
-function normalizeBackgrounds(root: HTMLElement) {
-  walk(root, (el) => {
-    // si es contenedor tipo QR o panel derecho, garantizamos blanco sólido
-    if (el.dataset?.printBg === "white") {
-      el.style.background = "#ffffff";
-    }
-  });
-}
-
-
-function inlineComputedStyles(root: HTMLElement) {
-  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
-  let n = root as HTMLElement;
-  while (n) { (n.style as any).cssText = getComputedStyle(n).cssText; n = w.nextNode() as HTMLElement; }
+function mmToPx(mm: number, ppi = 300) {
+  return Math.round((ppi / 25.4) * mm);
 }
 
 const waitRAF = () => new Promise<void>(r => requestAnimationFrame(() => r()));
 
-function mmToPx(mm: number, ppi = 300) {
-  // 1 inch = 25.4 mm → px = (ppi / 25.4) * mm
-  return Math.round((ppi / 25.4) * mm);
-}
-
-/**
- * Captura un ticket SIN bordes y al tamaño deseado.
- * - targetMm: tamaño del slot (mm) para llenar la imagen
- * - ppi: resolución objetivo (300 recomendado)
- */
 export async function captureTicketPNG(
   node: HTMLElement,
   targetMm?: { w: number; h: number },
   ppi = 300
 ): Promise<string> {
-  const { default: domtoimage } = await import('dom-to-image-more');
+  const { default: domtoimage } = await import("dom-to-image-more");
 
-  // 1) clonar
   const cloned = node.cloneNode(true) as HTMLElement;
 
-  // 2) Reemplazar canvas por imágenes (ej. QR)
-  cloned.querySelectorAll('canvas').forEach(c => {
+  // canvas → img (QR)
+  cloned.querySelectorAll("canvas").forEach((c) => {
     try {
       const can = c as HTMLCanvasElement;
-      const img = document.createElement('img');
-      img.src = can.toDataURL('image/png');
+      const img = document.createElement("img");
+      img.src = can.toDataURL("image/png");
       img.width = can.width; img.height = can.height;
       img.style.width = `${can.width}px`; img.style.height = `${can.height}px`;
       can.replaceWith(img);
     } catch {}
   });
-  
-  // 3) Inlinear estilos computados para NO depender de CSS externo
-  inlineComputedStyles(cloned);
-  
-  // 4) Sanitizar estilos para quitar bordes/sombras
-  stripBordersAndShadows(cloned);
-  normalizeBackgrounds(cloned);
 
-  // 5) contenedor offscreen
-  const host = document.createElement('div');
-  host.style.cssText = 'position:fixed;left:-99999px;top:0;z-index:-1;background:#fff;display:inline-block;';
+  // 1) INLINE estilos computados (clave para no perder gradiente/colores)
+  inlineComputedStyles(cloned);
+
+  // 2) Quitar únicamente bordes/sombras/outline (sin tocar background/color)
+  stripBordersAndShadows(cloned);
+
+  // Host off-screen
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-99999px;top:0;z-index:-1;background:#fff;display:inline-block;";
   host.appendChild(cloned);
   document.body.appendChild(host);
+
   await waitRAF();
 
-  // 6) calcular tamaño deseado en px (para llenar sin “aire”)
-  const base = cloned.getBoundingClientRect(); // tamaño en px del DOM real
-  let outW = Math.max(1, Math.round(base.width));
-  let outH = Math.max(1, Math.round(base.height));
-
+  // Medidas y escala para llenar el slot
+  const rect = cloned.getBoundingClientRect();
+  let outW = Math.max(1, Math.round(rect.width));
+  let outH = Math.max(1, Math.round(rect.height));
   if (targetMm) {
-    // queremos una imagen que LLENE exactamente el slot del PDF
     outW = mmToPx(targetMm.w, ppi);
     outH = mmToPx(targetMm.h, ppi);
-
-    // escalar el CLON para que ocupe todo el canvas sin dejar bordes
-    const kx = outW / base.width;
-    const ky = outH / base.height;
-    const k = Math.min(kx, ky); // mantener relación de aspecto del ticket
+    const kx = outW / rect.width;
+    const ky = outH / rect.height;
+    const k = Math.min(kx, ky);
     cloned.style.transform = `scale(${k})`;
-    cloned.style.transformOrigin = 'top left';
+    cloned.style.transformOrigin = "top left";
     await waitRAF();
   }
 
@@ -208,14 +186,27 @@ export async function captureTicketPNG(
     const dataUrl = await domtoimage.toPng(cloned, {
       width: outW,
       height: outH,
-      bgcolor: '#ffffff',
+      bgcolor: "#ffffff",
       quality: 1,
       cacheBust: true,
-      copyStyles: false, // clave → NO leer cssRules
+      copyStyles: false, // anti-CORS
       filter: (n) => !(n instanceof HTMLLinkElement || n instanceof HTMLStyleElement),
-      style: { background: '#ffffff' },
+      style: { background: "#ffffff" },
     });
-    return dataUrl;
+    
+    // Convertir a JPEG para reducir tamaño y asegurar fondo blanco
+    const img = new Image();
+    img.src = dataUrl;
+    await new Promise(resolve => img.onload = resolve);
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+    return canvas.toDataURL('image/jpeg', 0.95);
+
   } finally {
     host.remove();
   }
