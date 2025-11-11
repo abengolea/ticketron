@@ -1,15 +1,14 @@
 
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import type { GenerationResult, EventParameters } from "@/lib/types";
-import { TicketCardPrint } from "./ticket-card-print"; // Usar el componente de impresión
+import { TicketCardPrint } from "./ticket-card-print";
 import { Button } from "./ui/button";
 import { Download, ArrowLeft, Loader2, FileDown } from "lucide-react";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/utils";
-// Usar la nueva lógica de generación de PDF
 import { buildPdfFromPngsWithTemplate, captureTicketPNG, getPlanoCDRTemplate } from "@/lib/pdf-utils";
 import { waitForImagesInContainer } from "@/lib/image-utils";
 
@@ -25,10 +24,9 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const { tickets, eventParams, secretKey } = result;
   const { toast } = useToast();
   
-  const ticketRefs = React.useMemo(
-    () => Array.from({ length: tickets.length }, () => React.createRef<HTMLDivElement>()),
-    [tickets] // Recrear refs solo si los tickets cambian
-  );
+  // Create refs directly. No need for useMemo here as the component re-renders when `tickets` changes.
+  const ticketRefs = React.useRef<React.RefObject<HTMLDivElement>[]>([]);
+  ticketRefs.current = tickets.map((_, i) => ticketRefs.current[i] ?? React.createRef());
   
   const [runningBatch, setRunningBatch] = useState<number | null>(null);
 
@@ -38,6 +36,10 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   );
 
   async function handleBatchClick(batchIdx: number) {
+    // Add a small delay to allow the browser to paint the components.
+    // This is the key to fixing the blank PDF issue on the main page.
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     setRunningBatch(batchIdx);
     const pdfTemplate = getPlanoCDRTemplate();
     const slotSize = { w: pdfTemplate.slots[0].w, h: pdfTemplate.slots[0].h };
@@ -47,20 +49,18 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         const end = Math.min(start + PER_FILE, tickets.length);
         
         const ticketsToRender = tickets.slice(start, end);
-        const refsToProcess = ticketRefs.slice(start, end);
+        const refsToProcess = ticketRefs.current.slice(start, end);
 
         const images: string[] = [];
         for (let i = 0; i < ticketsToRender.length; i++) {
           const ref = refsToProcess[i];
           if (!ref?.current) continue;
           
-          // **CLAVE**: Esperar a que el QR (y otras imgs) estén cargadas
           await waitForImagesInContainer(ref.current);
           
           const png = await captureTicketPNG(ref.current, slotSize, 300);
           images.push(png);
           
-          // Pausa para no congelar la UI en lotes grandes
           if ((i + 1) % 8 === 0) await new Promise(r => setTimeout(r, 40));
         }
         
@@ -93,7 +93,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       "Ticket Number,Short Code,QR Payload,Redeemed",
       ...tickets.map(t => `${t.ticketNumber},${t.shortCode},"${t.qrPayload.replace(/"/g, '""')}",false`)
     ].join("\n");
-    downloadFile("tickets.csv", csvContent, "text/csv;charset=utf-8;");
+    downloadFile("tickets.csv", csvContent, "text/csv;charset=utf-t;");
   };
   
   const handleDownloadJson = () => {
@@ -157,9 +157,10 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             </div>
         </div>
       
-      <div>
+      {/* Hidden container for rendering tickets for capture */}
+      <div className="absolute left-[-9999px] top-0 opacity-0 pointer-events-none">
         {tickets.map((ticket, i) => (
-          <div key={ticket.ticketId} ref={ticketRefs[i]} className="ticket-print mb-4 flex justify-center">
+          <div key={ticket.ticketId} ref={ticketRefs.current[i]} className="ticket-print mb-4 inline-block">
              <TicketCardPrint
                 variant="large"
                 eventName={eventParams.event_name}
@@ -172,6 +173,25 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
           </div>
         ))}
       </div>
+
+      {/* Visible preview for the user (only a few tickets) */}
+      <div className="space-y-4">
+        <h3 className="font-headline text-xl">Previsualización (primeros 3 tickets)</h3>
+        {tickets.slice(0, 3).map((ticket) => (
+          <div key={`preview-${ticket.ticketId}`} className="flex justify-center">
+            <TicketCardPrint
+              variant="large"
+              eventName={eventParams.event_name}
+              dateTime={eventParams.date_time}
+              venue={eventParams.venue}
+              ticketNumber={ticket.ticketNumber}
+              qrPayload={ticket.qrPayload}
+              shortCode={ticket.shortCode}
+            />
+          </div>
+        ))}
+      </div>
+
     </div>
   );
 }
