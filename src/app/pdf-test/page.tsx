@@ -25,7 +25,7 @@ import { TicketCard } from '@/components/ticket-card';
 
 
 const layoutSchema = z.object({
-  scale: z.coerce.number().min(1).max(5).default(3),
+  ppi: z.coerce.number().min(150).max(600).default(300),
   quantity: z.coerce.number().int().positive().max(50).default(20),
 });
 
@@ -45,12 +45,12 @@ function PDFTestPage() {
   
   const formA = useForm<LayoutFormValues>({
     resolver: zodResolver(layoutSchema),
-    defaultValues: { scale: 3, quantity: 3 },
+    defaultValues: { ppi: 300, quantity: 3 },
   });
   
   const formB = useForm<LayoutFormValues>({
     resolver: zodResolver(layoutSchema),
-    defaultValues: { scale: 3, quantity: 8 },
+    defaultValues: { ppi: 300, quantity: 8 },
   });
 
   const quantityA = formA.watch('quantity');
@@ -137,6 +137,9 @@ function PDFTestPage() {
     const ticketsToRender = generationResult.tickets.slice(0, values.quantity);
     
     try {
+        const pdfTemplate = isTemplateB ? getImprentaBTemplate() : getPlanoCDRTemplate();
+        const slotSize = { w: pdfTemplate.slots[0].w, h: pdfTemplate.slots[0].h };
+
         const images: string[] = [];
         for (let i = 0; i < ticketsToRender.length; i++) {
           const ref = currentRefs[i];
@@ -145,15 +148,16 @@ function PDFTestPage() {
             continue;
           }
           
-          const png = await captureTicketPNG(ref.current, values.scale);
+          const png = await captureTicketPNG(ref.current, slotSize, values.ppi);
           images.push(png);
+          
+          if ((i + 1) % 8 === 0) await new Promise(r => setTimeout(r, 40)); // Pausa para no congelar UI
         }
       
         await new Promise(r => setTimeout(r, 150));
 
         const fileName = `TEST_IMPRENTA_${imprenta}_${generationResult.eventParams.event_id}_${values.quantity}_tickets.pdf`;
 
-        const pdfTemplate = isTemplateB ? getImprentaBTemplate() : getPlanoCDRTemplate();
         await buildPdfFromPngsWithTemplate(images, fileName, pdfTemplate);
 
       toast({ title: `PDF de prueba (Imprenta ${imprenta}) generado`, description: "La descarga debería comenzar en breve." });
@@ -205,7 +209,7 @@ function PDFTestPage() {
             <form onSubmit={formA.handleSubmit((values) => handleGeneratePdf(values, 'A'))}>
               <CardContent className="space-y-4 pr-4">
                   <FormField control={formA.control} name="quantity" render={({ field }) => ( <FormItem> <Label>Tickets a Generar</Label> <Input type="number" {...field} /> <FormMessage /> </FormItem> )}/>
-                  <FormField control={formA.control} name="scale" render={({ field }) => ( <FormItem> <Label>Escala de Captura (Calidad)</Label> <Input type="number" step="0.1" {...field} /> <FormDescription>Un valor más alto (ej: 3) genera imágenes más nítidas para impresión.</FormDescription> <FormMessage /> </FormItem> )}/>
+                  <FormField control={formA.control} name="ppi" render={({ field }) => ( <FormItem> <Label>Resolución (PPI)</Label> <Input type="number" step="50" {...field} /> <FormDescription>300 PPI es estándar para impresión. Sube para más nitidez.</FormDescription> <FormMessage /> </FormItem> )}/>
                   <Card className="bg-muted/50"><CardHeader><CardTitle className="text-base">Plantilla Activa</CardTitle></CardHeader><CardContent className="text-xs space-y-2 font-mono">
                       <p>Formato: {templateA.page.format.toUpperCase()} {templateA.page.orientation}</p>
                       <p>Tickets por Hoja: {templateA.slots.length}</p>
@@ -242,7 +246,7 @@ function PDFTestPage() {
             <form onSubmit={formB.handleSubmit((values) => handleGeneratePdf(values, 'B'))}>
               <CardContent className="space-y-4 pr-4">
                   <FormField control={formB.control} name="quantity" render={({ field }) => ( <FormItem> <Label>Tickets a Generar</Label> <Input type="number" {...field} /> <FormMessage /> </FormItem> )}/>
-                  <FormField control={formB.control} name="scale" render={({ field }) => ( <FormItem> <Label>Escala de Captura (Calidad)</Label> <Input type="number" step="0.1" {...field} /> <FormDescription>Un valor más alto (ej: 3) genera imágenes más nítidas para impresión.</FormDescription> <FormMessage /> </FormItem> )}/>
+                  <FormField control={formB.control} name="ppi" render={({ field }) => ( <FormItem> <Label>Resolución (PPI)</Label> <Input type="number" step="50" {...field} /> <FormDescription>300 PPI es estándar para impresión. Sube para más nitidez.</FormDescription> <FormMessage /> </FormItem> )}/>
                   <Card className="bg-muted/50"><CardHeader><CardTitle className="text-base">Plantilla Activa</CardTitle></CardHeader><CardContent className="text-xs space-y-2 font-mono">
                       <p>Formato: {templateB.page.format.toUpperCase()} {templateB.page.orientation}</p>
                       <p>Tickets por Hoja: {templateB.slots.length}</p>

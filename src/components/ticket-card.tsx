@@ -20,7 +20,7 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
   
   const isSmall = variant === 'small';
 
-  // Equivalencias:
+  // Equivalencias en PX para un renderizado fiel en pantalla (aprox 96 DPI)
   // Large: 180x65mm -> ~680x245px
   // Small: 145x50mm -> ~550x190px
 

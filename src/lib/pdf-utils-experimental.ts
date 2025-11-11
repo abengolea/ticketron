@@ -109,83 +109,87 @@ export async function buildPdfFromPngsWithTemplate(
 
 // --- HELPERS ---
 
-// --- helpers nuevos ---
 function inlineComputedStyles(root: HTMLElement) {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
-  let node = root as HTMLElement;
-  while (node) {
-    const cs = window.getComputedStyle(node);
-    // Copiamos TODA la regla computada (rápido y efectivo)
-    (node.style as any).cssText = cs.cssText; // cssText está soportado en Chromium
-    node = walker.nextNode() as HTMLElement;
-  }
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+  let n = root as HTMLElement;
+  while (n) { (n.style as any).cssText = getComputedStyle(n).cssText; n = w.nextNode() as HTMLElement; }
 }
 
-function waitRAF() {
-  return new Promise<void>(r => requestAnimationFrame(() => r()));
+const waitRAF = () => new Promise<void>(r => requestAnimationFrame(() => r()));
+
+function mmToPx(mm: number, ppi = 300) {
+  // 1 inch = 25.4 mm → px = (ppi / 25.4) * mm
+  return Math.round((ppi / 25.4) * mm);
 }
 
-// --- reemplazar tu captureTicketPNG por esta versión ---
-export async function captureTicketPNG(node: HTMLElement, scale = 3): Promise<string> {
+/**
+ * Captura un ticket SIN bordes y al tamaño deseado.
+ * - targetMm: tamaño del slot (mm) para llenar la imagen
+ * - ppi: resolución objetivo (300 recomendado)
+ */
+export async function captureTicketPNG(
+  node: HTMLElement,
+  targetMm?: { w: number; h: number },
+  ppi = 300
+): Promise<string> {
   const { default: domtoimage } = await import('dom-to-image-more');
 
-  // 1) Asegurar fuentes listas (siempre que existan)
-  try { await (document as any).fonts?.ready; } catch {}
-
-  // 2) Clonar el nodo para trabajar aislado
+  // 1) clonar + inlinear estilos
   const cloned = node.cloneNode(true) as HTMLElement;
 
-  // 3) Reemplazar canvas por imágenes (ej. QR)
-  cloned.querySelectorAll('canvas').forEach((c) => {
+  // reemplazar canvas → img (QR)
+  cloned.querySelectorAll('canvas').forEach(c => {
     try {
       const can = c as HTMLCanvasElement;
       const img = document.createElement('img');
       img.src = can.toDataURL('image/png');
-      img.width = can.width;
-      img.height = can.height;
-      img.style.width = `${can.width}px`;
-      img.style.height = `${can.height}px`;
+      img.width = can.width; img.height = can.height;
+      img.style.width = `${can.width}px`; img.style.height = `${can.height}px`;
       can.replaceWith(img);
     } catch {}
   });
 
-  // 4) Inlinear estilos computados para NO depender de CSS externo
   inlineComputedStyles(cloned);
 
-  // 5) Contenedor off-screen con fondo blanco
-  const wrapper = document.createElement('div');
-  wrapper.style.cssText = `
-    position: fixed; left: -99999px; top: 0; z-index: -1;
-    background: #ffffff; padding: 1px; display: inline-block;
-  `;
-  wrapper.appendChild(cloned);
-  document.body.appendChild(wrapper);
+  // 2) contenedor offscreen
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:-99999px;top:0;z-index:-1;background:#fff;display:inline-block;';
+  host.appendChild(cloned);
+  document.body.appendChild(host);
+  await waitRAF();
 
-  await waitRAF(); // asegurar layout
-  const rect = cloned.getBoundingClientRect();
-  const outW = Math.max(1, Math.round(rect.width * scale));
-  const outH = Math.max(1, Math.round(rect.height * scale));
+  // 3) calcular tamaño deseado en px (para llenar sin “aire”)
+  const base = cloned.getBoundingClientRect(); // tamaño en px del DOM real
+  let outW = Math.max(1, Math.round(base.width));
+  let outH = Math.max(1, Math.round(base.height));
+
+  if (targetMm) {
+    // queremos una imagen que LLENE exactamente el slot del PDF
+    outW = mmToPx(targetMm.w, ppi);
+    outH = mmToPx(targetMm.h, ppi);
+
+    // escalar el CLON para que ocupe todo el canvas sin dejar bordes
+    const kx = outW / base.width;
+    const ky = outH / base.height;
+    const k = Math.min(kx, ky);                   // mantener relación de aspecto del ticket
+    cloned.style.transform = `scale(${k})`;
+    cloned.style.transformOrigin = 'top left';
+    await waitRAF();
+  }
 
   try {
-    const dataUrl = await domtoimage.toPng(wrapper, {
-      // CLAVE: NO copiar hojas de estilo → evita leer document.styleSheets
-      copyStyles: false,
-      // Evitar que se cuele un <link>/<style> residual
-      filter: (n) => !(n instanceof HTMLLinkElement || n instanceof HTMLStyleElement),
+    const dataUrl = await domtoimage.toPng(cloned, {
       width: outW,
       height: outH,
-      quality: 1,
       bgcolor: '#ffffff',
-      style: {
-        background: '#ffffff',
-        transform: 'scale(1)',
-        transformOrigin: 'top left'
-      },
+      quality: 1,
       cacheBust: true,
+      copyStyles: false,                                   // clave → NO leer cssRules
+      filter: (n) => !(n instanceof HTMLLinkElement || n instanceof HTMLStyleElement),
+      style: { background: '#ffffff' },
     });
-
     return dataUrl;
   } finally {
-    wrapper.remove();
+    host.remove();
   }
 }
