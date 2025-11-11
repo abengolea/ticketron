@@ -46,32 +46,6 @@ export function getImprentaBTemplate(): ImprentaTemplate {
 
 function round2(n: number) { return Math.round(n * 100) / 100; }
 
-async function pngToJpegDataUrl(pngDataUrl: string, quality = 0.95): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const c = document.createElement("canvas");
-        c.width = img.width; c.height = img.height;
-        const ctx = c.getContext("2d");
-        if (!ctx) {
-            reject(new Error("Could not get 2D context from canvas."));
-            return;
-        }
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, c.width, c.height);
-        ctx.drawImage(img, 0, 0);
-        resolve(c.toDataURL("image/jpeg", quality));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    img.onerror = (e) => reject(e);
-    img.src = pngDataUrl;
-  });
-}
-
-
 export async function buildPdfFromPngsWithTemplate(
   pngs: string[],
   fileName: string,
@@ -84,28 +58,41 @@ export async function buildPdfFromPngsWithTemplate(
     orientation: template.page.orientation,
   });
 
+  // Ajustes anti-hairline (en mm)
+  const UNDERPAINT = 0.15; // pinta fondo blanco un poquito más grande
+  const BLEED     = 0.25;  // agranda la imagen para que se solape
+
   const perPage = template.slots.length;
+
   for (let i = 0; i < pngs.length; i++) {
-    const idxInPage = i % perPage;
-    if (i > 0 && idxInPage === 0) pdf.addPage();
+    const idx = i % perPage;
+    if (i > 0 && idx === 0) pdf.addPage();
 
-    const slot = template.slots[idxInPage];
-    const img = await pngToJpegDataUrl(pngs[i], 0.95);
+    const slot = template.slots[idx];
+    const imgJpeg = pngs[i]; // La conversión a JPEG se hace en el handler que llama a esta función
 
-    pdf.addImage(
-      img,
-      "JPEG",
-      round2(slot.x),
-      round2(slot.y),
-      round2(slot.w),
-      round2(slot.h),
-      undefined,
-      "FAST"
-    );
+    // 1) “Underpaint” blanco (mata cualquier costura / halo)
+    const ux = round2(slot.x - UNDERPAINT);
+    const uy = round2(slot.y - UNDERPAINT);
+    const uw = round2(slot.w + UNDERPAINT * 2);
+    const uh = round2(slot.h + UNDERPAINT * 2);
+
+    pdf.setDrawColor(255, 255, 255);
+    pdf.setFillColor(255, 255, 255);
+    pdf.rect(ux, uy, uw, uh, "F");
+
+    // 2) Imagen con pequeño BLEED (invade bordes del slot)
+    const ix = round2(slot.x - BLEED);
+    const iy = round2(slot.y - BLEED);
+    const iw = round2(slot.w + BLEED * 2);
+    const ih = round2(slot.h + BLEED * 2);
+
+    pdf.addImage(imgJpeg, "JPEG", ix, iy, iw, ih, undefined, "FAST");
   }
 
   pdf.save(fileName);
 }
+
 
 // --- HELPERS ---
 
