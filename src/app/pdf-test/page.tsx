@@ -14,7 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import type { GenerationResult, EventParameters } from '@/lib/types';
 import { createHmacSha256 } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { buildPdfFromPngsWithTemplate, captureTicketPNG, getPlanoCDRTemplate, getImprentaBTemplate } from '@/lib/pdf-utils-experimental';
+import { buildPdfFromPngsWithTemplate, captureTicketPNG, getPlanoCDRTemplate, getImprentaBTemplate } from '@/lib/pdf-utils';
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
