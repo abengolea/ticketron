@@ -10,11 +10,48 @@ import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Camera, CheckCircle2, KeyRound, Loader2, RotateCcw, XCircle, AlertTriangle } from "lucide-react";
-import { createHmacSha256 } from "@/lib/utils";
 import type { Html5Qrcode } from "html5-qrcode";
 
+
 // --- START: Core logic safely re-implemented inside the component ---
-// These classes are defined here to ensure they are NEVER part of the server-side bundle.
+
+// Correct implementation for Base64 to ArrayBuffer conversion for Web Crypto API
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+    const binaryString = atob(base64); // `atob` is fine here as we are reversing a `btoa` string
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+// Correct HMAC function using Web Crypto API
+async function createHmacSha256(secret: string, data: string): Promise<string> {
+    if (typeof window === 'undefined') return '';
+    
+    const secretKeyData = base64ToArrayBuffer(secret);
+    const dataToSign = new TextEncoder().encode(data);
+
+    const key = await window.crypto.subtle.importKey(
+        'raw',
+        secretKeyData,
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+    );
+
+    const signature = await window.crypto.subtle.sign('HMAC', key, dataToSign);
+
+    // Take the first 12 bytes of the signature
+    const truncatedSignature = signature.slice(0, 12);
+    
+    // Convert to Base64 and make it URL-safe
+    // `btoa` is the reverse of `atob`, converting binary string to base64
+    const base64Signature = btoa(String.fromCharCode(...new Uint8Array(truncatedSignature)));
+    return base64Signature.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
 
 class StorageAdapter {
     private lsKey = "tickets.registry.v1";
@@ -354,3 +391,5 @@ export function TicketValidator() {
     </Card>
   );
 }
+
+    
