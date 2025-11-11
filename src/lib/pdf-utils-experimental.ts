@@ -96,6 +96,41 @@ export async function buildPdfFromPngsWithTemplate(
 
 // --- HELPERS ---
 
+function walk<T extends HTMLElement>(root: T, fn: (n: HTMLElement) => void) {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+  fn(root);
+  let n = w.nextNode() as HTMLElement | null;
+  while (n) { fn(n); n = w.nextNode() as HTMLElement | null; }
+}
+
+/** Quita TODO rastro de bordes/sombras/outline del clon */
+function stripBordersAndShadows(root: HTMLElement) {
+  walk(root, (el) => {
+    const s = (el.style as CSSStyleDeclaration);
+    s.border = "none";
+    s.borderWidth = "0";
+    s.borderColor = "transparent";
+    s.outline = "none";
+    s.boxShadow = "none";
+    s.textShadow = "none";
+    s.filter = "none";
+    // casos raros que generan “marcos”
+    (s as any)["-webkit-text-stroke"] = "0";
+    s.backgroundClip = "padding-box";
+  });
+}
+
+/** Fuerza fondos neutros donde haga falta (evita halos) */
+function normalizeBackgrounds(root: HTMLElement) {
+  walk(root, (el) => {
+    // si es contenedor tipo QR o panel derecho, garantizamos blanco sólido
+    if (el.dataset?.printBg === "white") {
+      el.style.background = "#ffffff";
+    }
+  });
+}
+
+
 function inlineComputedStyles(root: HTMLElement) {
   const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
   let n = root as HTMLElement;
@@ -121,10 +156,10 @@ export async function captureTicketPNG(
 ): Promise<string> {
   const { default: domtoimage } = await import('dom-to-image-more');
 
-  // 1) clonar + inlinear estilos
+  // 1) clonar
   const cloned = node.cloneNode(true) as HTMLElement;
 
-  // reemplazar canvas → img (QR)
+  // 2) Reemplazar canvas por imágenes (ej. QR)
   cloned.querySelectorAll('canvas').forEach(c => {
     try {
       const can = c as HTMLCanvasElement;
@@ -135,17 +170,22 @@ export async function captureTicketPNG(
       can.replaceWith(img);
     } catch {}
   });
-
+  
+  // 3) Inlinear estilos computados para NO depender de CSS externo
   inlineComputedStyles(cloned);
+  
+  // 4) Sanitizar estilos para quitar bordes/sombras
+  stripBordersAndShadows(cloned);
+  normalizeBackgrounds(cloned);
 
-  // 2) contenedor offscreen
+  // 5) contenedor offscreen
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-99999px;top:0;z-index:-1;background:#fff;display:inline-block;';
   host.appendChild(cloned);
   document.body.appendChild(host);
   await waitRAF();
 
-  // 3) calcular tamaño deseado en px (para llenar sin “aire”)
+  // 6) calcular tamaño deseado en px (para llenar sin “aire”)
   const base = cloned.getBoundingClientRect(); // tamaño en px del DOM real
   let outW = Math.max(1, Math.round(base.width));
   let outH = Math.max(1, Math.round(base.height));
@@ -158,7 +198,7 @@ export async function captureTicketPNG(
     // escalar el CLON para que ocupe todo el canvas sin dejar bordes
     const kx = outW / base.width;
     const ky = outH / base.height;
-    const k = Math.min(kx, ky);                   // mantener relación de aspecto del ticket
+    const k = Math.min(kx, ky); // mantener relación de aspecto del ticket
     cloned.style.transform = `scale(${k})`;
     cloned.style.transformOrigin = 'top left';
     await waitRAF();
@@ -171,7 +211,7 @@ export async function captureTicketPNG(
       bgcolor: '#ffffff',
       quality: 1,
       cacheBust: true,
-      copyStyles: false,                                   // clave → NO leer cssRules
+      copyStyles: false, // clave → NO leer cssRules
       filter: (n) => !(n instanceof HTMLLinkElement || n instanceof HTMLStyleElement),
       style: { background: '#ffffff' },
     });

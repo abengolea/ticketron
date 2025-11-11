@@ -110,10 +110,12 @@ export function TicketCardPrint({
       {/* Panel derecho (QR + short code) — TODO plano, sin shadow */}
       <div
         className={cn("w-1/4 flex flex-col items-center justify-center", isSmall ? "p-2" : "p-3")}
+        data-print-bg="white"
         style={{ background: "#fff", border: "none", boxShadow: "none" }}
       >
         <div
           className="w-full aspect-square flex items-center justify-center"
+          data-print-bg="white"
           style={{ background: "#fff", border: "none", boxShadow: "none", padding: isSmall ? 4 : 6, borderRadius: 8 }}
         >
           {qrLoading && <Skeleton className="w-full h-full" />}
