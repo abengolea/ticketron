@@ -26,7 +26,9 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   
   // Create refs directly. No need for useMemo here as the component re-renders when `tickets` changes.
   const ticketRefs = React.useRef<React.RefObject<HTMLDivElement>[]>([]);
-  ticketRefs.current = tickets.map((_, i) => ticketRefs.current[i] ?? React.createRef());
+  if (ticketRefs.current.length !== tickets.length) {
+    ticketRefs.current = tickets.map((_, i) => ticketRefs.current[i] ?? React.createRef());
+  }
   
   const [runningBatch, setRunningBatch] = useState<number | null>(null);
 
