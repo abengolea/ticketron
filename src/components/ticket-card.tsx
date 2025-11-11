@@ -20,6 +20,10 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
   
   const isSmall = variant === 'small';
 
+  // Equivalencias:
+  // Large: 180x65mm -> ~680x245px
+  // Small: 145x50mm -> ~550x190px
+
   const qrSize = isSmall ? 140 : 200;
   const { dataUrl: qrBase64, error: qrError } = useQRAsBase64(qrPayload, { size: qrSize, margin: 1 });
   const qrLoading = !qrBase64 && !qrError;
@@ -28,7 +32,7 @@ export function TicketCard({ eventName, dateTime, venue, ticketNumber, qrPayload
     <div
       className={cn(
         "ticket-card flex bg-gray-900 text-white shadow-lg rounded-xl overflow-hidden",
-        isSmall ? "w-[145mm] h-[50mm]" : "w-[180mm] h-[65mm]"
+        isSmall ? "w-[550px] h-[190px]" : "w-[680px] h-[245px]"
       )}
     >
       {/* Sección Izquierda - Información del Evento */}
