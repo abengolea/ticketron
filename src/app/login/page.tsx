@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useAuth, useUser } from '@/firebase';
-import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,27 +27,13 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-
 
 const loginSchema = z.object({
   email: z.string().email('Introduce un email válido.'),
   password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres.'),
 });
 
-const registerSchema = z.object({
-    email: z.string().email('Introduce un email válido.'),
-    password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres.'),
-    confirmPassword: z.string()
-}).refine(data => data.password === data.confirmPassword, {
-    message: "Las contraseñas no coinciden.",
-    path: ["confirmPassword"]
-});
-
-
 type LoginFormValues = z.infer<typeof loginSchema>;
-type RegisterFormValues = z.infer<typeof registerSchema>;
 
 const GoogleIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48" {...props}>
@@ -69,11 +55,6 @@ export default function LoginPage() {
   const loginForm = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: '', password: '' },
-  });
-
-  const registerForm = useForm<RegisterFormValues>({
-    resolver: zodResolver(registerSchema),
-    defaultValues: { email: '', password: '', confirmPassword: '' },
   });
 
   useEffect(() => {
@@ -100,25 +81,6 @@ export default function LoginPage() {
     }
   }
 
-  async function onRegisterSubmit(values: RegisterFormValues) {
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      await createUserWithEmailAndPassword(auth, values.email, values.password);
-      toast({ title: 'Éxito', description: 'Tu cuenta ha sido creada. Has iniciado sesión.' });
-      router.push('/history');
-    } catch (e: any) {
-      const errorMessage =
-        e.code === 'auth/email-already-in-use'
-          ? 'Este email ya está registrado. Intenta iniciar sesión.'
-          : e.message;
-      setError(errorMessage);
-    } finally {
-        setIsSubmitting(false);
-    }
-  }
-
-
   async function handleGoogleSignIn() {
     setIsSubmitting(true);
     setError(null);
@@ -130,7 +92,7 @@ export default function LoginPage() {
     } catch (e: any) {
         let errorMessage = e.message;
         if (e.code === 'auth/unauthorized-domain') {
-            errorMessage = 'Este dominio no está autorizado para iniciar sesión con Google. Por favor, añade este dominio a la lista de "Dominios autorizados" en la configuración de Authentication de tu proyecto de Firebase.';
+            errorMessage = 'Este dominio no está autorizado para iniciar sesión. Por favor, añade el dominio a la lista de "Dominios autorizados" en la configuración de Authentication de tu proyecto de Firebase.';
         }
         setError(errorMessage);
         toast({
@@ -157,13 +119,13 @@ export default function LoginPage() {
         <CardHeader className="text-center">
           <CardTitle>Acceso de Administrador</CardTitle>
           <CardDescription>
-            Gestiona tus eventos y tickets.
+            Introduce tus credenciales para gestionar los eventos.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
             <Button variant="outline" className="w-full" onClick={handleGoogleSignIn} disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GoogleIcon className="mr-2 h-4 w-4" />}
-                Continuar con Google
+                Iniciar Sesión con Google
             </Button>
             
             <div className="relative">
@@ -174,82 +136,35 @@ export default function LoginPage() {
                     <span className="bg-card px-2 text-muted-foreground">O continúa con email</span>
                 </div>
             </div>
-
-            <Tabs defaultValue="login" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="login">Iniciar Sesión</TabsTrigger>
-                    <TabsTrigger value="register">Registrarse</TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="login" className="pt-4">
-                     {error && (
-                        <Alert variant="destructive" className="mb-4">
-                            <AlertTitle>Error</AlertTitle>
-                            <AlertDescription>{error}</AlertDescription>
-                        </Alert>
-                    )}
-                    <Form {...loginForm}>
-                        <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
-                            <FormField control={loginForm.control} name="email" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Email</FormLabel>
-                                    <FormControl><Input type="email" placeholder="admin@ejemplo.com" {...field} disabled={isSubmitting} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}/>
-                            <FormField control={loginForm.control} name="password" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Contraseña</FormLabel>
-                                    <FormControl><Input type="password" placeholder="••••••••" {...field} disabled={isSubmitting} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}/>
-                            <Button type="submit" className="w-full" disabled={isSubmitting}>
-                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Iniciar Sesión
-                            </Button>
-                        </form>
-                    </Form>
-                </TabsContent>
-                
-                <TabsContent value="register" className="pt-4">
-                    {error && (
-                        <Alert variant="destructive" className="mb-4">
-                            <AlertTitle>Error</AlertTitle>
-                            <AlertDescription>{error}</AlertDescription>
-                        </Alert>
-                    )}
-                    <Form {...registerForm}>
-                        <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-4">
-                            <FormField control={registerForm.control} name="email" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Email</FormLabel>
-                                    <FormControl><Input type="email" placeholder="usuario@ejemplo.com" {...field} disabled={isSubmitting} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}/>
-                             <FormField control={registerForm.control} name="password" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Contraseña</FormLabel>
-                                    <FormControl><Input type="password" placeholder="••••••••" {...field} disabled={isSubmitting} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}/>
-                            <FormField control={registerForm.control} name="confirmPassword" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Confirmar Contraseña</FormLabel>
-                                    <FormControl><Input type="password" placeholder="••••••••" {...field} disabled={isSubmitting} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}/>
-                            <Button type="submit" className="w-full" disabled={isSubmitting}>
-                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Crear Cuenta
-                            </Button>
-                        </form>
-                    </Form>
-                </TabsContent>
-            </Tabs>
+            
+            {error && (
+              <Alert variant="destructive">
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            <Form {...loginForm}>
+                <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
+                    <FormField control={loginForm.control} name="email" render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Email</FormLabel>
+                            <FormControl><Input type="email" placeholder="admin@ejemplo.com" {...field} disabled={isSubmitting} /></FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}/>
+                    <FormField control={loginForm.control} name="password" render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Contraseña</FormLabel>
+                            <FormControl><Input type="password" placeholder="••••••••" {...field} disabled={isSubmitting} /></FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}/>
+                    <Button type="submit" className="w-full" disabled={isSubmitting}>
+                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Iniciar Sesión
+                    </Button>
+                </form>
+            </Form>
         </CardContent>
       </Card>
     </div>
