@@ -10,7 +10,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/comp
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/utils";
 // Usar la nueva lógica de generación de PDF
-import { captureTicketPNG, buildPdfFromPngsWithTemplate, getPlanoCDRTemplate } from "@/lib/pdf-utils-experimental";
+import { captureTicketPNG, buildPdfFromPngsWithTemplate, getPlanoCDRTemplate } from "@/lib/pdf-utils";
 
 type TicketPreviewProps = {
   result: GenerationResult;
@@ -26,7 +26,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   
   const ticketRefs = React.useMemo(
     () => Array.from({ length: tickets.length }, () => React.createRef<HTMLDivElement>()),
-    [tickets]
+    [tickets] // Recrear refs solo si los tickets cambian
   );
   
   const [runningBatch, setRunningBatch] = useState<number | null>(null);

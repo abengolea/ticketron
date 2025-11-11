@@ -15,16 +15,19 @@ function GeneratorPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const handleGeneration = (result: GenerationResult | null, error: string | null) => {
+    setIsLoading(false); // Importante: detener el loader aquí
     setGenerationResult(result);
     setError(error);
   };
 
+  // Si ya tenemos un resultado, solo mostramos la previsualización
   if (generationResult) {
     return <TicketPreview result={generationResult} />;
   }
-
+  
   return (
     <div className="max-w-4xl mx-auto">
+      {/* El título se muestra siempre, a menos que ya tengamos resultado */}
       <div className="text-center mb-8">
         <h1 className="text-4xl font-headline text-primary">Generador de Tickets</h1>
         <p className="text-muted-foreground mt-2">
@@ -32,6 +35,7 @@ function GeneratorPage() {
         </p>
       </div>
 
+      {/* Loader centralizado */}
       {isLoading && (
         <div className="flex justify-center items-center my-8">
           <div className="flex flex-col items-center gap-4">
@@ -43,6 +47,7 @@ function GeneratorPage() {
         </div>
       )}
 
+      {/* Mensaje de error */}
       {error && !isLoading && (
         <Alert variant="destructive" className="mb-8">
           <AlertTitle>Error en la Generación</AlertTitle>
@@ -50,12 +55,14 @@ function GeneratorPage() {
         </Alert>
       )}
 
-      <div className={isLoading ? "hidden" : ""}>
+      {/* El formulario solo se muestra si NO estamos cargando */}
+      {!isLoading && (
         <TicketForm onGenerate={handleGeneration} setIsLoading={setIsLoading} />
-      </div>
+      )}
     </div>
   );
 }
+
 
 export default function Home() {
     return (
