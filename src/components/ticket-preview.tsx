@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCardPrint } from "./ticket-card-print";
 import { Button } from "./ui/button";
@@ -12,8 +12,9 @@ import { downloadFile } from "@/lib/utils";
 import { buildPdfFromPngsWithTemplate, captureTicketPNG, getPlanoCDRTemplate, getImprentaBTemplate } from "@/lib/pdf-utils";
 import { waitForImagesInContainer } from "@/lib/image-utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Label } from "./ui/label";
 import JSZip from "jszip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
+import { Progress } from "./ui/progress";
 
 type TicketPreviewProps = {
   result: GenerationResult;
@@ -38,6 +39,10 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   const [runningBatch, setRunningBatch] = useState<number | null>(null);
   const [isZipping, setIsZipping] = useState(false);
   const [template, setTemplate] = useState<"A" | "B">("A");
+  
+  // Estados para el progreso del ZIP
+  const [progressMessage, setProgressMessage] = useState("");
+  const [progressPercent, setProgressPercent] = useState(0);
 
   const batches = Math.ceil(tickets.length / PER_FILE);
 
@@ -102,17 +107,23 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
   const handleDownloadAllAsZip = async () => {
     setIsZipping(true);
-    toast({ title: "Iniciando empaquetado ZIP", description: `Generando ${batches} archivos PDF. Esto puede tardar varios minutos.`});
-
+    setProgressMessage("Iniciando...");
+    setProgressPercent(0);
+    
     try {
         const zip = new JSZip();
         for (let i = 0; i < batches; i++) {
-            toast({ description: `Generando lote ${i+1} de ${batches}...`});
+            const progress = Math.round(((i) / batches) * 100);
+            setProgressPercent(progress);
+            setProgressMessage(`Generando lote de PDFs ${i+1} de ${batches}...`);
+
             const { fileName, blob } = await generatePdfBlob(i);
             zip.file(fileName, blob);
         }
 
-        toast({ description: "Comprimiendo archivos... por favor espera."});
+        setProgressPercent(95);
+        setProgressMessage("Comprimiendo archivos en formato ZIP...");
+
         const zipBlob = await zip.generateAsync({type:"blob"});
         
         const zipFileName = `${eventParams.event_id}_ALL_TICKETS.zip`;
@@ -124,14 +135,19 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-
+        
+        setProgressPercent(100);
+        setProgressMessage("¡Completado!");
         toast({ title: "¡Éxito!", description: "El archivo ZIP con todos los tickets ha sido descargado." });
 
     } catch(e: any) {
         console.error("Fallo la generacion del ZIP:", e);
         toast({ title: "Error al generar el ZIP", description: e?.message ?? String(e), variant: "destructive" });
     } finally {
-        setIsZipping(false);
+        // Dejar el diálogo de éxito un momento antes de cerrarlo
+        setTimeout(() => {
+            setIsZipping(false);
+        }, 1500);
     }
   }
 
@@ -162,6 +178,22 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
 
   return (
     <div className="w-full">
+        <Dialog open={isZipping}>
+          <DialogContent showCloseButton={false}>
+            <DialogHeader>
+              <DialogTitle>Generando Archivo ZIP</DialogTitle>
+              <DialogDescription>
+                Este proceso puede tardar varios minutos. Por favor, no cierres esta pestaña.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 pt-4">
+                <Progress value={progressPercent} className="w-full" />
+                <p className="text-sm text-center text-muted-foreground">{progressMessage}</p>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+
         <div className="no-print bg-card/80 backdrop-blur-sm border rounded-lg p-4 mb-8 flex flex-wrap justify-between items-center gap-4 sticky top-[70px] z-40">
             <div>
               <h2 className="text-2xl font-headline">{isRegeneration ? 'Detalles del Evento' : '¡Generación Completa!'}</h2>
@@ -285,3 +317,5 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
     </div>
   );
 }
+
+    
