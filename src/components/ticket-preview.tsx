@@ -5,7 +5,7 @@ import React, { useState, useEffect } from "react";
 import type { GenerationResult, EventParameters } from "@/lib/types";
 import { TicketCardPrint } from "./ticket-card-print";
 import { Button } from "./ui/button";
-import { Download, ArrowLeft, Loader2, FileDown } from "lucide-react";
+import { Download, ArrowLeft, Loader2, FileDown, Archive } from "lucide-react";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/utils";
@@ -13,6 +13,7 @@ import { buildPdfFromPngsWithTemplate, captureTicketPNG, getPlanoCDRTemplate, ge
 import { waitForImagesInContainer } from "@/lib/image-utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Label } from "./ui/label";
+import JSZip from "jszip";
 
 type TicketPreviewProps = {
   result: GenerationResult;
@@ -35,53 +36,62 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
   }
   
   const [runningBatch, setRunningBatch] = useState<number | null>(null);
+  const [isZipping, setIsZipping] = useState(false);
   const [template, setTemplate] = useState<"A" | "B">("A");
 
   const batches = Math.ceil(tickets.length / PER_FILE);
 
-  async function handleBatchClick(batchIdx: number) {
-    setRunningBatch(batchIdx);
-    
-    // Pequeña pausa para que el estado se actualice y el loader aparezca
-    await new Promise(resolve => setTimeout(resolve, 50));
-
+  const generatePdfBlob = async (batchIndex: number): Promise<{fileName: string, blob: Blob}> => {
     const isTemplateB = template === 'B';
     const pdfTemplate = isTemplateB ? getImprentaBTemplate() : getPlanoCDRTemplate();
     const ticketRefsToUse = isTemplateB ? ticketRefsSmall.current : ticketRefsLarge.current;
     const slotSize = { w: pdfTemplate.slots[0].w, h: pdfTemplate.slots[0].h };
 
+    const start = batchIndex * PER_FILE;
+    const end = Math.min(start + PER_FILE, tickets.length);
+    
+    const ticketsToRender = tickets.slice(start, end);
+    const refsToProcess = ticketRefsToUse.slice(start, end);
+
+    const images: string[] = [];
+    for (let i = 0; i < ticketsToRender.length; i++) {
+      const ref = refsToProcess[i];
+      if (!ref?.current) continue;
+      await waitForImagesInContainer(ref.current);
+      const png = await captureTicketPNG(ref.current, slotSize, 300);
+      images.push(png);
+      if ((i + 1) % 8 === 0) await new Promise(r => setTimeout(r, 40));
+    }
+    
+    await new Promise(r => setTimeout(r, 150));
+
+    const baseName = eventParams.event_id.normalize("NFKD").replace(/[^\w-]+/g, "_");
+    const humanStart = String(start + 1).padStart(4, "0");
+    const humanEnd = String(end).padStart(4, "0");
+    const fileName = `${baseName}_${humanStart}-${humanEnd}_TPL-${template}.pdf`;
+    
+    const pdfInstance = await buildPdfFromPngsWithTemplate(images, fileName, pdfTemplate, false);
+    const blob = pdfInstance.output('blob');
+
+    return { fileName, blob };
+  };
+
+  async function handleBatchClick(batchIdx: number) {
+    setRunningBatch(batchIdx);
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     try {
-        const start = batchIdx * PER_FILE;
-        const end = Math.min(start + PER_FILE, tickets.length);
-        
-        const ticketsToRender = tickets.slice(start, end);
-        const refsToProcess = ticketRefsToUse.slice(start, end);
-
-        toast({ title: "Iniciando captura...", description: `Procesando tickets del ${start + 1} al ${end}.` });
-
-        const images: string[] = [];
-        for (let i = 0; i < ticketsToRender.length; i++) {
-          const ref = refsToProcess[i];
-          if (!ref?.current) continue;
-          
-          await waitForImagesInContainer(ref.current);
-          
-          const png = await captureTicketPNG(ref.current, slotSize, 300);
-          images.push(png);
-          
-          if ((i + 1) % 8 === 0) await new Promise(r => setTimeout(r, 40));
-        }
-        
-        await new Promise(r => setTimeout(r, 150));
-
-        const baseName = eventParams.event_id.normalize("NFKD").replace(/[^\w-]+/g, "_");
-        const humanStart = String(start + 1).padStart(4, "0");
-        const humanEnd = String(end).padStart(4, "0");
-        const fileName = `${baseName}_${humanStart}-${humanEnd}_TPL-${template}.pdf`;
-        
-        await buildPdfFromPngsWithTemplate(images, fileName, pdfTemplate);
-
-        toast({ title: "PDF generado", description: `Lote ${batchIdx + 1} listo: ${fileName}` });
+      toast({ title: "Iniciando generación de PDF...", description: `Procesando tickets del ${batchIdx * PER_FILE + 1} al ${Math.min((batchIdx + 1) * PER_FILE, tickets.length)}.` });
+      const { fileName, blob } = await generatePdfBlob(batchIdx);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: "PDF generado", description: `${fileName} listo para descargar.` });
     } catch (e: any) {
       console.error("Fallo la generacion del PDF:", e);
       toast({ title: "Error de PDF", description: e?.message ?? String(e), variant: "destructive" });
@@ -89,6 +99,42 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
       setRunningBatch(null);
     }
   }
+
+  const handleDownloadAllAsZip = async () => {
+    setIsZipping(true);
+    toast({ title: "Iniciando empaquetado ZIP", description: `Generando ${batches} archivos PDF. Esto puede tardar varios minutos.`});
+
+    try {
+        const zip = new JSZip();
+        for (let i = 0; i < batches; i++) {
+            toast({ description: `Generando lote ${i+1} de ${batches}...`});
+            const { fileName, blob } = await generatePdfBlob(i);
+            zip.file(fileName, blob);
+        }
+
+        toast({ description: "Comprimiendo archivos... por favor espera."});
+        const zipBlob = await zip.generateAsync({type:"blob"});
+        
+        const zipFileName = `${eventParams.event_id}_ALL_TICKETS.zip`;
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = zipFileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        toast({ title: "¡Éxito!", description: "El archivo ZIP con todos los tickets ha sido descargado." });
+
+    } catch(e: any) {
+        console.error("Fallo la generacion del ZIP:", e);
+        toast({ title: "Error al generar el ZIP", description: e?.message ?? String(e), variant: "destructive" });
+    } finally {
+        setIsZipping(false);
+    }
+  }
+
 
   const handleDownloadSecret = () => {
     if (secretKey) {
@@ -142,7 +188,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
         <div className="no-print p-4 border rounded-lg mb-8 bg-card space-y-4">
             <div>
                 <h3 className="font-headline text-xl mb-2">1. Selecciona la Plantilla de Impresión</h3>
-                <Select value={template} onValueChange={(value: "A" | "B") => setTemplate(value)}>
+                <Select value={template} onValueChange={(value: "A" | "B") => setTemplate(value)} disabled={isZipping || runningBatch !== null}>
                     <SelectTrigger className="w-[280px]">
                         <SelectValue placeholder="Seleccionar plantilla..." />
                     </SelectTrigger>
@@ -154,8 +200,15 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
             </div>
 
             <div>
-                <h3 className="font-headline text-xl mb-2">2. Descargar Tickets en PDF por Lotes</h3>
+                <h3 className="font-headline text-xl mb-2">2. Descargar Tickets</h3>
+                <p className="text-sm text-muted-foreground mb-4">Puedes descargar todos los lotes en un solo archivo ZIP, o descargar lotes individuales de 50 tickets.</p>
                 <div className="flex flex-wrap gap-2">
+                    <Button onClick={handleDownloadAllAsZip} disabled={runningBatch !== null || isZipping}>
+                        {isZipping ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Archive className="mr-2 h-4 w-4" />}
+                        Descargar Todo (ZIP)
+                    </Button>
+                </div>
+                 <div className="flex flex-wrap gap-2 mt-4">
                     {Array.from({ length: batches }).map((_, idx) => {
                     const start = idx * PER_FILE + 1;
                     const end = Math.min((idx + 1) * PER_FILE, tickets.length);
@@ -168,7 +221,7 @@ export function TicketPreview({ result, isRegeneration = false, onEventUpdate }:
                         size="sm"
                         variant="secondary"
                         onClick={() => handleBatchClick(idx)}
-                        disabled={runningBatch !== null}
+                        disabled={runningBatch !== null || isZipping}
                         title={`Descargar ${label}`}
                         >
                         {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}

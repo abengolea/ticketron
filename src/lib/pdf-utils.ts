@@ -53,8 +53,9 @@ async function pngToJpegDataUrl(pngDataUrl: string, quality = 0.95): Promise<str
 export async function buildPdfFromPngsWithTemplate(
   pngs: string[],
   fileName: string,
-  template: ImprentaTemplate
-) {
+  template: ImprentaTemplate,
+  autoSave = true
+): Promise<jsPDF> {
   const { default: jsPDF } = await import("jspdf");
   const pdf = new jsPDF({
     unit: "mm",
@@ -95,7 +96,11 @@ export async function buildPdfFromPngsWithTemplate(
     pdf.addImage(imgDataUrl, "JPEG", ix, iy, iw, ih, undefined, "FAST");
   }
 
-  pdf.save(fileName);
+  if (autoSave) {
+    pdf.save(fileName);
+  }
+  
+  return pdf;
 }
 
 // -------- Helpers para captura --------
