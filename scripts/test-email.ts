@@ -1,74 +1,164 @@
 /**
- * Prueba de envío con Resend (usa .env.local).
+ * Prueba de envío con Resend (usa .env.local + Firestore).
  *
  * Uso:
- *   npx tsx scripts/test-email.ts tu@gmail.com
+ *   npx tsx scripts/test-email.ts
+ *   npx tsx scripts/test-email.ts otro@email.com
+ *   npx tsx scripts/test-email.ts --token=abc123
+ *
+ * Por defecto envía a abengolea1@gmail.com y usa una compra PAID real:
+ *   1. RESEND_TEST_TOKEN en .env.local, o
+ *   2. la compra PAID más reciente con tickets (prioriza el email de prueba).
  */
 import { config } from 'dotenv';
 import { resolve } from 'path';
 
+const DEFAULT_TEST_TO = 'abengolea1@gmail.com';
+
 const envLocalPath = resolve(process.cwd(), '.env.local');
 const envPath = resolve(process.cwd(), '.env');
 
-const loadedLocal = config({ path: envLocalPath });
-const loadedEnv = config({ path: envPath });
+config({ path: envLocalPath });
+config({ path: envPath });
 
-function envKeysFromFile(filePath: string): string[] {
-  try {
-    const fs = require('fs') as typeof import('fs');
-    const text = fs.readFileSync(filePath, 'utf8');
-    return text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('#'))
-      .map((line) => line.split('=')[0]?.trim())
-      .filter((key): key is string => Boolean(key));
-  } catch {
-    return [];
+function parseArgs() {
+  const args = process.argv.slice(2);
+  let to = process.env.RESEND_TEST_TO?.trim() || DEFAULT_TEST_TO;
+  let token = process.env.RESEND_TEST_TOKEN?.trim();
+
+  for (const arg of args) {
+    if (arg.startsWith('--token=')) {
+      token = arg.slice('--token='.length).trim();
+    } else if (arg.includes('@')) {
+      to = arg.trim();
+    } else if (!token) {
+      token = arg.trim();
+    }
   }
+
+  return { to, token };
 }
 
 function printEnvDiagnostics() {
   console.error('\n--- Diagnóstico .env ---');
   console.error('cwd:', process.cwd());
-  console.error('.env.local:', envLocalPath, loadedLocal.error ? `(error: ${loadedLocal.error.message})` : '(leído)');
-  console.error('.env:', envPath, loadedEnv.error ? `(error: ${loadedEnv.error.message})` : '(leído)');
-
-  const keysInFile = envKeysFromFile(envLocalPath);
-  const resendLike = keysInFile.filter((k) =>
-    /resend|email_from|mail/i.test(k)
-  );
   console.error(
-    'Claves en .env.local relacionadas con email:',
-    resendLike.length ? resendLike.join(', ') : '(ninguna)'
-  );
-  console.error(
-    'RESEND_API_KEY en process.env:',
+    'RESEND_API_KEY:',
     process.env.RESEND_API_KEY ? `sí (${process.env.RESEND_API_KEY.length} chars)` : 'NO'
   );
   console.error(
-    'EMAIL_FROM en process.env:',
+    'EMAIL_FROM:',
     process.env.EMAIL_FROM ? `sí → ${process.env.EMAIL_FROM}` : 'NO'
   );
   console.error(
-    '\nSi agregaste las variables en el editor, guardá el archivo (Ctrl+S) y volvé a ejecutar.\n'
+    'NEXT_PUBLIC_APP_URL:',
+    process.env.NEXT_PUBLIC_APP_URL ?? '(default localhost:9002)'
+  );
+  console.error(
+    'RESEND_TEST_TOKEN:',
+    process.env.RESEND_TEST_TOKEN ? 'definido' : '(no — se busca compra PAID reciente)'
+  );
+  console.error(
+    '\nSi falta algo, guardá .env.local (Ctrl+S) y volvé a ejecutar.\n'
   );
 }
 
+async function resolvePaymentLinkId(opts: {
+  token?: string;
+  preferBuyerEmail?: string;
+}): Promise<{ paymentLinkId: string; token: string }> {
+  const { getAdminDb, COLLECTIONS } = await import('../src/lib/firebase-admin');
+  const db = getAdminDb();
+
+  if (opts.token) {
+    const snap = await db
+      .collection(COLLECTIONS.paymentLinks)
+      .where('token', '==', opts.token)
+      .limit(1)
+      .get();
+
+    if (snap.empty) {
+      throw new Error(`No hay payment link con token "${opts.token}"`);
+    }
+
+    const doc = snap.docs[0]!;
+    const data = doc.data();
+    if (data.status !== 'PAID') {
+      throw new Error(`El link existe pero está en estado ${data.status} (se requiere PAID)`);
+    }
+
+    return { paymentLinkId: doc.id, token: opts.token };
+  }
+
+  const paidSnap = await db
+    .collection(COLLECTIONS.paymentLinks)
+    .where('status', '==', 'PAID')
+    .limit(40)
+    .get();
+
+  if (paidSnap.empty) {
+    throw new Error(
+      'No hay compras PAID en Firestore. Hacé una compra de prueba o definí RESEND_TEST_TOKEN en .env.local'
+    );
+  }
+
+  type Candidate = { paymentLinkId: string; token: string; updatedAt: number };
+  const candidates: Candidate[] = [];
+
+  for (const doc of paidSnap.docs) {
+    const data = doc.data();
+    const ticketSnap = await db
+      .collection(COLLECTIONS.tickets)
+      .where('paymentLinkId', '==', doc.id)
+      .limit(1)
+      .get();
+
+    if (ticketSnap.empty) continue;
+
+    const updatedAt =
+      typeof data.updatedAt?.toMillis === 'function'
+        ? data.updatedAt.toMillis()
+        : typeof data.createdAt?.toMillis === 'function'
+          ? data.createdAt.toMillis()
+          : 0;
+
+    candidates.push({
+      paymentLinkId: doc.id,
+      token: data.token as string,
+      updatedAt,
+    });
+  }
+
+  if (candidates.length === 0) {
+    throw new Error(
+      'Hay links PAID pero ninguno tiene tickets. Completá un pago de prueba o usá RESEND_TEST_TOKEN'
+    );
+  }
+
+  const preferEmail = opts.preferBuyerEmail?.trim().toLowerCase();
+  if (preferEmail) {
+    for (const doc of paidSnap.docs) {
+      const buyerEmail = (doc.data().buyerEmail as string | undefined)?.trim().toLowerCase();
+      if (buyerEmail !== preferEmail) continue;
+      const match = candidates.find((c) => c.paymentLinkId === doc.id);
+      if (match) {
+        return { paymentLinkId: match.paymentLinkId, token: match.token };
+      }
+    }
+  }
+
+  candidates.sort((a, b) => b.updatedAt - a.updatedAt);
+  const best = candidates[0]!;
+  return { paymentLinkId: best.paymentLinkId, token: best.token };
+}
+
 async function main() {
-  const to = process.argv[2]?.trim() || process.env.RESEND_TEST_TO?.trim();
+  const { to, token: tokenArg } = parseArgs();
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.EMAIL_FROM?.trim();
 
-  if (!to) {
-    console.error('Uso: npx tsx scripts/test-email.ts <email-destino>');
-    console.error('  o definí RESEND_TEST_TO en .env.local');
-    printEnvDiagnostics();
-    process.exit(1);
-  }
-
   if (!apiKey) {
-    console.error('Falta RESEND_API_KEY (no está en process.env después de cargar .env.local)');
+    console.error('Falta RESEND_API_KEY en .env.local');
     printEnvDiagnostics();
     process.exit(1);
   }
@@ -79,72 +169,38 @@ async function main() {
     process.exit(1);
   }
 
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:9002').replace(
-    /\/$/,
-    ''
-  );
-
-  const { buildPurchaseConfirmationEmailHtml } = await import(
-    '../src/lib/email/templates/purchase-confirmation'
-  );
-  const { buildQrPayload } = await import('../src/lib/qr');
-  const { qrPayloadToDataUrl } = await import('../src/lib/email/qr-data-url');
-
-  const demoCodes = ['DEMO-0001', 'DEMO-0002'];
-  const tickets = await Promise.all(
-    demoCodes.map(async (ticketCode, i) => ({
-      index: i + 1,
-      total: demoCodes.length,
-      ticketCode,
-      qrDataUrl: await qrPayloadToDataUrl(buildQrPayload(ticketCode)),
-    }))
-  );
-
-  const html = buildPurchaseConfirmationEmailHtml({
-    buyerName: 'Comprador de prueba',
-    eventName: 'Evento Demo Ticketron',
-    eventDate: new Date().toLocaleString('es-AR', {
-      dateStyle: 'full',
-      timeStyle: 'short',
-    }),
-    eventLocation: 'Buenos Aires, Argentina',
-    ticketQuantity: 2,
-    tickets,
-    ticketsUrl: `${appUrl}/ticket?token=prueba-email`,
-    appUrl,
+  const { paymentLinkId, token } = await resolvePaymentLinkId({
+    token: tokenArg,
+    preferBuyerEmail: to,
   });
 
-  console.log('Enviando prueba (plantilla real)...');
-  console.log('  From:', from);
-  console.log('  To:  ', to);
+  const { buildPurchaseConfirmationEmailContent } = await import(
+    '../src/lib/services/purchase-confirmation-email'
+  );
+  const { sendEmailViaResend } = await import('../src/lib/email/resend-send');
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from,
-      to: [to],
-      subject: 'Tus entradas — Evento Demo Ticketron',
-      html,
-    }),
+  const { subject, html, attachments, ticketsUrl } =
+    await buildPurchaseConfirmationEmailContent(paymentLinkId);
+
+  console.log('Enviando prueba (compra real)...');
+  console.log('  From:       ', from);
+  console.log('  To:         ', to);
+  console.log('  PaymentLink:', paymentLinkId);
+  console.log('  Token:      ', token);
+  console.log('  Ver entradas:', ticketsUrl);
+
+  await sendEmailViaResend({
+    to,
+    subject: `[PRUEBA] ${subject}`,
+    html,
+    attachments: attachments.length ? attachments : undefined,
   });
-
-  const body = await res.text();
-
-  if (!res.ok) {
-    console.error('Error', res.status, body);
-    process.exit(1);
-  }
 
   console.log('Enviado correctamente.');
-  console.log('Respuesta:', body);
-  console.log('Revisá la bandeja (y spam) de', to);
+  console.log('El botón del mail abre:', ticketsUrl);
 }
 
 main().catch((e) => {
-  console.error(e);
+  console.error(e instanceof Error ? e.message : e);
   process.exit(1);
 });

@@ -1,0 +1,175 @@
+'use client';
+
+import { useState } from 'react';
+import { createComplimentaryLink } from '@/lib/actions/complimentary-links';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
+import { Gift, Loader2 } from 'lucide-react';
+
+interface CreateComplimentaryLinkDialogProps {
+  eventId: string;
+  eventName: string;
+  maxTickets: number;
+  getIdToken: () => Promise<string | null>;
+  onCreated?: () => void;
+  triggerLabel?: string;
+}
+
+export function CreateComplimentaryLinkDialog({
+  eventId,
+  eventName,
+  maxTickets,
+  getIdToken,
+  onCreated,
+  triggerLabel = 'Entrada de favor',
+}: CreateComplimentaryLinkDialogProps) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [quantity, setQuantity] = useState(1);
+  const [beneficiaryEmail, setBeneficiaryEmail] = useState('');
+  const [beneficiaryName, setBeneficiaryName] = useState('');
+  const [message, setMessage] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  async function handleCreate() {
+    if (quantity < 1 || quantity > maxTickets) {
+      toast({
+        variant: 'destructive',
+        title: 'Cantidad inválida',
+        description: `Elegí entre 1 y ${maxTickets} entradas`,
+      });
+      return;
+    }
+
+    if (!beneficiaryEmail.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Email requerido',
+        description: 'Ingresá el email del beneficiario',
+      });
+      return;
+    }
+
+    setCreating(true);
+    const token = await getIdToken();
+    if (!token) {
+      setCreating(false);
+      return;
+    }
+
+    const res = await createComplimentaryLink(token, {
+      eventId,
+      ticketQuantity: quantity,
+      beneficiaryEmail: beneficiaryEmail.trim(),
+      ...(beneficiaryName.trim() ? { beneficiaryName: beneficiaryName.trim() } : {}),
+      ...(message.trim() ? { message: message.trim() } : {}),
+    });
+    setCreating(false);
+
+    if (res.success) {
+      await navigator.clipboard.writeText(res.data.ticketsUrl);
+      const emailNote = res.data.emailSent
+        ? `Email enviado a ${beneficiaryEmail.trim()}`
+        : res.data.emailError ?? 'No se pudo enviar el email (revisá RESEND_API_KEY)';
+      toast({
+        title: 'Entrada de favor creada',
+        description: `${quantity} entrada(s) · URL copiada · ${emailNote}`,
+      });
+      setOpen(false);
+      setBeneficiaryEmail('');
+      setBeneficiaryName('');
+      setMessage('');
+      setQuantity(1);
+      onCreated?.();
+    } else {
+      toast({ variant: 'destructive', title: 'Error', description: res.error });
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          <Gift className="w-4 h-4 mr-2" />
+          {triggerLabel}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Entrada de favor</DialogTitle>
+          <DialogDescription>
+            {eventName} · Se generan QR al instante y se envían por email al beneficiario
+          </DialogDescription>
+        </DialogHeader>
+        <section className="space-y-4">
+          <section className="space-y-2">
+            <Label htmlFor="beneficiaryEmail">Email del beneficiario</Label>
+            <Input
+              id="beneficiaryEmail"
+              type="email"
+              placeholder="invitado@ejemplo.com"
+              value={beneficiaryEmail}
+              onChange={(e) => setBeneficiaryEmail(e.target.value)}
+              autoComplete="email"
+            />
+          </section>
+          <section className="space-y-2">
+            <Label htmlFor="beneficiaryName">Nombre (opcional)</Label>
+            <Input
+              id="beneficiaryName"
+              placeholder="María García"
+              value={beneficiaryName}
+              onChange={(e) => setBeneficiaryName(e.target.value)}
+            />
+          </section>
+          <section className="space-y-2">
+            <Label htmlFor="complimentaryMessage">Mensaje personal (opcional)</Label>
+            <Textarea
+              id="complimentaryMessage"
+              placeholder="¡Te esperamos en la fiesta!"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              maxLength={500}
+              rows={3}
+            />
+          </section>
+          <section className="space-y-2">
+            <Label htmlFor="favorQuantity">Cantidad de entradas</Label>
+            <Input
+              id="favorQuantity"
+              type="number"
+              min={1}
+              max={maxTickets}
+              value={quantity}
+              onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 1)}
+            />
+            <p className="text-sm text-muted-foreground">
+              Disponibles: {maxTickets}
+            </p>
+          </section>
+        </section>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cancelar
+          </Button>
+          <Button onClick={handleCreate} disabled={creating}>
+            {creating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+            Generar y enviar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

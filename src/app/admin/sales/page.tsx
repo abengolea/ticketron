@@ -86,9 +86,14 @@ function SalesContent() {
   }
 
   return (
-    <section className="space-y-6">
-      <section className="flex justify-between items-center">
-        <h1 className="text-2xl font-headline font-bold">Ventas</h1>
+    <>
+      <section className="flex flex-wrap justify-between items-start gap-4">
+        <section>
+          <h1 className="text-2xl font-headline font-bold">Ventas</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Todos los links de pago y su estado.
+          </p>
+        </section>
         <Button variant="outline" onClick={handleExport}>
           <Download className="w-4 h-4 mr-2" /> Exportar tickets CSV
         </Button>
@@ -141,6 +146,6 @@ function SalesContent() {
           </Table>
         </CardContent>
       </Card>
-    </section>
+    </>
   );
 }

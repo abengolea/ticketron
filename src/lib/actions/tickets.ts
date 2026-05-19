@@ -4,7 +4,9 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { verifyIdTokenAndGetUser, requireRole } from '@/lib/auth-server';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
 import { cancelTicketSchema } from '@/lib/validations';
-import { serializeTicket } from '@/lib/serialize';
+import { serializeTicket, serializePaymentLink } from '@/lib/serialize';
+import { getTicketPaymentDisplay } from '@/lib/payment-display';
+import type { PaymentLink } from '@/lib/models';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type { SerializedTicket, PlatformTicket } from '@/lib/models';
 
@@ -153,14 +155,33 @@ export async function exportTicketsCsv(
     if (eventId) query = query.where('eventId', '==', eventId);
 
     const snap = await query.get();
-    const header = 'ticketCode,buyerName,buyerEmail,buyerPhone,status,eventId,sellerId,createdAt\n';
+    const linkIds = [...new Set(snap.docs.map((d) => d.data().paymentLinkId as string))];
+    const linkById = new Map<string, ReturnType<typeof serializePaymentLink>>();
+
+    for (let i = 0; i < linkIds.length; i += 30) {
+      const batch = linkIds.slice(i, i + 30);
+      const linkSnaps = await Promise.all(
+        batch.map((id) => getAdminDb().collection(COLLECTIONS.paymentLinks).doc(id).get())
+      );
+      for (const linkSnap of linkSnaps) {
+        if (!linkSnap.exists) continue;
+        const link = { id: linkSnap.id, ...linkSnap.data() } as PaymentLink;
+        linkById.set(link.id, serializePaymentLink(link));
+      }
+    }
+
+    const header =
+      'ticketCode,buyerName,buyerEmail,buyerPhone,paymentMethod,paymentAmount,status,eventId,sellerId,createdAt\n';
     const rows = snap.docs.map((d) => {
       const t = d.data();
+      const payment = getTicketPaymentDisplay(linkById.get(t.paymentLinkId));
       return [
         t.ticketCode,
         `"${(t.buyerName ?? '').replace(/"/g, '""')}"`,
         t.buyerEmail ?? '',
         t.buyerPhone ?? '',
+        payment.label,
+        payment.amountPerTicket,
         t.status,
         t.eventId,
         t.sellerId,

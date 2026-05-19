@@ -17,7 +17,6 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { base32Encode, createHmacSha256 } from "@/lib/utils";
 import PrivateRoute from "@/components/private-route";
-import { PrintSectionNav } from "@/components/print-section-nav";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -625,7 +624,6 @@ function EventDetailPage() {
 export default function EventDetailWrapper() {
   return (
     <PrivateRoute>
-      <PrintSectionNav />
       <EventDetailPage />
     </PrivateRoute>
   );

@@ -52,6 +52,24 @@ export const createPaymentLinkSchema = z.object({
   ticketQuantity: z.coerce.number().int().min(1).max(20),
 });
 
+export const createComplimentaryLinkSchema = z.object({
+  eventId: z.string().min(1),
+  ticketQuantity: z.coerce.number().int().min(1).max(20),
+  beneficiaryEmail: z.string().trim().email('Email inválido'),
+  beneficiaryName: z.string().min(2, 'Nombre requerido (mín. 2 caracteres)').optional().or(z.literal('')),
+  message: z.string().max(500, 'Máximo 500 caracteres').optional().or(z.literal('')),
+});
+
+export const createCashSaleSchema = z.object({
+  eventId: z.string().min(1),
+  ticketQuantity: z.coerce.number().int().min(1).max(20),
+  buyerName: z.string().min(2, 'Nombre requerido (mín. 2 caracteres)').optional().or(z.literal('')),
+  buyerLastName: z.string().min(2, 'Apellido requerido (mín. 2 caracteres)').optional().or(z.literal('')),
+  buyerPhone: z.string().min(8, 'Teléfono inválido').optional().or(z.literal('')),
+  buyerEmail: z.string().trim().email('Email inválido').optional().or(z.literal('')),
+  sendEmail: z.boolean().optional(),
+});
+
 export const gateValidateSchema = z.object({
   eventId: z.string().min(1),
   qrPayload: z.string().min(10),
@@ -71,3 +89,5 @@ export type UpdateEventInput = z.infer<typeof updateEventSchema>;
 export type CreateSellerInput = z.infer<typeof createSellerSchema>;
 export type CreateSellerAccessInput = z.infer<typeof createSellerAccessSchema>;
 export type CreatePaymentLinkInput = z.infer<typeof createPaymentLinkSchema>;
+export type CreateComplimentaryLinkInput = z.infer<typeof createComplimentaryLinkSchema>;
+export type CreateCashSaleInput = z.infer<typeof createCashSaleSchema>;

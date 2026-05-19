@@ -76,10 +76,17 @@ export async function updateEvent(
     const snap = await ref.get();
     if (!snap.exists) return fail('Evento no encontrado');
 
+    const current = snap.data()!;
+    if (rest.capacity !== undefined && rest.capacity < (current.sold ?? 0)) {
+      return fail(
+        `La capacidad no puede ser menor a las ${current.sold} entradas ya vendidas`
+      );
+    }
+
     const update: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
     if (rest.name !== undefined) update.name = rest.name;
     if (rest.date !== undefined) update.date = Timestamp.fromDate(new Date(rest.date));
-    if (rest.location !== undefined) update.location = rest.location;
+    if (rest.location !== undefined) update.location = rest.location || null;
     if (rest.active !== undefined) update.active = rest.active;
     if (rest.capacity !== undefined) update.capacity = rest.capacity;
     if (rest.price !== undefined) update.price = rest.price;

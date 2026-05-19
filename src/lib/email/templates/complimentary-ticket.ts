@@ -7,24 +7,17 @@ import {
   EMAIL_QR_HEAD_STYLES,
   buildEmailQrImgHtml,
 } from '@/lib/email/qr-email-block';
+import type { EmailTicketQr } from '@/lib/email/templates/purchase-confirmation';
 
-export interface EmailTicketQr {
-  index: number;
-  total: number;
-  ticketCode: string;
-  /** Content-ID del adjunto inline (referenciar como cid:xxx en el HTML). */
-  qrCid: string;
-}
-
-export interface PurchaseConfirmationEmailParams {
-  buyerName: string;
+export interface ComplimentaryTicketEmailParams {
+  beneficiaryName: string;
   eventName: string;
   eventDate: string;
   eventLocation?: string;
   ticketQuantity: number;
   tickets: EmailTicketQr[];
   ticketsUrl: string;
-  appUrl: string;
+  message?: string;
 }
 
 function buildTicketsQrSection(tickets: EmailTicketQr[]): string {
@@ -59,7 +52,6 @@ function buildTicketsQrSection(tickets: EmailTicketQr[]): string {
     .join('');
 
   return `
-                <!-- Códigos QR -->
                 <tr>
                   <td style="padding: 0 28px 8px 28px;">
                     <p style="margin: 0 0 16px 0; font-family: ${EMAIL_BRAND.fontHeadline}; font-size: 18px; color: ${EMAIL_BRAND.text};">
@@ -75,10 +67,10 @@ function buildTicketsQrSection(tickets: EmailTicketQr[]): string {
                 </tr>`;
 }
 
-export function buildPurchaseConfirmationEmailHtml(
-  params: PurchaseConfirmationEmailParams
+export function buildComplimentaryTicketEmailHtml(
+  params: ComplimentaryTicketEmailParams
 ): string {
-  const buyerName = escapeHtml(params.buyerName);
+  const beneficiaryName = escapeHtml(params.beneficiaryName);
   const eventName = escapeHtml(params.eventName);
   const eventDate = escapeHtml(params.eventDate);
   const eventLocation = params.eventLocation
@@ -90,7 +82,20 @@ export function buildPurchaseConfirmationEmailHtml(
       ? '1 entrada'
       : `${params.ticketQuantity} entradas`;
 
-  const ticketsQrSection = buildTicketsQrSection(params.tickets);
+  const messageSection = params.message?.trim()
+    ? `
+                <tr>
+                  <td style="padding: 0 28px 20px 28px;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: ${EMAIL_BRAND.background}; border: 1px solid ${EMAIL_BRAND.cardBorder}; border-radius: 10px;">
+                      <tr>
+                        <td style="padding: 16px 20px; font-family: ${EMAIL_BRAND.fontBody}; font-size: 15px; line-height: 1.6; color: ${EMAIL_BRAND.text}; font-style: italic;">
+                          ${escapeHtml(params.message.trim())}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>`
+    : '';
 
   const locationRow = eventLocation
     ? `
@@ -107,15 +112,14 @@ export function buildPurchaseConfirmationEmailHtml(
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <meta name="supported-color-schemes" content="light dark" />
-  <title>Tus entradas — Ticketron</title>
+  <title>Tu entrada de favor — Ticketron</title>
   ${EMAIL_QR_HEAD_STYLES}
 </head>
-<body style="margin: 0; padding: 0; background-color: ${EMAIL_BRAND.background}; -webkit-text-size-adjust: 100%;">
+<body style="margin: 0; padding: 0; background-color: ${EMAIL_BRAND.background};">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: ${EMAIL_BRAND.background};">
     <tr>
       <td align="center" style="padding: 32px 16px;">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width: 560px; margin: 0 auto;">
-          <!-- Header marca -->
           <tr>
             <td align="center" style="padding-bottom: 24px;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0">
@@ -124,49 +128,44 @@ export function buildPurchaseConfirmationEmailHtml(
                     <img src="${TICKET_ICON_DATA_URI}" width="28" height="28" alt="" style="display: block; border: 0;" />
                   </td>
                   <td style="padding-left: 12px; vertical-align: middle;">
-                    <span style="font-family: ${EMAIL_BRAND.fontHeadline}; font-size: 26px; font-weight: 700; color: ${EMAIL_BRAND.text}; letter-spacing: 0.02em;">Ticketron</span>
+                    <span style="font-family: ${EMAIL_BRAND.fontHeadline}; font-size: 26px; font-weight: 700; color: ${EMAIL_BRAND.text};">Ticketron</span>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
-
-          <!-- Tarjeta principal -->
           <tr>
             <td style="background-color: ${EMAIL_BRAND.card}; border: 1px solid ${EMAIL_BRAND.cardBorder}; border-radius: 12px; overflow: hidden;">
-              <!-- Franja superior acento -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
                 <tr>
                   <td style="height: 4px; background: linear-gradient(90deg, ${EMAIL_BRAND.primary} 0%, ${EMAIL_BRAND.accent} 100%); font-size: 0; line-height: 0;">&nbsp;</td>
                 </tr>
               </table>
-
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
                 <tr>
                   <td style="padding: 28px 28px 8px 28px;">
-                    <span style="display: inline-block; background-color: rgba(34, 197, 94, 0.15); color: ${EMAIL_BRAND.success}; font-family: ${EMAIL_BRAND.fontBody}; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 12px; border-radius: 999px;">
-                      ✓ Pago confirmado
+                    <span style="display: inline-block; background-color: rgba(168, 85, 247, 0.15); color: #c084fc; font-family: ${EMAIL_BRAND.fontBody}; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 12px; border-radius: 999px;">
+                      Entrada de favor
                     </span>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding: 12px 28px 8px 28px; font-family: ${EMAIL_BRAND.fontBody}; font-size: 16px; line-height: 1.6; color: ${EMAIL_BRAND.text};">
-                    Hola <strong>${buyerName}</strong>,
+                    Hola <strong>${beneficiaryName}</strong>,
                   </td>
                 </tr>
                 <tr>
                   <td style="padding: 0 28px 20px 28px; font-family: ${EMAIL_BRAND.fontBody}; font-size: 15px; line-height: 1.6; color: ${EMAIL_BRAND.textMuted};">
-                    Tu compra fue acreditada. Tus códigos QR están abajo — guardá este correo para presentarlos en la puerta.
+                    Te enviamos ${escapeHtml(ticketLabel)} para el siguiente evento. Tus códigos QR están abajo.
                   </td>
                 </tr>
-
-                <!-- Detalle del evento -->
+                ${messageSection}
                 <tr>
                   <td style="padding: 0 28px 24px 28px;">
                     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: ${EMAIL_BRAND.background}; border: 1px solid ${EMAIL_BRAND.cardBorder}; border-radius: 10px;">
                       <tr>
                         <td style="padding: 20px;">
-                          <p style="margin: 0 0 16px 0; font-family: ${EMAIL_BRAND.fontHeadline}; font-size: 22px; line-height: 1.3; color: ${EMAIL_BRAND.primary}; font-weight: 400;">
+                          <p style="margin: 0 0 16px 0; font-family: ${EMAIL_BRAND.fontHeadline}; font-size: 22px; line-height: 1.3; color: ${EMAIL_BRAND.primary};">
                             ${eventName}
                           </p>
                           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-family: ${EMAIL_BRAND.fontBody};">
@@ -185,10 +184,7 @@ export function buildPurchaseConfirmationEmailHtml(
                     </table>
                   </td>
                 </tr>
-
-                ${ticketsQrSection}
-
-                <!-- CTA -->
+                ${buildTicketsQrSection(params.tickets)}
                 <tr>
                   <td align="center" style="padding: 0 28px 28px 28px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0">
@@ -202,8 +198,6 @@ export function buildPurchaseConfirmationEmailHtml(
                     </table>
                   </td>
                 </tr>
-
-                <!-- Link alternativo -->
                 <tr>
                   <td style="padding: 0 28px 28px 28px; font-family: ${EMAIL_BRAND.fontBody}; font-size: 13px; line-height: 1.5; color: ${EMAIL_BRAND.textDim}; text-align: center;">
                     Si el botón no funciona, copiá este enlace:<br />
@@ -213,17 +207,10 @@ export function buildPurchaseConfirmationEmailHtml(
               </table>
             </td>
           </tr>
-
-          <!-- Footer -->
           <tr>
-            <td align="center" style="padding: 24px 16px 8px 16px; font-family: ${EMAIL_BRAND.fontBody}; font-size: 12px; line-height: 1.6; color: ${EMAIL_BRAND.textDim};">
+            <td align="center" style="padding: 24px 16px; font-family: ${EMAIL_BRAND.fontBody}; font-size: 12px; color: ${EMAIL_BRAND.textDim};">
               Presentá el código QR en la puerta del evento.<br />
               Este es un mensaje automático — no respondas a este correo.
-            </td>
-          </tr>
-          <tr>
-            <td align="center" style="padding-bottom: 16px; font-family: ${EMAIL_BRAND.fontHeadline}; font-size: 14px; color: ${EMAIL_BRAND.textMuted};">
-              Ticketron
             </td>
           </tr>
         </table>

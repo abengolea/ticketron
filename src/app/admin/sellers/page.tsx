@@ -131,9 +131,14 @@ function SellersContent() {
   }
 
   return (
-    <section className="space-y-6">
-      <section className="flex justify-between items-center">
-        <h1 className="text-2xl font-headline font-bold">Vendedores</h1>
+    <>
+      <section className="flex flex-wrap justify-between items-start gap-4">
+        <section>
+          <h1 className="text-2xl font-headline font-bold">Vendedores</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Cuentas de vendedores y cupos por evento.
+          </p>
+        </section>
         <Button onClick={() => setShowCreateSeller(!showCreateSeller)}>
           {showCreateSeller ? 'Cancelar' : 'Nuevo vendedor'}
         </Button>
@@ -306,6 +311,6 @@ function SellersContent() {
           </Table>
         </CardContent>
       </Card>
-    </section>
+    </>
   );
 }

@@ -156,11 +156,17 @@ export function Header() {
           ) : null}
         </section>
 
-        {/* Fila 2: navegación — Impresión SIEMPRE visible si hay sesión Firebase */}
         {user && (
-          <section className="flex flex-col gap-2 pt-2 border-t border-border/60">
+          <section className="flex flex-col lg:flex-row lg:flex-wrap lg:items-center gap-3 pt-3 border-t border-border/60">
             {session && platformNav.length > 0 && (
-              <NavRow label="Ventas" items={platformNav} pathname={pathname} />
+              <NavRow
+                label={session.role === 'admin' ? 'Venta digital' : 'Panel'}
+                items={platformNav}
+                pathname={pathname}
+              />
+            )}
+            {session && platformNav.length > 0 && (
+              <div className="hidden lg:block w-px h-8 bg-border shrink-0" aria-hidden />
             )}
             <NavRow label="Impresión" items={[...printNavItems]} pathname={pathname} />
           </section>

@@ -14,6 +14,8 @@ import {
 } from '@/lib/actions/sellers';
 import { listTicketsForEvent, exportTicketsCsv } from '@/lib/actions/tickets';
 import { CreatePaymentLinkDialog } from '@/components/create-payment-link-dialog';
+import { CreateComplimentaryLinkDialog } from '@/components/create-complimentary-link-dialog';
+import { CreateCashSaleDialog } from '@/components/create-cash-sale-dialog';
 import { EventTicketsPdfExport } from '@/components/event-tickets-pdf-export';
 import type { SerializedEvent, SerializedPaymentLink, SerializedTicket } from '@/lib/models';
 import type { SerializedSellerAccess } from '@/lib/models';
@@ -42,16 +44,35 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { downloadFile } from '@/lib/utils';
+import { getTicketPaymentDisplay } from '@/lib/payment-display';
 import {
   ArrowLeft,
   Copy,
   DoorOpen,
   Download,
-  Link2,
   Loader2,
   MessageCircle,
+  QrCode,
+  Settings2,
   Users,
 } from 'lucide-react';
+
+function toDatetimeLocalValue(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function eventToEditForm(event: SerializedEvent) {
+  return {
+    name: event.name,
+    date: toDatetimeLocalValue(event.date),
+    location: event.location ?? '',
+    capacity: event.capacity,
+    price: event.price,
+    active: event.active,
+  };
+}
 
 const LINK_STATUS: Record<string, string> = {
   PENDING_PAYMENT: 'Pendiente',
@@ -59,6 +80,18 @@ const LINK_STATUS: Record<string, string> = {
   EXPIRED: 'Vencido',
   CANCELLED: 'Cancelado',
 };
+
+function isComplimentaryLink(link: SerializedPaymentLink) {
+  return link.linkType === 'complimentary';
+}
+
+function isCashLink(link: SerializedPaymentLink) {
+  return link.linkType === 'cash';
+}
+
+function isInstantPaidLink(link: SerializedPaymentLink) {
+  return isComplimentaryLink(link) || isCashLink(link);
+}
 
 const TICKET_STATUS: Record<string, string> = {
   VALID: 'Válida',
@@ -86,6 +119,15 @@ function EventDetailContent() {
   const [access, setAccess] = useState<SerializedSellerAccess[]>([]);
   const [sellers, setSellers] = useState<UserListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [savingEvent, setSavingEvent] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    date: '',
+    location: '',
+    capacity: 100,
+    price: 1000,
+    active: true,
+  });
   const [assignForm, setAssignForm] = useState({ sellerId: '', quota: 10 });
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
@@ -102,7 +144,10 @@ function EventDetailContent() {
       listUsers(token),
     ]);
 
-    if (evRes.success) setEvent(evRes.data);
+    if (evRes.success) {
+      setEvent(evRes.data);
+      setEditForm(eventToEditForm(evRes.data));
+    }
     else {
       toast({ variant: 'destructive', title: 'Evento no encontrado' });
       router.push('/admin/events');
@@ -125,6 +170,45 @@ function EventDetailContent() {
     if (!token) return;
     await updateEvent(token, { id: event.id, active: !event.active });
     load();
+  }
+
+  async function handleSaveEvent(e: React.FormEvent) {
+    e.preventDefault();
+    if (!event) return;
+
+    if (editForm.capacity < event.sold) {
+      toast({
+        variant: 'destructive',
+        title: 'Capacidad inválida',
+        description: `Ya hay ${event.sold} entradas vendidas. La capacidad debe ser al menos ${event.sold}.`,
+      });
+      return;
+    }
+
+    setSavingEvent(true);
+    const token = await getIdToken();
+    if (!token) {
+      setSavingEvent(false);
+      return;
+    }
+
+    const res = await updateEvent(token, {
+      id: event.id,
+      name: editForm.name,
+      date: new Date(editForm.date).toISOString(),
+      location: editForm.location.trim() || undefined,
+      capacity: editForm.capacity,
+      price: editForm.price,
+      active: editForm.active,
+    });
+    setSavingEvent(false);
+
+    if (res.success) {
+      toast({ title: 'Evento actualizado' });
+      load();
+    } else {
+      toast({ variant: 'destructive', title: 'Error', description: res.error });
+    }
   }
 
   async function handleAssignSeller(e: React.FormEvent) {
@@ -171,8 +255,11 @@ function EventDetailContent() {
     toast({ title: 'Copiado' });
   }
 
-  function shareWhatsApp(url: string) {
-    window.open(`https://wa.me/?text=${encodeURIComponent(`Comprá tu entrada: ${url}`)}`, '_blank');
+  function shareWhatsApp(url: string, favor = false) {
+    const text = favor
+      ? `Te enviamos tu entrada de favor: ${url}`
+      : `Comprá tu entrada: ${url}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   }
 
   if (loading || !event) {
@@ -185,6 +272,7 @@ function EventDetailContent() {
 
   const remaining = event.capacity - event.sold;
   const maxLinkTickets = event.active && remaining > 0 ? Math.min(remaining, 20) : 0;
+  const linkById = new Map(links.map((l) => [l.id, l]));
 
   return (
     <section className="space-y-6">
@@ -211,15 +299,32 @@ function EventDetailContent() {
             </Link>
           </Button>
           {maxLinkTickets > 0 && (
-            <CreatePaymentLinkDialog
-              eventId={event.id}
-              eventName={event.name}
-              unitPrice={event.price}
-              maxTickets={maxLinkTickets}
-              getIdToken={getIdToken}
-              onCreated={load}
-              triggerLabel="Generar link de pago"
-            />
+            <>
+              <CreatePaymentLinkDialog
+                eventId={event.id}
+                eventName={event.name}
+                unitPrice={event.price}
+                maxTickets={maxLinkTickets}
+                getIdToken={getIdToken}
+                onCreated={load}
+                triggerLabel="Generar link de pago"
+              />
+              <CreateComplimentaryLinkDialog
+                eventId={event.id}
+                eventName={event.name}
+                maxTickets={maxLinkTickets}
+                getIdToken={getIdToken}
+                onCreated={load}
+              />
+              <CreateCashSaleDialog
+                eventId={event.id}
+                eventName={event.name}
+                unitPrice={event.price}
+                maxTickets={maxLinkTickets}
+                getIdToken={getIdToken}
+                onCreated={load}
+              />
+            </>
           )}
         </section>
       </section>
@@ -256,10 +361,10 @@ function EventDetailContent() {
         </Card>
       </section>
 
-      <Tabs defaultValue="links" className="space-y-4">
+      <Tabs defaultValue="management" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="links">
-            <Link2 className="w-4 h-4 mr-2" /> Links de pago
+          <TabsTrigger value="management">
+            <Settings2 className="w-4 h-4 mr-2" /> Gestión
           </TabsTrigger>
           <TabsTrigger value="sellers">
             <Users className="w-4 h-4 mr-2" /> Vendedores
@@ -267,29 +372,112 @@ function EventDetailContent() {
           <TabsTrigger value="tickets">Entradas</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="links">
+        <TabsContent value="management" className="space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <section>
-                <CardTitle>Links de pago</CardTitle>
-                <CardDescription>{links.length} links para este evento</CardDescription>
-              </section>
-              {maxLinkTickets > 0 && (
-                <CreatePaymentLinkDialog
-                  eventId={event.id}
-                  eventName={event.name}
-                  unitPrice={event.price}
-                  maxTickets={maxLinkTickets}
-                  getIdToken={getIdToken}
-                  onCreated={load}
-                />
-              )}
+            <CardHeader>
+              <CardTitle>Datos del evento</CardTitle>
+              <CardDescription>
+                Modificá nombre, fecha, ubicación, capacidad y precio. Las vendidas ({event.sold}) no se pueden borrar; la capacidad debe ser mayor o igual.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSaveEvent} className="grid gap-4 md:grid-cols-2 max-w-3xl">
+                <section className="md:col-span-2">
+                  <Label htmlFor="eventName">Nombre</Label>
+                  <Input
+                    id="eventName"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    required
+                  />
+                </section>
+                <section>
+                  <Label htmlFor="eventDate">Fecha y hora</Label>
+                  <Input
+                    id="eventDate"
+                    type="datetime-local"
+                    value={editForm.date}
+                    onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                    required
+                  />
+                </section>
+                <section>
+                  <Label htmlFor="eventLocation">Ubicación</Label>
+                  <Input
+                    id="eventLocation"
+                    value={editForm.location}
+                    onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+                    placeholder="Opcional"
+                  />
+                </section>
+                <section>
+                  <Label htmlFor="eventCapacity">Capacidad</Label>
+                  <Input
+                    id="eventCapacity"
+                    type="number"
+                    min={event.sold}
+                    value={editForm.capacity}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, capacity: parseInt(e.target.value, 10) || 0 })
+                    }
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Mínimo: {event.sold} (vendidas)
+                  </p>
+                </section>
+                <section>
+                  <Label htmlFor="eventPrice">Precio (ARS)</Label>
+                  <Input
+                    id="eventPrice"
+                    type="number"
+                    min={1}
+                    value={editForm.price}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, price: parseInt(e.target.value, 10) || 0 })
+                    }
+                    required
+                  />
+                </section>
+                <section className="flex items-center gap-3 md:col-span-2">
+                  <Switch
+                    id="eventActive"
+                    checked={editForm.active}
+                    onCheckedChange={(active) => setEditForm({ ...editForm, active })}
+                  />
+                  <Label htmlFor="eventActive">Evento activo (visible para venta)</Label>
+                </section>
+                <section className="md:col-span-2 flex gap-2">
+                  <Button type="submit" disabled={savingEvent}>
+                    {savingEvent && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                    Guardar cambios
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setEditForm(eventToEditForm(event))}
+                    disabled={savingEvent}
+                  >
+                    Descartar
+                  </Button>
+                </section>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Links generados</CardTitle>
+              <CardDescription>
+                {links.length} links · usá los botones de arriba para crear nuevos
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Entradas</TableHead>
+                    <TableHead>Tipo</TableHead>
                     <TableHead>Monto</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Comprador</TableHead>
@@ -299,26 +487,58 @@ function EventDetailContent() {
                 <TableBody>
                   {links.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-muted-foreground text-center py-8">
-                        Sin links. Generá uno indicando cuántas entradas incluye.
+                      <TableCell colSpan={6} className="text-muted-foreground text-center py-8">
+                        Sin links todavía.
                       </TableCell>
                     </TableRow>
                   ) : (
                     links.map((link) => {
-                      const url = `${appUrl}/checkout/${link.token}`;
+                      const favor = isComplimentaryLink(link);
+                      const cash = isCashLink(link);
+                      const instant = isInstantPaidLink(link);
+                      const url = instant
+                        ? `${appUrl}/ticket?token=${encodeURIComponent(link.token)}`
+                        : `${appUrl}/checkout/${link.token}`;
+                      const typeLabel = favor
+                        ? 'Favor'
+                        : cash
+                          ? 'Efectivo'
+                          : 'Mercado Pago';
                       return (
                         <TableRow key={link.id}>
                           <TableCell>{link.ticketQuantity ?? 1}</TableCell>
-                          <TableCell>${link.amount}</TableCell>
                           <TableCell>
-                            <Badge variant="outline">{LINK_STATUS[link.status]}</Badge>
+                            <Badge variant={cash ? 'secondary' : 'outline'}>
+                              {typeLabel}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{favor ? '—' : `$${link.amount}`}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {favor ? 'Favor' : LINK_STATUS[link.status]}
+                            </Badge>
                           </TableCell>
                           <TableCell>
                             {[link.buyerName, link.buyerLastName].filter(Boolean).join(' ') ||
+                              link.buyerEmail ||
                               '—'}
                           </TableCell>
                           <TableCell className="flex gap-1">
-                            {link.status === 'PENDING_PAYMENT' && (
+                            {instant && link.status === 'PAID' && (
+                              <>
+                                <Button size="sm" variant="outline" onClick={() => copyUrl(url)}>
+                                  <Copy className="w-3 h-3" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => shareWhatsApp(url, favor)}
+                                >
+                                  <MessageCircle className="w-3 h-3" />
+                                </Button>
+                              </>
+                            )}
+                            {!instant && link.status === 'PENDING_PAYMENT' && (
                               <>
                                 <Button size="sm" variant="outline" onClick={() => copyUrl(url)}>
                                   <Copy className="w-3 h-3" />
@@ -473,30 +693,48 @@ function EventDetailContent() {
                   <TableRow>
                     <TableHead>Código</TableHead>
                     <TableHead>Comprador</TableHead>
+                    <TableHead>Pago</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Fecha</TableHead>
+                    <TableHead className="w-[1%] text-right">QR</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {tickets.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                         Aún no hay entradas vendidas
                       </TableCell>
                     </TableRow>
                   ) : (
-                    tickets.map((t) => (
+                    tickets.map((t) => {
+                      const payment = getTicketPaymentDisplay(linkById.get(t.paymentLinkId));
+                      return (
                       <TableRow key={t.id}>
                         <TableCell className="font-mono text-sm">{t.ticketCode}</TableCell>
                         <TableCell>{t.buyerName}</TableCell>
+                        <TableCell className="text-sm">{payment.formatted}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{TICKET_STATUS[t.status] ?? t.status}</Badge>
                         </TableCell>
                         <TableCell>
                           {new Date(t.createdAt).toLocaleString('es-AR')}
                         </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link
+                              href={`/ticket/${t.ticketCode}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <QrCode className="w-4 h-4 mr-1" />
+                              Ver QR
+                            </Link>
+                          </Button>
+                        </TableCell>
                       </TableRow>
-                    ))
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>

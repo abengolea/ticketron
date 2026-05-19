@@ -1,10 +1,8 @@
 import { TicketValidatorOnline } from '@/components/ticket-validator-online';
-import { PrintSectionNav } from '@/components/print-section-nav';
 
 export default function ValidatePage() {
   return (
     <section className="space-y-6">
-      <PrintSectionNav />
       <section className="text-center mb-8">
         <h1 className="text-4xl font-headline text-primary">Validador de tickets</h1>
         <p className="text-muted-foreground mt-2">

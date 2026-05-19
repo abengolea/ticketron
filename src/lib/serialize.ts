@@ -33,6 +33,8 @@ export function serializePaymentLink(p: PaymentLink): SerializedPaymentLink {
     eventId: p.eventId,
     sellerId: p.sellerId,
     ticketQuantity: p.ticketQuantity ?? 1,
+    linkType: p.linkType ?? 'payment',
+    complimentaryMessage: p.complimentaryMessage,
     buyerName: p.buyerName,
     buyerLastName: p.buyerLastName,
     buyerPhone: p.buyerPhone,
@@ -41,6 +43,7 @@ export function serializePaymentLink(p: PaymentLink): SerializedPaymentLink {
     status: p.status,
     expiresAt: p.expiresAt.toDate().toISOString(),
     mercadoPagoPreferenceId: p.mercadoPagoPreferenceId,
+    mercadoPagoPaymentId: p.mercadoPagoPaymentId,
     createdAt: p.createdAt.toDate().toISOString(),
   };
 }

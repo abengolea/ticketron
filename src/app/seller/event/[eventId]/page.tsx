@@ -15,6 +15,7 @@ import { listSellerPaymentLinks } from '@/lib/actions/payment-links';
 import { getSellerDashboard } from '@/lib/actions/sellers';
 
 import { CreatePaymentLinkDialog } from '@/components/create-payment-link-dialog';
+import { CreateComplimentaryLinkDialog } from '@/components/create-complimentary-link-dialog';
 
 import type { SerializedPaymentLink } from '@/lib/models';
 
@@ -57,6 +58,10 @@ const STATUS_LABELS: Record<string, string> = {
   CANCELLED: 'Cancelado',
 
 };
+
+function isComplimentaryLink(link: SerializedPaymentLink) {
+  return link.linkType === 'complimentary';
+}
 
 
 
@@ -144,11 +149,13 @@ function SellerEventContent() {
 
 
 
-  function shareWhatsApp(url: string) {
+  function shareWhatsApp(url: string, favor = false) {
 
-    const text = encodeURIComponent(`Comprá tu entrada acá: ${url}`);
+    const text = favor
+      ? `Te enviamos tu entrada de favor: ${url}`
+      : `Comprá tu entrada acá: ${url}`;
 
-    window.open(`https://wa.me/?text=${text}`, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
 
   }
 
@@ -193,14 +200,23 @@ function SellerEventContent() {
         <h1 className="text-2xl font-headline font-bold">Links de pago</h1>
 
         {maxTickets > 0 ? (
-          <CreatePaymentLinkDialog
-            eventId={eventId}
-            eventName={eventName}
-            unitPrice={unitPrice}
-            maxTickets={maxTickets}
-            getIdToken={getIdToken}
-            onCreated={load}
-          />
+          <section className="flex flex-wrap gap-2">
+            <CreatePaymentLinkDialog
+              eventId={eventId}
+              eventName={eventName}
+              unitPrice={unitPrice}
+              maxTickets={maxTickets}
+              getIdToken={getIdToken}
+              onCreated={load}
+            />
+            <CreateComplimentaryLinkDialog
+              eventId={eventId}
+              eventName={eventName}
+              maxTickets={maxTickets}
+              getIdToken={getIdToken}
+              onCreated={load}
+            />
+          </section>
         ) : (
           <p className="text-sm text-muted-foreground">Cupo agotado</p>
         )}
@@ -245,7 +261,11 @@ function SellerEventContent() {
 
               {links.map((link) => {
 
-                const url = `${appUrl}/checkout/${link.token}`;
+                const favor = isComplimentaryLink(link);
+
+                const url = favor
+                  ? `${appUrl}/ticket?token=${encodeURIComponent(link.token)}`
+                  : `${appUrl}/checkout/${link.token}`;
 
                 return (
 
@@ -253,29 +273,59 @@ function SellerEventContent() {
 
                     <TableCell>{link.ticketQuantity ?? 1}</TableCell>
 
-                    <TableCell>${link.amount}</TableCell>
+                    <TableCell>{favor ? 'Favor' : `$${link.amount}`}</TableCell>
 
                     <TableCell>
 
-                      <Badge variant="outline">{STATUS_LABELS[link.status]}</Badge>
+                      <Badge variant="outline">
+                        {favor ? 'Favor' : STATUS_LABELS[link.status]}
+                      </Badge>
 
                     </TableCell>
 
                     <TableCell>
 
-                      {[link.buyerName, link.buyerLastName].filter(Boolean).join(' ') || '—'}
+                      {[link.buyerName, link.buyerLastName].filter(Boolean).join(' ') ||
+                        link.buyerEmail ||
+                        '—'}
 
                     </TableCell>
 
                     <TableCell>
 
-                      {new Date(link.expiresAt).toLocaleString('es-AR')}
+                      {favor
+                        ? '—'
+                        : new Date(link.expiresAt).toLocaleString('es-AR')}
 
                     </TableCell>
 
                     <TableCell className="flex gap-2">
 
-                      {link.status === 'PENDING_PAYMENT' && (
+                      {favor && link.status === 'PAID' && (
+
+                        <>
+
+                          <Button size="sm" variant="outline" onClick={() => copyUrl(url)}>
+
+                            <Copy className="w-3 h-3" />
+
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => shareWhatsApp(url, true)}
+                          >
+
+                            <MessageCircle className="w-3 h-3" />
+
+                          </Button>
+
+                        </>
+
+                      )}
+
+                      {!favor && link.status === 'PENDING_PAYMENT' && (
 
                         <>
 

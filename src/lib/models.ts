@@ -8,6 +8,8 @@ export type PaymentLinkStatus =
   | 'EXPIRED'
   | 'CANCELLED';
 
+export type PaymentLinkType = 'payment' | 'complimentary' | 'cash';
+
 export type PlatformTicketStatus = 'VALID' | 'USED' | 'CANCELLED';
 
 export type GateValidationResult =
@@ -58,6 +60,8 @@ export interface PaymentLink {
   eventId: string;
   sellerId: string;
   ticketQuantity: number;
+  linkType?: PaymentLinkType;
+  complimentaryMessage?: string;
   buyerName?: string;
   buyerLastName?: string;
   buyerPhone?: string;
@@ -105,6 +109,8 @@ export interface SerializedPaymentLink {
   eventId: string;
   sellerId: string;
   ticketQuantity: number;
+  linkType?: PaymentLinkType;
+  complimentaryMessage?: string;
   buyerName?: string;
   buyerLastName?: string;
   buyerPhone?: string;
@@ -113,6 +119,7 @@ export interface SerializedPaymentLink {
   status: PaymentLinkStatus;
   expiresAt: string;
   mercadoPagoPreferenceId?: string;
+  mercadoPagoPaymentId?: string;
   createdAt: string;
 }
 

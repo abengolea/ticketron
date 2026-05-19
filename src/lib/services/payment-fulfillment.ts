@@ -1,7 +1,6 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
-import { generateTicketCode } from '@/lib/tokens';
-import { buildQrPayload } from '@/lib/qr';
+import { issueTicketsForLink } from '@/lib/services/issue-tickets';
 import type { PaymentLink, PlatformTicket } from '@/lib/models';
 
 /**
@@ -14,124 +13,60 @@ export async function fulfillPaymentLink(
 ): Promise<{ created: boolean; ticketCodes?: string[] }> {
   const db = getAdminDb();
 
-  return db.runTransaction(async (tx) => {
-    const linkRef = db.collection(COLLECTIONS.paymentLinks).doc(paymentLinkId);
-    const linkSnap = await tx.get(linkRef);
+  const linkRef = db.collection(COLLECTIONS.paymentLinks).doc(paymentLinkId);
+  const linkSnap = await linkRef.get();
 
-    if (!linkSnap.exists) {
-      throw new Error(`PaymentLink no encontrado: ${paymentLinkId}`);
-    }
+  if (!linkSnap.exists) {
+    throw new Error(`PaymentLink no encontrado: ${paymentLinkId}`);
+  }
 
-    const link = { id: linkSnap.id, ...linkSnap.data() } as PaymentLink;
-    const ticketQuantity = link.ticketQuantity ?? 1;
+  const link = { id: linkSnap.id, ...linkSnap.data() } as PaymentLink;
 
-    const existingTickets = await tx.get(
-      db.collection(COLLECTIONS.tickets).where('paymentLinkId', '==', paymentLinkId)
-    );
+  if (link.linkType === 'complimentary' || link.linkType === 'cash') {
+    throw new Error('No se puede fulfill este link vía Mercado Pago');
+  }
 
-    if (existingTickets.size >= ticketQuantity) {
-      const codes = existingTickets.docs.map(
+  const existingTickets = await db
+    .collection(COLLECTIONS.tickets)
+    .where('paymentLinkId', '==', paymentLinkId)
+    .get();
+
+  const ticketQuantity = link.ticketQuantity ?? 1;
+
+  if (existingTickets.size >= ticketQuantity && link.status === 'PAID') {
+    return {
+      created: false,
+      ticketCodes: existingTickets.docs.map(
         (d) => (d.data() as PlatformTicket).ticketCode
-      );
-      if (link.status !== 'PAID') {
-        tx.update(linkRef, {
-          status: 'PAID',
-          mercadoPagoPaymentId,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-      }
-      return { created: false, ticketCodes: codes };
-    }
+      ),
+    };
+  }
 
-    if (link.status === 'CANCELLED' || link.status === 'EXPIRED') {
-      throw new Error(`PaymentLink en estado ${link.status}, no se emite ticket`);
-    }
+  if (link.status === 'CANCELLED' || link.status === 'EXPIRED') {
+    throw new Error(`PaymentLink en estado ${link.status}, no se emite ticket`);
+  }
 
-    const now = Timestamp.now();
-    if (link.expiresAt.toMillis() < now.toMillis() && link.status === 'PENDING_PAYMENT') {
-      tx.update(linkRef, { status: 'EXPIRED', updatedAt: FieldValue.serverTimestamp() });
-      throw new Error('PaymentLink vencido');
-    }
+  const now = Timestamp.now();
+  if (link.expiresAt.toMillis() < now.toMillis() && link.status === 'PENDING_PAYMENT') {
+    await linkRef.update({ status: 'EXPIRED', updatedAt: FieldValue.serverTimestamp() });
+    throw new Error('PaymentLink vencido');
+  }
 
-    const eventRef = db.collection(COLLECTIONS.events).doc(link.eventId);
-    const eventSnap = await tx.get(eventRef);
-    if (!eventSnap.exists) throw new Error('Evento no encontrado');
-    const event = eventSnap.data()!;
-    if (!event.active) throw new Error('Evento inactivo');
-
-    const toCreate = ticketQuantity - existingTickets.size;
-    if (event.sold + toCreate > event.capacity) {
-      throw new Error('Evento sin capacidad disponible');
-    }
-
-    const accessQuery = db
-      .collection(COLLECTIONS.sellerEventAccess)
-      .where('sellerId', '==', link.sellerId)
-      .where('eventId', '==', link.eventId)
-      .limit(1);
-    const accessSnap = await tx.get(accessQuery);
-
-    let accessDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
-    if (!accessSnap.empty) {
-      accessDoc = accessSnap.docs[0]!;
-      const access = accessDoc.data();
-      if (!access.active) throw new Error('Acceso vendedor inactivo');
-      if (access.sold + toCreate > access.quota) {
-        throw new Error('Cupo vendedor agotado');
-      }
-    } else {
-      const sellerSnap = await tx.get(
-        db.collection(COLLECTIONS.users).doc(link.sellerId)
-      );
-      if (!sellerSnap.exists || sellerSnap.data()?.role !== 'admin') {
-        throw new Error('Acceso vendedor no encontrado');
-      }
-    }
-
-    const buyerName = [link.buyerName, link.buyerLastName].filter(Boolean).join(' ');
-    const newCodes: string[] = [];
-
-    for (let i = 0; i < toCreate; i++) {
-      const ticketCode = generateTicketCode();
-      const qrPayload = buildQrPayload(ticketCode);
-      const ticketRef = db.collection(COLLECTIONS.tickets).doc();
-      const ticket: Omit<PlatformTicket, 'id'> = {
-        ticketCode,
-        paymentLinkId: link.id,
-        eventId: link.eventId,
-        sellerId: link.sellerId,
-        buyerName: buyerName || 'Comprador',
-        buyerPhone: link.buyerPhone,
-        buyerEmail: link.buyerEmail,
-        status: 'VALID',
-        qrPayload,
-        createdAt: now,
-      };
-      tx.set(ticketRef, ticket);
-      newCodes.push(ticketCode);
-    }
-
-    tx.update(linkRef, {
+  if (link.status !== 'PAID') {
+    await linkRef.update({
       status: 'PAID',
       mercadoPagoPaymentId,
       updatedAt: FieldValue.serverTimestamp(),
     });
-    tx.update(eventRef, {
-      sold: FieldValue.increment(toCreate),
+  } else if (mercadoPagoPaymentId) {
+    await linkRef.update({
+      mercadoPagoPaymentId,
       updatedAt: FieldValue.serverTimestamp(),
     });
-    if (accessDoc) {
-      tx.update(accessDoc.ref, {
-        sold: FieldValue.increment(toCreate),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-    }
+  }
 
-    const existingCodes = existingTickets.docs.map(
-      (d) => (d.data() as PlatformTicket).ticketCode
-    );
-    return { created: true, ticketCodes: [...existingCodes, ...newCodes] };
-  });
+  const result = await issueTicketsForLink(paymentLinkId);
+  return { created: result.created, ticketCodes: result.ticketCodes };
 }
 
 /** Busca paymentLink por preferenceId o external_reference (paymentLinkId) */
