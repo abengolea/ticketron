@@ -1,16 +1,17 @@
-
-import { TicketValidatorOnline } from "@/components/ticket-validator-online";
+import { TicketValidatorOnline } from '@/components/ticket-validator-online';
+import { PrintSectionNav } from '@/components/print-section-nav';
 
 export default function ValidatePage() {
   return (
-    <>
-      <div className="text-center mb-8">
-        <h1 className="text-4xl font-headline text-primary">Validador de Tickets</h1>
+    <section className="space-y-6">
+      <PrintSectionNav />
+      <section className="text-center mb-8">
+        <h1 className="text-4xl font-headline text-primary">Validador de tickets</h1>
         <p className="text-muted-foreground mt-2">
-          Escanea el código QR de un ticket para validarlo con la base de datos online.
+          Escaneá el código QR de un ticket impreso para validarlo con la base de datos online.
         </p>
-      </div>
+      </section>
       <TicketValidatorOnline />
-    </>
+    </section>
   );
 }

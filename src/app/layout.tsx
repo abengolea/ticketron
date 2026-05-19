@@ -20,7 +20,7 @@ const belleza = Belleza({
 
 export const metadata: Metadata = {
   title: 'Ticketron',
-  description: 'Generador de tickets para tus eventos privados',
+  description: 'Plataforma privada de venta de entradas digitales para eventos',
 };
 
 export default function RootLayout({

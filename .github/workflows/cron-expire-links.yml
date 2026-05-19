@@ -1,0 +1,28 @@
+# Expira links de pago vencidos cada 5 minutos (llamada HTTP al backend desplegado)
+name: Cron — Expirar payment links
+
+on:
+  schedule:
+    # Cada 5 minutos (UTC)
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  expire-links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Expirar links vencidos
+        env:
+          NEXT_PUBLIC_APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: npx tsx scripts/call-expire-links-api.ts

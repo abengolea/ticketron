@@ -1,63 +1,77 @@
-/**
- * @file Overview
- * This ruleset enforces a public read with owner-only writes security model for `events` and `tickets` collections.
- *
- * Data Structure:
- * - `/events/{eventId}`: Stores event details.
- * - `/tickets/{ticketId}`: Stores ticket information.
- *
- * Key Security Decisions:
- * - Events: Anyone can read event details, but only authorized users can create, update, or delete events.
- * - Tickets: Anyone can read ticket details, but only authorized users can create, update, or delete tickets.
- * - Denormalization: `eventId` is denormalized in the `tickets` collection to avoid `get()` calls.
- */
 rules_version = '2';
+
+/**
+ * Ticketron — Reglas de seguridad Firestore
+ *
+ * IMPORTANTE: Las operaciones sensibles (crear tickets, payment links,
+ * actualizar cupos, validar QR) se ejecutan SOLO vía Firebase Admin SDK
+ * en server actions / API routes. El cliente NO debe escribir en colecciones críticas.
+ *
+ * Crear el primer admin manualmente en consola Firebase:
+ *   users/{uid}: { email, displayName, role: "admin", active: true, createdAt, updatedAt }
+ */
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    /**
-     * @description Allows public read access to event data while restricting write access to authorized users.
-     * @path /events/{eventId}
-     * @allow (get, list) - Any user can read event data.
-     * @allow (create) - Authenticated user can create an event with a matching authorId
-     * @allow (update, delete) - Authenticated user can update or delete an event if they are the owner.
-     * @deny (create) - Unauthenticated user cannot create an event.
-     * @deny (update, delete) - Unauthenticated user cannot update or delete an event.
-     * @principle Enforces public read with owner-only writes for events.
-     */
-    match /events/{eventId} {
-      allow get, list: if true;
-      allow create: if isSignedIn() && request.resource.data.id == eventId;
-      allow update, delete: if isSignedIn() && isExistingOwner(resource.data.id);
-    }
-
-    /**
-     * @description Allows public read access to ticket data while restricting write access to authorized users.
-     * @path /tickets/{ticketId}
-     * @allow (get, list) - Any user can read ticket data.
-     * @allow (create) - Authenticated user can create a ticket with a matching authorId
-     * @allow (update, delete) - Authenticated user can update or delete a ticket if they are the owner.
-     * @deny (create) - Unauthenticated user cannot create a ticket.
-     * @deny (update, delete) - Unauthenticated user cannot update or delete a ticket.
-     * @principle Enforces public read with owner-only writes for tickets.
-     */
-    match /tickets/{ticketId} {
-      allow get, list: if true;
-      allow create: if isSignedIn() && request.resource.data.id == ticketId;
-      allow update, delete: if isSignedIn() && isExistingOwner(resource.data.id);
-    }
-
-    // Helper functions
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isOwner(resourceId) {
-      return request.auth.uid == resourceId;
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
-    function isExistingOwner(resourceId) {
-      return isSignedIn() && isOwner(resourceId) && resource != null;
+    function isActiveUser() {
+      return isSignedIn() && userDoc().data.active == true;
+    }
+
+    function hasRole(role) {
+      return isActiveUser() && userDoc().data.role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isSeller() {
+      return hasRole('seller');
+    }
+
+    function isGate() {
+      return hasRole('gate') || isAdmin();
+    }
+
+    // Perfil de usuario — lectura propia; escritura solo admin vía consola/Admin SDK
+    match /users/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Eventos — lectura para usuarios autenticados activos; escritura bloqueada (Admin SDK)
+    match /events/{eventId} {
+      allow read: if isActiveUser();
+      allow write: if false;
+    }
+
+    // Acceso vendedor-evento
+    match /sellerEventAccess/{accessId} {
+      allow read: if isAdmin();
+      allow read: if isSeller() && resource.data.sellerId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Links de pago — vendedor lee los suyos; escritura bloqueada
+    match /paymentLinks/{linkId} {
+      allow read: if isAdmin();
+      allow read: if isSeller() && resource.data.sellerId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Tickets — admin y gate leen; escritura bloqueada (validación vía servidor)
+    match /tickets/{ticketId} {
+      allow read: if isAdmin() || isGate();
+      allow write: if false;
     }
   }
 }

@@ -1,18 +1,20 @@
-import { EventHistory } from "@/components/event-history";
-import PrivateRoute from "@/components/private-route";
+import { EventHistory } from '@/components/event-history';
+import PrivateRoute from '@/components/private-route';
+import { PrintSectionNav } from '@/components/print-section-nav';
 
 export default function HistoryPage() {
   return (
     <PrivateRoute>
-      <div>
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-headline text-primary">Historial de Eventos</h1>
+      <section className="space-y-6">
+        <PrintSectionNav />
+        <section className="text-center mb-8">
+          <h1 className="text-4xl font-headline text-primary">Historial de eventos</h1>
           <p className="text-muted-foreground mt-2">
-            Explora los eventos generados previamente y sus tickets.
+            Explorá los eventos generados previamente y sus tickets para imprimir.
           </p>
-        </div>
+        </section>
         <EventHistory />
-      </div>
+      </section>
     </PrivateRoute>
   );
 }

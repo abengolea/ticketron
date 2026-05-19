@@ -30,8 +30,8 @@ export default function PrivateRoute({ children }: { children: React.ReactNode }
     return null;
   }
   
+  // La redirección post-login la maneja /login según rol de plataforma
   if (user && pathname === '/login') {
-    router.push('/history');
     return null;
   }
 
