@@ -1,8 +1,4 @@
-import {
-  EMAIL_BRAND,
-  TICKET_ICON_DATA_URI,
-  escapeHtml,
-} from '@/lib/email/brand';
+import { EMAIL_BRAND, escapeHtml } from '@/lib/email/brand';
 import { buildBuyerAccountCtaHtml } from '@/lib/email/templates/buyer-account-cta';
 import { buildEmailQrImgHtml } from '@/lib/email/qr-email-block';
 
@@ -26,7 +22,8 @@ export interface PurchaseConfirmationEmailParams {
   accountUrl?: string;
 }
 
-const QR_HEAD_STYLES = `<style type="text/css">
+const EMAIL_HEAD_STYLES = `<style type="text/css">
+  @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
   @media (prefers-color-scheme: dark) {
     .email-qr-cell, .email-qr-cell td { background-color: #ffffff !important; }
     .email-qr-cell img { background-color: #ffffff !important; filter: none !important; -webkit-filter: none !important; }
@@ -132,7 +129,7 @@ export function buildPurchaseConfirmationEmailHtml(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tus entradas — Ticketron</title>
-  ${QR_HEAD_STYLES}
+  ${EMAIL_HEAD_STYLES}
 </head>
 <body style="margin: 0; padding: 0; background-color: ${EMAIL_BRAND.background}; -webkit-text-size-adjust: 100%;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="${EMAIL_BRAND.background}" style="background-color: ${EMAIL_BRAND.background};">
@@ -145,11 +142,11 @@ export function buildPurchaseConfirmationEmailHtml(
             <td align="center" style="padding-bottom: 24px;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                 <tr>
-                  <td bgcolor="${EMAIL_BRAND.primarySoft}" style="background-color: ${EMAIL_BRAND.primarySoft}; border-radius: 10px; padding: 10px; vertical-align: middle;">
-                    <img src="${TICKET_ICON_DATA_URI}" width="28" height="28" alt="" style="display: block; border: 0;" />
+                  <td bgcolor="${EMAIL_BRAND.primary}" style="background-color: ${EMAIL_BRAND.primary}; border-radius: 10px; padding: 10px 13px; vertical-align: middle;">
+                    <p style="margin: 0; font-family: ${EMAIL_BRAND.fontBody}; font-size: 18px; font-weight: 800; color: #ffffff; letter-spacing: -0.02em; line-height: 1;">T</p>
                   </td>
-                  <td style="padding-left: 12px; vertical-align: middle;">
-                    <p style="margin: 0; font-family: ${EMAIL_BRAND.fontHeadline}; font-size: 24px; font-weight: 700; color: ${EMAIL_BRAND.text}; letter-spacing: 0.01em;">Ticketron</p>
+                  <td style="padding-left: 11px; vertical-align: middle;">
+                    <p style="margin: 0; font-family: ${EMAIL_BRAND.fontBody}; font-size: 22px; font-weight: 800; color: ${EMAIL_BRAND.text}; letter-spacing: -0.03em;">Ticketron</p>
                   </td>
                 </tr>
               </table>

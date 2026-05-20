@@ -17,9 +17,10 @@ export const EMAIL_BRAND = {
   textDim: '#71717a',
   success: '#15803d',
   successBg: '#dcfce7',
-  fontHeadline: 'Georgia, "Times New Roman", Times, serif',
+  fontHeadline:
+    '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   fontBody:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
 } as const;
 
 /** Ícono ticket (Lucide-style) en base64 para clientes de correo */

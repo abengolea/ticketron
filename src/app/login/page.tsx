@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Mail } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import type { UserRole } from '@/lib/models';
 
@@ -185,8 +185,15 @@ export default function LoginPage() {
             <TabsContent value="buyer" className="space-y-6">
               {buyerMessage && (
                 <Alert>
-                  <AlertTitle>Revisá tu email</AlertTitle>
-                  <AlertDescription>{buyerMessage}</AlertDescription>
+                  <AlertTitle>Te enviamos un email</AlertTitle>
+                  <AlertDescription className="space-y-2">
+                    <p>{buyerMessage}</p>
+                    <p className="text-sm">
+                      Abrí el correo (revisá spam si no lo ves) y tocá el botón del mensaje para
+                      elegir tu contraseña. Después volvé acá e ingresá con ese email y la
+                      contraseña que creaste.
+                    </p>
+                  </AlertDescription>
                 </Alert>
               )}
               {error && (
@@ -196,36 +203,68 @@ export default function LoginPage() {
                 </Alert>
               )}
 
-              <form onSubmit={handleRequestBuyerAccess} className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  ¿Compraste entradas y aún no tenés cuenta? Ingresá tu email y te enviamos un
-                  link para crear contraseña.
-                </p>
-                <div className="space-y-2">
-                  <Label htmlFor="buyerEmail">Email de la compra</Label>
-                  <Input
-                    id="buyerEmail"
-                    type="email"
-                    value={buyerEmail}
-                    onChange={(e) => setBuyerEmail(e.target.value)}
-                    placeholder="comprador@ejemplo.com"
-                    required
-                  />
+              <section
+                aria-labelledby="buyer-first-time-heading"
+                className="space-y-4 rounded-lg border border-primary/30 bg-primary/5 p-4"
+              >
+                <div className="space-y-1">
+                  <h2
+                    id="buyer-first-time-heading"
+                    className="text-base font-semibold leading-tight"
+                  >
+                    Compraste entradas y es tu primera vez
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Todavía no podés ingresar con contraseña hasta que la crees. Seguí estos pasos:
+                  </p>
                 </div>
-                <Button type="submit" className="w-full" variant="secondary" disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  Enviar link de activación
-                </Button>
-              </form>
+                <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+                  <li>Escribí abajo el mismo email que usaste al comprar.</li>
+                  <li>
+                    Tocá el botón azul <strong className="text-foreground">«Enviarme el email»</strong>{' '}
+                    (no el de ingresar, que está más abajo).
+                  </li>
+                  <li>
+                    Abrí el correo que te llega y tocá el botón del mensaje para elegir tu
+                    contraseña.
+                  </li>
+                </ol>
+                <form onSubmit={handleRequestBuyerAccess} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="buyerEmail">Email con el que compraste</Label>
+                    <Input
+                      id="buyerEmail"
+                      type="email"
+                      value={buyerEmail}
+                      onChange={(e) => setBuyerEmail(e.target.value)}
+                      placeholder="comprador@ejemplo.com"
+                      required
+                      autoComplete="email"
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={isSubmitting}>
+                    {isSubmitting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Mail className="mr-2 h-4 w-4" />
+                    )}
+                    Enviarme el email para crear mi cuenta
+                  </Button>
+                  <p className="text-center text-xs text-muted-foreground">
+                    Te llega un correo con un botón; al tocarlo elegís tu contraseña y después
+                    podés volver acá a ingresar.
+                  </p>
+                </form>
+              </section>
 
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Ya tengo cuenta</span>
+                  <span className="bg-card px-2 text-muted-foreground">
+                    Ya tengo cuenta y contraseña
+                  </span>
                 </div>
               </div>
 
@@ -252,12 +291,15 @@ export default function LoginPage() {
                     autoComplete="current-password"
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={isSubmitting}>
+                <Button type="submit" className="w-full" variant="outline" disabled={isSubmitting}>
                   {isSubmitting ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : null}
                   Ingresar a mis entradas
                 </Button>
+                <p className="text-center text-xs text-muted-foreground">
+                  Solo si ya activaste tu cuenta y elegiste contraseña.
+                </p>
               </form>
             </TabsContent>
 

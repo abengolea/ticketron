@@ -88,6 +88,23 @@ const TICKET_STATUS: Record<string, string> = {
 type PaymentFilter = 'all' | 'paid' | 'mercadopago' | 'cash' | 'complimentary';
 type StatusFilter = 'all' | 'VALID' | 'USED' | 'CANCELLED';
 
+function computeSellerQuotaSummary(access: SerializedSellerAccess[], capacity: number) {
+  const active = access.filter((a) => a.active);
+  const assignedQuota = active.reduce((sum, a) => sum + a.quota, 0);
+  const soldBySellers = active.reduce((sum, a) => sum + a.sold, 0);
+  const remainingWithSellers = active.reduce((sum, a) => sum + a.remaining, 0);
+  const unassignedQuota = Math.max(0, capacity - assignedQuota);
+  const overAssigned = Math.max(0, assignedQuota - capacity);
+  return {
+    assignedQuota,
+    soldBySellers,
+    remainingWithSellers,
+    unassignedQuota,
+    overAssigned,
+    sellerCount: active.length,
+  };
+}
+
 function matchesTicketFilters(
   ticket: SerializedTicketWithPayment,
   paymentFilter: PaymentFilter,
@@ -272,6 +289,7 @@ function EventDetailContent() {
   const ticketTotals = computeTicketTotals(tickets);
   const soldCount = ticketTotals.activeTickets;
   const remaining = event.capacity - soldCount;
+  const sellerQuota = computeSellerQuotaSummary(access, event.capacity);
   const maxLinkTickets = event.active && remaining > 0 ? Math.min(remaining, 20) : 0;
   const activeTickets = tickets.filter((t) => !t.archived);
   const ticketsForList = showArchived ? tickets : activeTickets;
@@ -346,42 +364,90 @@ function EventDetailContent() {
         </section>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Vendidas / Capacidad</CardDescription>
-            <CardTitle className="text-2xl">
-              {soldCount} / {event.capacity}
-            </CardTitle>
-            {soldCount !== event.sold && (
+      <section className="space-y-4">
+        <section className="grid gap-4 md:grid-cols-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Vendidas / Capacidad</CardDescription>
+              <CardTitle className="text-2xl">
+                {soldCount} / {event.capacity}
+              </CardTitle>
+              {soldCount !== event.sold && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {event.sold - soldCount} archivada{event.sold - soldCount === 1 ? '' : 's'} no
+                  contabilizada{event.sold - soldCount === 1 ? '' : 's'}
+                </p>
+              )}
+              {sellerQuota.sellerCount > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {sellerQuota.soldBySellers} vendidas por vendedores
+                </p>
+              )}
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Disponibles (global)</CardDescription>
+              <CardTitle className="text-2xl">{remaining}</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                {event.sold - soldCount} archivada{event.sold - soldCount === 1 ? '' : 's'} no
-                contabilizada{event.sold - soldCount === 1 ? '' : 's'}
+                Tope real para vender (admin incluye cupo de vendedores no usado)
               </p>
-            )}
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Disponibles</CardDescription>
-            <CardTitle className="text-2xl">{remaining}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Precio</CardDescription>
-            <CardTitle className="text-2xl">${event.price}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Estado</CardDescription>
-            <section className="flex items-center gap-2 pt-1">
-              <Switch checked={event.active} onCheckedChange={toggleActive} />
-              <span className="text-sm font-medium">{event.active ? 'Activo' : 'Inactivo'}</span>
-            </section>
-          </CardHeader>
-        </Card>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Precio</CardDescription>
+              <CardTitle className="text-2xl">${event.price}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Estado</CardDescription>
+              <section className="flex items-center gap-2 pt-1">
+                <Switch checked={event.active} onCheckedChange={toggleActive} />
+                <span className="text-sm font-medium">{event.active ? 'Activo' : 'Inactivo'}</span>
+              </section>
+            </CardHeader>
+          </Card>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Cupo asignado a vendedores</CardDescription>
+              <CardTitle className="text-2xl">{sellerQuota.assignedQuota}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                {sellerQuota.sellerCount === 0
+                  ? 'Sin vendedores activos'
+                  : `${sellerQuota.sellerCount} vendedor${sellerQuota.sellerCount === 1 ? '' : 'es'} · ${sellerQuota.soldBySellers} ya vendidas`}
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>En manos de vendedores</CardDescription>
+              <CardTitle className="text-2xl">{sellerQuota.remainingWithSellers}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Cupo sin usar que aún pueden vender los vendedores
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Sin asignar a vendedores</CardDescription>
+              <CardTitle className="text-2xl">{sellerQuota.unassignedQuota}</CardTitle>
+              {sellerQuota.overAssigned > 0 ? (
+                <p className="text-xs text-destructive mt-1">
+                  Cupos suman {sellerQuota.overAssigned} más que la capacidad
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Capacidad no reservada en cupos de vendedores
+                </p>
+              )}
+            </CardHeader>
+          </Card>
+        </section>
       </section>
 
       <Tabs defaultValue="tickets" className="space-y-4">
@@ -561,25 +627,37 @@ function EventDetailContent() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    access.map((a) => {
-                      const seller = sellers.find((s) => s.uid === a.sellerId);
-                      return (
-                      <TableRow key={a.id}>
-                        <TableCell>
-                          {seller ? `${seller.displayName} (${seller.email})` : a.sellerId}
-                        </TableCell>
-                        <TableCell>
-                          {a.sold} / {a.quota}
-                        </TableCell>
-                        <TableCell>{a.remaining}</TableCell>
-                        <TableCell>
-                          <Badge variant={a.active ? 'default' : 'secondary'}>
-                            {a.active ? 'Activo' : 'Inactivo'}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                      );
-                    })
+                    <>
+                      {access.map((a) => {
+                        const seller = sellers.find((s) => s.uid === a.sellerId);
+                        return (
+                          <TableRow key={a.id}>
+                            <TableCell>
+                              {seller ? `${seller.displayName} (${seller.email})` : a.sellerId}
+                            </TableCell>
+                            <TableCell>
+                              {a.sold} / {a.quota}
+                            </TableCell>
+                            <TableCell>{a.remaining}</TableCell>
+                            <TableCell>
+                              <Badge variant={a.active ? 'default' : 'secondary'}>
+                                {a.active ? 'Activo' : 'Inactivo'}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      {access.some((a) => a.active) && (
+                        <TableRow className="bg-muted/50 font-medium">
+                          <TableCell>Total (activos)</TableCell>
+                          <TableCell>
+                            {sellerQuota.soldBySellers} / {sellerQuota.assignedQuota}
+                          </TableCell>
+                          <TableCell>{sellerQuota.remainingWithSellers}</TableCell>
+                          <TableCell />
+                        </TableRow>
+                      )}
+                    </>
                   )}
                 </TableBody>
               </Table>
@@ -647,7 +725,7 @@ function EventDetailContent() {
                         <SelectItem value="paid">Abonadas (MP + efectivo)</SelectItem>
                         <SelectItem value="mercadopago">Mercado Pago</SelectItem>
                         <SelectItem value="cash">Efectivo</SelectItem>
-                        <SelectItem value="complimentary">Favor</SelectItem>
+                        <SelectItem value="complimentary">Cortesía</SelectItem>
                       </SelectContent>
                     </Select>
                   </section>

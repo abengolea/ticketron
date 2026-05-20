@@ -34,7 +34,7 @@ export function CreateComplimentaryLinkDialog({
   maxTickets,
   getIdToken,
   onCreated,
-  triggerLabel = 'Entrada de favor',
+  triggerLabel = 'Entrada de cortesía',
 }: CreateComplimentaryLinkDialogProps) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -97,7 +97,7 @@ export function CreateComplimentaryLinkDialog({
           ? `Email enviado a ${email}`
           : res.data.emailError ?? 'No se pudo enviar el email (revisá RESEND_API_KEY)';
         toast({
-          title: 'Entrada de favor creada',
+          title: 'Entrada de cortesía creada',
           description: `${quantity} entrada(s) · ${copied ? 'URL copiada' : 'Listo'} · ${emailNote}`,
         });
       } else {
@@ -124,7 +124,7 @@ export function CreateComplimentaryLinkDialog({
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Entrada de favor</DialogTitle>
+          <DialogTitle>Entrada de cortesía</DialogTitle>
           <DialogDescription>
             {eventName} · Se generan QR al instante y se envían por email al beneficiario
           </DialogDescription>
@@ -162,9 +162,9 @@ export function CreateComplimentaryLinkDialog({
             />
           </section>
           <section className="space-y-2">
-            <Label htmlFor="favorQuantity">Cantidad de entradas</Label>
+            <Label htmlFor="cortesiaQuantity">Cantidad de entradas</Label>
             <Input
-              id="favorQuantity"
+              id="cortesiaQuantity"
               type="number"
               min={1}
               max={maxTickets}

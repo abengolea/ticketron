@@ -27,7 +27,7 @@ export function getTicketPaymentMethod(
   if (link.mercadoPagoPaymentId || link.mercadoPagoPreferenceId) {
     return 'mercadopago';
   }
-  // Links de checkout MP no siempre tienen linkType; si está pagado y no es efectivo/favor → MP
+  // Links de checkout MP no siempre tienen linkType; si está pagado y no es efectivo/cortesía → MP
   if (link.status === 'PAID') return 'mercadopago';
   return 'cash';
 }
@@ -35,7 +35,7 @@ export function getTicketPaymentMethod(
 const METHOD_LABELS: Record<TicketPaymentMethod, string> = {
   mercadopago: 'Mercado Pago',
   cash: 'Pago en efectivo',
-  complimentary: 'Entrada de favor',
+  complimentary: 'Entrada de cortesía',
 };
 
 function resolveAmountPerTicket(

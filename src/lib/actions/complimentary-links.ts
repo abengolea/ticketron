@@ -111,6 +111,6 @@ export async function createComplimentaryLink(
       emailError,
     });
   } catch (e) {
-    return fail(e instanceof Error ? e.message : 'Error al crear entrada de favor');
+    return fail(e instanceof Error ? e.message : 'Error al crear entrada de cortesía');
   }
 }

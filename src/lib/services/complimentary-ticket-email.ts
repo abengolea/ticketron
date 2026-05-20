@@ -25,7 +25,7 @@ function formatEventDate(date: Date): string {
   });
 }
 
-/** Envía email con QR al beneficiario de una entrada de favor (idempotente). */
+/** Envía email con QR al beneficiario de una entrada de cortesía (idempotente). */
 export async function sendComplimentaryTicketEmail(
   paymentLinkId: string
 ): Promise<{ sent: boolean; skipped?: string }> {
@@ -114,7 +114,7 @@ export async function sendComplimentaryTicketEmail(
     accountUrl = undefined;
   }
 
-  const subject = `Tu entrada de favor — ${event.name}`;
+  const subject = `Tu entrada de cortesía — ${event.name}`;
   const html = buildComplimentaryTicketEmailHtml({
     beneficiaryName,
     eventName: event.name,

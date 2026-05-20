@@ -149,10 +149,10 @@ function SellerEventContent() {
 
 
 
-  function shareWhatsApp(url: string, favor = false) {
+  function shareWhatsApp(url: string, cortesia = false) {
 
-    const text = favor
-      ? `Te enviamos tu entrada de favor: ${url}`
+    const text = cortesia
+      ? `Te enviamos tu entrada de cortesía: ${url}`
       : `Comprá tu entrada acá: ${url}`;
 
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
@@ -261,9 +261,9 @@ function SellerEventContent() {
 
               {links.map((link) => {
 
-                const favor = isComplimentaryLink(link);
+                const cortesia = isComplimentaryLink(link);
 
-                const url = favor
+                const url = cortesia
                   ? `${appUrl}/ticket?token=${encodeURIComponent(link.token)}`
                   : `${appUrl}/checkout/${link.token}`;
 
@@ -273,12 +273,12 @@ function SellerEventContent() {
 
                     <TableCell>{link.ticketQuantity ?? 1}</TableCell>
 
-                    <TableCell>{favor ? 'Favor' : `$${link.amount}`}</TableCell>
+                    <TableCell>{cortesia ? 'Cortesía' : `$${link.amount}`}</TableCell>
 
                     <TableCell>
 
                       <Badge variant="outline">
-                        {favor ? 'Favor' : STATUS_LABELS[link.status]}
+                        {cortesia ? 'Cortesía' : STATUS_LABELS[link.status]}
                       </Badge>
 
                     </TableCell>
@@ -293,7 +293,7 @@ function SellerEventContent() {
 
                     <TableCell>
 
-                      {favor
+                      {cortesia
                         ? '—'
                         : new Date(link.expiresAt).toLocaleString('es-AR')}
 
@@ -301,7 +301,7 @@ function SellerEventContent() {
 
                     <TableCell className="flex gap-2">
 
-                      {favor && link.status === 'PAID' && (
+                      {cortesia && link.status === 'PAID' && (
 
                         <>
 
@@ -325,7 +325,7 @@ function SellerEventContent() {
 
                       )}
 
-                      {!favor && link.status === 'PENDING_PAYMENT' && (
+                      {!cortesia && link.status === 'PENDING_PAYMENT' && (
 
                         <>
 

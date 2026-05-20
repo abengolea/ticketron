@@ -104,7 +104,7 @@ function AdminEventsContent() {
         <section>
           <h1 className="text-2xl font-headline font-bold">Eventos</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Venta digital: Mercado Pago, links de pago y entradas de favor.
+            Venta digital: Mercado Pago, links de pago y entradas de cortesía.
           </p>
         </section>
         <Button onClick={() => setShowForm(!showForm)}>
