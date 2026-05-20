@@ -16,7 +16,13 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mail } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -57,6 +63,7 @@ export default function LoginPage() {
   const [buyerSignInEmail, setBuyerSignInEmail] = useState('');
   const [buyerPassword, setBuyerPassword] = useState('');
   const [buyerMessage, setBuyerMessage] = useState<string | null>(null);
+  const [teamDialogOpen, setTeamDialogOpen] = useState(false);
 
   useEffect(() => {
     async function redirectIfLoggedIn() {
@@ -142,7 +149,7 @@ export default function LoginPage() {
 
       if (session.data.role !== 'buyer') {
         await auth.signOut();
-        setError('Esta cuenta no es de comprador. Usá la pestaña Equipo para ingresar.');
+        setError('Esta cuenta no es de comprador. Usá «Acceso equipo» (abajo a la derecha).');
         return;
       }
 
@@ -175,14 +182,7 @@ export default function LoginPage() {
           <CardTitle>Ticketron</CardTitle>
           <CardDescription>Venta digital de entradas y acceso a tus tickets</CardDescription>
         </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="buyer" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
-              <TabsTrigger value="buyer">Mis entradas</TabsTrigger>
-              <TabsTrigger value="team">Equipo</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="buyer" className="space-y-6">
+        <CardContent className="space-y-6">
               {buyerMessage && (
                 <Alert>
                   <AlertTitle>Te enviamos un email</AlertTitle>
@@ -196,7 +196,7 @@ export default function LoginPage() {
                   </AlertDescription>
                 </Alert>
               )}
-              {error && (
+              {error && !teamDialogOpen && (
                 <Alert variant="destructive">
                   <AlertTitle>Error</AlertTitle>
                   <AlertDescription>{error}</AlertDescription>
@@ -301,34 +301,52 @@ export default function LoginPage() {
                   Solo si ya activaste tu cuenta y elegiste contraseña.
                 </p>
               </form>
-            </TabsContent>
 
-            <TabsContent value="team" className="space-y-6">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertTitle>Acceso denegado</AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={handleGoogleSignIn}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <GoogleIcon className="mr-2 h-4 w-4" />
-                )}
-                Iniciar sesión con Google
-              </Button>
-              <p className="text-xs text-center text-muted-foreground">
-                Solo usuarios habilitados por el administrador pueden acceder.
-              </p>
-            </TabsContent>
-          </Tabs>
+          <div className="flex justify-end pt-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setError(null);
+                setTeamDialogOpen(true);
+              }}
+            >
+              Acceso equipo
+            </Button>
+          </div>
         </CardContent>
+
+        <Dialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Acceso equipo</DialogTitle>
+              <DialogDescription>
+                Admin, vendedores y puerta. Solo cuentas habilitadas por el administrador.
+              </DialogDescription>
+            </DialogHeader>
+            {error && teamDialogOpen && (
+              <Alert variant="destructive">
+                <AlertTitle>Acceso denegado</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleGoogleSignIn}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <GoogleIcon className="mr-2 h-4 w-4" />
+              )}
+              Iniciar sesión con Google
+            </Button>
+          </DialogContent>
+        </Dialog>
       </Card>
     </div>
   );
