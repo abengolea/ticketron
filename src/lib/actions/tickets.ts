@@ -3,12 +3,16 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { verifyIdTokenAndGetUser, requireRole } from '@/lib/auth-server';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
-import { cancelTicketSchema } from '@/lib/validations';
-import { serializeTicket, serializePaymentLink } from '@/lib/serialize';
+import { cancelTicketSchema, archiveTicketSchema } from '@/lib/validations';
+import { serializeTicket } from '@/lib/serialize';
 import { getTicketPaymentDisplay } from '@/lib/payment-display';
-import type { PaymentLink } from '@/lib/models';
+import { loadSerializedPaymentLinksByIds } from '@/lib/services/payment-links-batch';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
-import type { SerializedTicket, PlatformTicket } from '@/lib/models';
+import type {
+  SerializedTicket,
+  SerializedTicketWithPayment,
+  PlatformTicket,
+} from '@/lib/models';
 
 export async function getTicketByCode(
   ticketCode: string
@@ -102,22 +106,73 @@ export async function getTicketsByPaymentLinkToken(
 
 export async function listTicketsForEvent(
   idToken: string,
-  eventId: string
-): Promise<ActionResult<SerializedTicket[]>> {
+  eventId: string,
+  options?: { includeArchived?: boolean }
+): Promise<ActionResult<SerializedTicketWithPayment[]>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
     requireRole(user, 'admin');
 
-    const snap = await getAdminDb()
-      .collection(COLLECTIONS.tickets)
-      .where('eventId', '==', eventId)
-      .limit(500)
-      .get();
+    const db = getAdminDb();
+    const [snap, eventSnap] = await Promise.all([
+      db.collection(COLLECTIONS.tickets).where('eventId', '==', eventId).limit(500).get(),
+      db.collection(COLLECTIONS.events).doc(eventId).get(),
+    ]);
 
-    const tickets = snap.docs
+    if (!eventSnap.exists) return fail('Evento no encontrado');
+    const unitPrice = eventSnap.data()!.price as number;
+
+    let tickets = snap.docs
       .map((d) => serializeTicket({ id: d.id, ...d.data() } as PlatformTicket))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return ok(tickets);
+
+    if (!options?.includeArchived) {
+      tickets = tickets.filter((t) => !t.archived);
+    }
+
+    const linkById = await loadSerializedPaymentLinksByIds(
+      tickets.map((t) => t.paymentLinkId)
+    );
+
+    const withPayment: SerializedTicketWithPayment[] = tickets.map((t) => {
+      const payment = getTicketPaymentDisplay(linkById.get(t.paymentLinkId), {
+        unitPrice,
+      });
+      return {
+        ...t,
+        paymentFormatted: payment.formatted,
+        paymentAmount: payment.amountPerTicket,
+        paymentMethod: payment.method,
+      };
+    });
+
+    return ok(withPayment);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error');
+  }
+}
+
+export async function archiveTicket(
+  idToken: string,
+  input: unknown
+): Promise<ActionResult<void>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    requireRole(user, 'admin');
+
+    const { ticketId } = archiveTicketSchema.parse(input);
+    const ref = getAdminDb().collection(COLLECTIONS.tickets).doc(ticketId);
+    const snap = await ref.get();
+    if (!snap.exists) return fail('Entrada no encontrada');
+
+    const ticket = snap.data()!;
+    if (ticket.archived) return ok(undefined);
+
+    await ref.update({
+      archived: true,
+      archivedAt: Timestamp.now(),
+    });
+    return ok(undefined);
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error');
   }
@@ -155,26 +210,22 @@ export async function exportTicketsCsv(
     if (eventId) query = query.where('eventId', '==', eventId);
 
     const snap = await query.get();
-    const linkIds = [...new Set(snap.docs.map((d) => d.data().paymentLinkId as string))];
-    const linkById = new Map<string, ReturnType<typeof serializePaymentLink>>();
+    const linkIds = snap.docs.map((d) => d.data().paymentLinkId as string);
+    const linkById = await loadSerializedPaymentLinksByIds(linkIds);
 
-    for (let i = 0; i < linkIds.length; i += 30) {
-      const batch = linkIds.slice(i, i + 30);
-      const linkSnaps = await Promise.all(
-        batch.map((id) => getAdminDb().collection(COLLECTIONS.paymentLinks).doc(id).get())
-      );
-      for (const linkSnap of linkSnaps) {
-        if (!linkSnap.exists) continue;
-        const link = { id: linkSnap.id, ...linkSnap.data() } as PaymentLink;
-        linkById.set(link.id, serializePaymentLink(link));
-      }
+    let unitPrice: number | undefined;
+    if (eventId) {
+      const eventSnap = await getAdminDb().collection(COLLECTIONS.events).doc(eventId).get();
+      if (eventSnap.exists) unitPrice = eventSnap.data()!.price as number;
     }
 
     const header =
       'ticketCode,buyerName,buyerEmail,buyerPhone,paymentMethod,paymentAmount,status,eventId,sellerId,createdAt\n';
     const rows = snap.docs.map((d) => {
       const t = d.data();
-      const payment = getTicketPaymentDisplay(linkById.get(t.paymentLinkId));
+      const payment = getTicketPaymentDisplay(linkById.get(t.paymentLinkId), {
+        unitPrice,
+      });
       return [
         t.ticketCode,
         `"${(t.buyerName ?? '').replace(/"/g, '""')}"`,

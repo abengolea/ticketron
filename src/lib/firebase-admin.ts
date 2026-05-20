@@ -11,7 +11,7 @@ function initAdmin(): App {
     return getApps()[0]!;
   }
 
-  const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim();
   if (serviceAccountKey) {
     const parsed = JSON.parse(serviceAccountKey) as Record<string, string>;
     return initializeApp({ credential: cert(parsed) });
@@ -49,4 +49,5 @@ export const COLLECTIONS = {
   sellerEventAccess: 'sellerEventAccess',
   paymentLinks: 'paymentLinks',
   tickets: 'tickets',
+  buyerActivationTokens: 'buyerActivationTokens',
 } as const;

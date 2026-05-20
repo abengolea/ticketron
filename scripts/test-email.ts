@@ -189,9 +189,16 @@ async function main() {
   console.log('  Token:      ', token);
   console.log('  Ver entradas:', ticketsUrl);
 
+  const sentAt = new Date().toLocaleString('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+  });
+
   await sendEmailViaResend({
     to,
-    subject: `[PRUEBA] ${subject}`,
+    subject: `[PRUEBA v3 claro ${sentAt}] ${subject}`,
     html,
     attachments: attachments.length ? attachments : undefined,
   });

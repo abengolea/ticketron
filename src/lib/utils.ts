@@ -6,6 +6,16 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** Copia texto al portapapeles sin lanzar si el navegador lo bloquea. */
+export async function copyTextSafe(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function downloadFile(filename: string, content: string, mimeType: string) {
   const element = document.createElement("a");
   const file = new Blob([content], { type: mimeType });

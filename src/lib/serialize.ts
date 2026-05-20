@@ -44,6 +44,7 @@ export function serializePaymentLink(p: PaymentLink): SerializedPaymentLink {
     expiresAt: p.expiresAt.toDate().toISOString(),
     mercadoPagoPreferenceId: p.mercadoPagoPreferenceId,
     mercadoPagoPaymentId: p.mercadoPagoPaymentId,
+    archived: p.archived === true,
     createdAt: p.createdAt.toDate().toISOString(),
   };
 }
@@ -61,6 +62,7 @@ export function serializeTicket(t: PlatformTicket): SerializedTicket {
     status: t.status,
     qrPayload: t.qrPayload,
     usedAt: tsToIso(t.usedAt),
+    archived: t.archived === true,
     createdAt: t.createdAt.toDate().toISOString(),
   };
 }

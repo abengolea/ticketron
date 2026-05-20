@@ -8,6 +8,7 @@ import {
 } from '@/lib/email/qr-data-url';
 import { sendEmailViaResend } from '@/lib/email/resend-send';
 import type { ResendInlineAttachment } from '@/lib/email/resend-send';
+import { createActivationLinkForEmail } from '@/lib/services/buyer-activation';
 import type { PaymentLink, PlatformTicket } from '@/lib/models';
 
 function getAppUrl(): string {
@@ -106,6 +107,13 @@ export async function sendComplimentaryTicketEmail(
     }))
   );
 
+  let accountUrl: string | undefined;
+  try {
+    accountUrl = await createActivationLinkForEmail(beneficiaryEmail, beneficiaryName);
+  } catch {
+    accountUrl = undefined;
+  }
+
   const subject = `Tu entrada de favor — ${event.name}`;
   const html = buildComplimentaryTicketEmailHtml({
     beneficiaryName,
@@ -116,6 +124,7 @@ export async function sendComplimentaryTicketEmail(
     tickets,
     ticketsUrl,
     message: link.complimentaryMessage,
+    accountUrl,
   });
 
   try {

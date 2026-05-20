@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@/firebase';
 import { getSessionUser } from '@/lib/actions/auth';
+import { requestBuyerAccess } from '@/lib/actions/buyers';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -13,6 +14,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -34,7 +38,9 @@ function roleHome(role: UserRole): string {
     case 'seller':
       return '/seller';
     case 'gate':
-      return '/admin/events';
+      return '/gate';
+    case 'buyer':
+      return '/my-tickets';
     default:
       return '/login';
   }
@@ -47,6 +53,10 @@ export default function LoginPage() {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [buyerEmail, setBuyerEmail] = useState('');
+  const [buyerSignInEmail, setBuyerSignInEmail] = useState('');
+  const [buyerPassword, setBuyerPassword] = useState('');
+  const [buyerMessage, setBuyerMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function redirectIfLoggedIn() {
@@ -73,8 +83,7 @@ export default function LoginPage() {
       if (!session.success) {
         await auth.signOut();
         setError(
-          session.error ??
-            'Tu cuenta no está habilitada. Contactá al administrador.'
+          session.error ?? 'Tu cuenta no está habilitada. Contactá al administrador.'
         );
         return;
       }
@@ -94,6 +103,63 @@ export default function LoginPage() {
     }
   }
 
+  async function handleRequestBuyerAccess(e: React.FormEvent) {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setBuyerMessage(null);
+    setError(null);
+    try {
+      const res = await requestBuyerAccess({ email: buyerEmail });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setBuyerMessage(res.data.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleBuyerSignIn(e: React.FormEvent) {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError(null);
+    setBuyerMessage(null);
+    try {
+      const cred = await signInWithEmailAndPassword(
+        auth,
+        buyerSignInEmail.trim(),
+        buyerPassword
+      );
+      const token = await cred.user.getIdToken();
+      const session = await getSessionUser(token);
+
+      if (!session.success) {
+        await auth.signOut();
+        setError(session.error ?? 'No se pudo iniciar sesión.');
+        return;
+      }
+
+      if (session.data.role !== 'buyer') {
+        await auth.signOut();
+        setError('Esta cuenta no es de comprador. Usá la pestaña Equipo para ingresar.');
+        return;
+      }
+
+      toast({ title: 'Bienvenido', description: 'Tus entradas te esperan.' });
+      router.push('/my-tickets');
+    } catch (e: unknown) {
+      const err = e as { code?: string; message?: string };
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
+        setError('Email o contraseña incorrectos.');
+      } else {
+        setError(err.message ?? 'Error al iniciar sesión');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   if (userLoading || user) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -107,36 +173,121 @@ export default function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle>Ticketron</CardTitle>
-          <CardDescription>
-            Venta digital de entradas y generador de tickets para imprimir
-          </CardDescription>
+          <CardDescription>Venta digital de entradas y acceso a tus tickets</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          {error && (
-            <Alert variant="destructive">
-              <AlertTitle>Acceso denegado</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={handleGoogleSignIn}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <GoogleIcon className="mr-2 h-4 w-4" />
-            )}
-            Iniciar sesión con Google
-          </Button>
-          <p className="text-xs text-center text-muted-foreground">
-            Solo usuarios habilitados por el administrador pueden acceder.
-          </p>
+        <CardContent>
+          <Tabs defaultValue="buyer" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-6">
+              <TabsTrigger value="buyer">Mis entradas</TabsTrigger>
+              <TabsTrigger value="team">Equipo</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="buyer" className="space-y-6">
+              {buyerMessage && (
+                <Alert>
+                  <AlertTitle>Revisá tu email</AlertTitle>
+                  <AlertDescription>{buyerMessage}</AlertDescription>
+                </Alert>
+              )}
+              {error && (
+                <Alert variant="destructive">
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <form onSubmit={handleRequestBuyerAccess} className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  ¿Compraste entradas y aún no tenés cuenta? Ingresá tu email y te enviamos un
+                  link para crear contraseña.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="buyerEmail">Email de la compra</Label>
+                  <Input
+                    id="buyerEmail"
+                    type="email"
+                    value={buyerEmail}
+                    onChange={(e) => setBuyerEmail(e.target.value)}
+                    placeholder="comprador@ejemplo.com"
+                    required
+                  />
+                </div>
+                <Button type="submit" className="w-full" variant="secondary" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Enviar link de activación
+                </Button>
+              </form>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">Ya tengo cuenta</span>
+                </div>
+              </div>
+
+              <form onSubmit={handleBuyerSignIn} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="buyerSignInEmail">Email</Label>
+                  <Input
+                    id="buyerSignInEmail"
+                    type="email"
+                    value={buyerSignInEmail}
+                    onChange={(e) => setBuyerSignInEmail(e.target.value)}
+                    required
+                    autoComplete="email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="buyerPassword">Contraseña</Label>
+                  <Input
+                    id="buyerPassword"
+                    type="password"
+                    value={buyerPassword}
+                    onChange={(e) => setBuyerPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Ingresar a mis entradas
+                </Button>
+              </form>
+            </TabsContent>
+
+            <TabsContent value="team" className="space-y-6">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertTitle>Acceso denegado</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={handleGoogleSignIn}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <GoogleIcon className="mr-2 h-4 w-4" />
+                )}
+                Iniciar sesión con Google
+              </Button>
+              <p className="text-xs text-center text-muted-foreground">
+                Solo usuarios habilitados por el administrador pueden acceder.
+              </p>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>
   );
 }
-

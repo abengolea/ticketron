@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useIdToken } from '@/hooks/use-id-token';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { validateTicketAtGate } from '@/lib/actions/gate';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -25,7 +28,7 @@ interface GateScannerProps {
 
 export function GateScanner({ eventId }: GateScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const { getIdToken } = useIdToken();
+  const { getIdToken, user } = useIdToken();
   const [lastResult, setLastResult] = useState<{
     result: GateValidationResult;
     message: string;
@@ -68,7 +71,13 @@ export function GateScanner({ eventId }: GateScannerProps) {
 
   async function handleScan(qrPayload: string) {
     const token = await getIdToken();
-    if (!token) return;
+    if (!token) {
+      setLastResult({
+        result: 'INVALID',
+        message: 'Iniciá sesión para validar entradas en puerta.',
+      });
+      return;
+    }
 
     const response = await validateTicketAtGate(token, { eventId, qrPayload });
     if (response.success) {
@@ -84,6 +93,16 @@ export function GateScanner({ eventId }: GateScannerProps) {
 
   return (
     <div className="space-y-6 max-w-lg mx-auto">
+      {!user && (
+        <Alert>
+          <AlertDescription className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <span>Iniciá sesión para escanear y validar entradas.</span>
+            <Button asChild size="sm" variant="secondary" className="shrink-0">
+              <Link href="/login">Ingresar</Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>Escanear entrada</CardTitle>

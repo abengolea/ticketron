@@ -8,6 +8,7 @@ import {
 } from '@/lib/email/qr-data-url';
 import { sendEmailViaResend } from '@/lib/email/resend-send';
 import type { ResendInlineAttachment } from '@/lib/email/resend-send';
+import { createActivationLinkForEmail } from '@/lib/services/buyer-activation';
 import type { PaymentLink, PlatformTicket } from '@/lib/models';
 
 function getAppUrl(): string {
@@ -90,6 +91,16 @@ export async function buildPurchaseConfirmationEmailContent(
   );
 
   const appUrl = getAppUrl();
+  const buyerEmail = link.buyerEmail?.trim().toLowerCase();
+  let accountUrl: string | undefined;
+  if (buyerEmail) {
+    try {
+      accountUrl = await createActivationLinkForEmail(buyerEmail, buyerName);
+    } catch {
+      accountUrl = undefined;
+    }
+  }
+
   const subject = `Tus entradas — ${event.name}`;
   const html = buildPurchaseConfirmationEmailHtml({
     buyerName,
@@ -100,6 +111,7 @@ export async function buildPurchaseConfirmationEmailContent(
     tickets,
     ticketsUrl,
     appUrl,
+    accountUrl,
   });
 
   return { subject, html, attachments, ticketsUrl };

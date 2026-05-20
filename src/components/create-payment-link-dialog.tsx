@@ -15,6 +15,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { copyTextSafe } from '@/lib/utils';
 import { Link2, Loader2 } from 'lucide-react';
 
 interface CreatePaymentLinkDialogProps {
@@ -52,25 +53,40 @@ export function CreatePaymentLinkDialog({
     }
 
     setCreating(true);
-    const token = await getIdToken();
-    if (!token) {
-      setCreating(false);
-      return;
-    }
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        toast({
+          variant: 'destructive',
+          title: 'Sesión expirada',
+          description: 'Volvé a iniciar sesión e intentá de nuevo',
+        });
+        return;
+      }
 
-    const res = await createPaymentLink(token, { eventId, ticketQuantity: quantity });
-    setCreating(false);
+      const res = await createPaymentLink(token, { eventId, ticketQuantity: quantity });
 
-    if (res.success) {
-      await navigator.clipboard.writeText(res.data.checkoutUrl);
+      if (res.success) {
+        setOpen(false);
+        setQuantity(1);
+        onCreated?.();
+
+        const copied = await copyTextSafe(res.data.checkoutUrl);
+        toast({
+          title: 'Link creado',
+          description: `${quantity} entrada(s) · $${res.data.link.amount} · ${copied ? 'URL copiada' : 'Listo'}`,
+        });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: res.error });
+      }
+    } catch {
       toast({
-        title: 'Link creado',
-        description: `${quantity} entrada(s) · $${res.data.link.amount} · URL copiada`,
+        variant: 'destructive',
+        title: 'Error',
+        description: 'No se pudo crear el link. Intentá de nuevo.',
       });
-      setOpen(false);
-      onCreated?.();
-    } else {
-      toast({ variant: 'destructive', title: 'Error', description: res.error });
+    } finally {
+      setCreating(false);
     }
   }
 

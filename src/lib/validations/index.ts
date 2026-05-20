@@ -79,8 +79,31 @@ export const cancelPaymentLinkSchema = z.object({
   paymentLinkId: z.string().min(1),
 });
 
+export const archivePaymentLinkSchema = z.object({
+  paymentLinkId: z.string().min(1),
+});
+
 export const cancelTicketSchema = z.object({
   ticketId: z.string().min(1),
+});
+
+export const archiveTicketSchema = z.object({
+  ticketId: z.string().min(1),
+});
+
+export const requestBuyerAccessSchema = z.object({
+  email: z.string().trim().email('Email inválido'),
+});
+
+export const completeBuyerActivationSchema = z.object({
+  code: z.string().min(6, 'Código inválido').max(12),
+  password: z.string().min(6, 'Mínimo 6 caracteres'),
+  displayName: z.string().min(2, 'Nombre requerido').optional(),
+});
+
+export const buyerSignInSchema = z.object({
+  email: z.string().trim().email('Email inválido'),
+  password: z.string().min(1, 'Contraseña requerida'),
 });
 
 export type BuyerCheckoutInput = z.infer<typeof buyerCheckoutSchema>;

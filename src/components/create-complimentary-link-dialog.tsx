@@ -16,6 +16,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { copyTextSafe } from '@/lib/utils';
 import { Gift, Loader2 } from 'lucide-react';
 
 interface CreateComplimentaryLinkDialogProps {
@@ -63,38 +64,53 @@ export function CreateComplimentaryLinkDialog({
     }
 
     setCreating(true);
-    const token = await getIdToken();
-    if (!token) {
-      setCreating(false);
-      return;
-    }
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        toast({
+          variant: 'destructive',
+          title: 'Sesión expirada',
+          description: 'Volvé a iniciar sesión e intentá de nuevo',
+        });
+        return;
+      }
 
-    const res = await createComplimentaryLink(token, {
-      eventId,
-      ticketQuantity: quantity,
-      beneficiaryEmail: beneficiaryEmail.trim(),
-      ...(beneficiaryName.trim() ? { beneficiaryName: beneficiaryName.trim() } : {}),
-      ...(message.trim() ? { message: message.trim() } : {}),
-    });
-    setCreating(false);
-
-    if (res.success) {
-      await navigator.clipboard.writeText(res.data.ticketsUrl);
-      const emailNote = res.data.emailSent
-        ? `Email enviado a ${beneficiaryEmail.trim()}`
-        : res.data.emailError ?? 'No se pudo enviar el email (revisá RESEND_API_KEY)';
-      toast({
-        title: 'Entrada de favor creada',
-        description: `${quantity} entrada(s) · URL copiada · ${emailNote}`,
+      const res = await createComplimentaryLink(token, {
+        eventId,
+        ticketQuantity: quantity,
+        beneficiaryEmail: beneficiaryEmail.trim(),
+        ...(beneficiaryName.trim() ? { beneficiaryName: beneficiaryName.trim() } : {}),
+        ...(message.trim() ? { message: message.trim() } : {}),
       });
-      setOpen(false);
-      setBeneficiaryEmail('');
-      setBeneficiaryName('');
-      setMessage('');
-      setQuantity(1);
-      onCreated?.();
-    } else {
-      toast({ variant: 'destructive', title: 'Error', description: res.error });
+
+      if (res.success) {
+        const email = beneficiaryEmail.trim();
+        setOpen(false);
+        setBeneficiaryEmail('');
+        setBeneficiaryName('');
+        setMessage('');
+        setQuantity(1);
+        onCreated?.();
+
+        const copied = await copyTextSafe(res.data.ticketsUrl);
+        const emailNote = res.data.emailSent
+          ? `Email enviado a ${email}`
+          : res.data.emailError ?? 'No se pudo enviar el email (revisá RESEND_API_KEY)';
+        toast({
+          title: 'Entrada de favor creada',
+          description: `${quantity} entrada(s) · ${copied ? 'URL copiada' : 'Listo'} · ${emailNote}`,
+        });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: res.error });
+      }
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'No se pudo crear la entrada. Intentá de nuevo.',
+      });
+    } finally {
+      setCreating(false);
     }
   }
 

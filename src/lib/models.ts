@@ -1,6 +1,6 @@
 import type { Timestamp } from 'firebase-admin/firestore';
 
-export type UserRole = 'admin' | 'seller' | 'gate';
+export type UserRole = 'admin' | 'seller' | 'gate' | 'buyer';
 
 export type PaymentLinkStatus =
   | 'PENDING_PAYMENT'
@@ -72,6 +72,8 @@ export interface PaymentLink {
   mercadoPagoPreferenceId?: string;
   mercadoPagoPaymentId?: string;
   confirmationEmailSentAt?: Timestamp;
+  archived?: boolean;
+  archivedAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -89,6 +91,8 @@ export interface PlatformTicket {
   qrPayload: string;
   usedAt?: Timestamp;
   usedBy?: string;
+  archived?: boolean;
+  archivedAt?: Timestamp;
   createdAt: Timestamp;
 }
 
@@ -120,6 +124,7 @@ export interface SerializedPaymentLink {
   expiresAt: string;
   mercadoPagoPreferenceId?: string;
   mercadoPagoPaymentId?: string;
+  archived?: boolean;
   createdAt: string;
 }
 
@@ -135,7 +140,14 @@ export interface SerializedTicket {
   status: PlatformTicketStatus;
   qrPayload: string;
   usedAt?: string;
+  archived?: boolean;
   createdAt: string;
+}
+
+export interface SerializedTicketWithPayment extends SerializedTicket {
+  paymentFormatted: string;
+  paymentAmount: number;
+  paymentMethod: 'mercadopago' | 'cash' | 'complimentary';
 }
 
 export interface SerializedSellerAccess {

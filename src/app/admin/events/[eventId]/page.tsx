@@ -6,18 +6,18 @@ import Link from 'next/link';
 import { RoleGuard } from '@/components/role-guard';
 import { useIdToken } from '@/hooks/use-id-token';
 import { getEvent, updateEvent } from '@/lib/actions/events';
-import { listSalesAdmin, cancelPaymentLink } from '@/lib/actions/payment-links';
 import {
   listUsers,
   assignSellerAccess,
   listSellerAccessAdmin,
 } from '@/lib/actions/sellers';
-import { listTicketsForEvent, exportTicketsCsv } from '@/lib/actions/tickets';
+import { listTicketsForEvent, exportTicketsCsv, archiveTicket } from '@/lib/actions/tickets';
+import { computeTicketTotals, countsTowardRevenue } from '@/lib/ticket-totals';
 import { CreatePaymentLinkDialog } from '@/components/create-payment-link-dialog';
 import { CreateComplimentaryLinkDialog } from '@/components/create-complimentary-link-dialog';
 import { CreateCashSaleDialog } from '@/components/create-cash-sale-dialog';
 import { EventTicketsPdfExport } from '@/components/event-tickets-pdf-export';
-import type { SerializedEvent, SerializedPaymentLink, SerializedTicket } from '@/lib/models';
+import type { SerializedEvent, SerializedTicketWithPayment } from '@/lib/models';
 import type { SerializedSellerAccess } from '@/lib/models';
 import type { UserListItem } from '@/lib/actions/sellers';
 import { Button } from '@/components/ui/button';
@@ -42,16 +42,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { downloadFile } from '@/lib/utils';
-import { getTicketPaymentDisplay } from '@/lib/payment-display';
 import {
+  Archive,
   ArrowLeft,
-  Copy,
   DoorOpen,
   Download,
   Loader2,
-  MessageCircle,
+  MoreVertical,
   QrCode,
   Settings2,
   Users,
@@ -74,30 +79,37 @@ function eventToEditForm(event: SerializedEvent) {
   };
 }
 
-const LINK_STATUS: Record<string, string> = {
-  PENDING_PAYMENT: 'Pendiente',
-  PAID: 'Pagado',
-  EXPIRED: 'Vencido',
-  CANCELLED: 'Cancelado',
-};
-
-function isComplimentaryLink(link: SerializedPaymentLink) {
-  return link.linkType === 'complimentary';
-}
-
-function isCashLink(link: SerializedPaymentLink) {
-  return link.linkType === 'cash';
-}
-
-function isInstantPaidLink(link: SerializedPaymentLink) {
-  return isComplimentaryLink(link) || isCashLink(link);
-}
-
 const TICKET_STATUS: Record<string, string> = {
   VALID: 'Válida',
   USED: 'Usada',
   CANCELLED: 'Cancelada',
 };
+
+type PaymentFilter = 'all' | 'paid' | 'mercadopago' | 'cash' | 'complimentary';
+type StatusFilter = 'all' | 'VALID' | 'USED' | 'CANCELLED';
+
+function matchesTicketFilters(
+  ticket: SerializedTicketWithPayment,
+  paymentFilter: PaymentFilter,
+  statusFilter: StatusFilter,
+  search: string
+) {
+  if (paymentFilter === 'paid') {
+    if (ticket.paymentMethod === 'complimentary') return false;
+  } else if (paymentFilter !== 'all' && ticket.paymentMethod !== paymentFilter) {
+    return false;
+  }
+  if (statusFilter !== 'all' && ticket.status !== statusFilter) return false;
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    const haystack = [ticket.buyerName, ticket.buyerEmail, ticket.ticketCode]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    if (!haystack.includes(q)) return false;
+  }
+  return true;
+}
 
 export default function AdminEventDetailPage() {
   return (
@@ -114,8 +126,7 @@ function EventDetailContent() {
   const { toast } = useToast();
 
   const [event, setEvent] = useState<SerializedEvent | null>(null);
-  const [links, setLinks] = useState<SerializedPaymentLink[]>([]);
-  const [tickets, setTickets] = useState<SerializedTicket[]>([]);
+  const [tickets, setTickets] = useState<SerializedTicketWithPayment[]>([]);
   const [access, setAccess] = useState<SerializedSellerAccess[]>([]);
   const [sellers, setSellers] = useState<UserListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,17 +140,18 @@ function EventDetailContent() {
     active: true,
   });
   const [assignForm, setAssignForm] = useState({ sellerId: '', quota: 10 });
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+  const [showArchived, setShowArchived] = useState(false);
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [buyerSearch, setBuyerSearch] = useState('');
 
   const load = useCallback(async () => {
     const token = await getIdToken();
     if (!token) return;
 
-    const [evRes, linksRes, ticketsRes, accessRes, usersRes] = await Promise.all([
+    const [evRes, ticketsRes, accessRes, usersRes] = await Promise.all([
       getEvent(token, eventId),
-      listSalesAdmin(token, { eventId }),
-      listTicketsForEvent(token, eventId),
+      listTicketsForEvent(token, eventId, { includeArchived: true }),
       listSellerAccessAdmin(token, { eventId }),
       listUsers(token),
     ]);
@@ -153,7 +165,6 @@ function EventDetailContent() {
       router.push('/admin/events');
       return;
     }
-    if (linksRes.success) setLinks(linksRes.data);
     if (ticketsRes.success) setTickets(ticketsRes.data);
     if (accessRes.success) setAccess(accessRes.data);
     if (usersRes.success) setSellers(usersRes.data.filter((u) => u.role === 'seller' && u.active));
@@ -238,28 +249,16 @@ function EventDetailContent() {
     }
   }
 
-  async function handleCancelLink(id: string) {
+  async function handleArchiveTicket(id: string) {
     const token = await getIdToken();
     if (!token) return;
-    const res = await cancelPaymentLink(token, { paymentLinkId: id });
+    const res = await archiveTicket(token, { ticketId: id });
     if (res.success) {
-      toast({ title: 'Link cancelado' });
+      toast({ title: 'Entrada archivada', description: 'No se incluye en los totales.' });
       load();
     } else {
       toast({ variant: 'destructive', title: 'Error', description: res.error });
     }
-  }
-
-  function copyUrl(url: string) {
-    navigator.clipboard.writeText(url);
-    toast({ title: 'Copiado' });
-  }
-
-  function shareWhatsApp(url: string, favor = false) {
-    const text = favor
-      ? `Te enviamos tu entrada de favor: ${url}`
-      : `Comprá tu entrada: ${url}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   }
 
   if (loading || !event) {
@@ -270,9 +269,27 @@ function EventDetailContent() {
     );
   }
 
-  const remaining = event.capacity - event.sold;
+  const ticketTotals = computeTicketTotals(tickets);
+  const soldCount = ticketTotals.activeTickets;
+  const remaining = event.capacity - soldCount;
   const maxLinkTickets = event.active && remaining > 0 ? Math.min(remaining, 20) : 0;
-  const linkById = new Map(links.map((l) => [l.id, l]));
+  const activeTickets = tickets.filter((t) => !t.archived);
+  const ticketsForList = showArchived ? tickets : activeTickets;
+
+  const filteredTickets = ticketsForList.filter((t) =>
+    matchesTicketFilters(t, paymentFilter, statusFilter, buyerSearch)
+  );
+
+  const filteredTotals = computeTicketTotals(filteredTickets);
+
+  const hasActiveFilters =
+    paymentFilter !== 'all' || statusFilter !== 'all' || buyerSearch.trim().length > 0;
+
+  function clearTicketFilters() {
+    setPaymentFilter('all');
+    setStatusFilter('all');
+    setBuyerSearch('');
+  }
 
   return (
     <section className="space-y-6">
@@ -295,7 +312,7 @@ function EventDetailContent() {
         <section className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
             <Link href={`/gate/${event.id}`}>
-              <DoorOpen className="w-4 h-4 mr-2" /> Control puerta
+              <DoorOpen className="w-4 h-4 mr-2" /> Validador digital
             </Link>
           </Button>
           {maxLinkTickets > 0 && (
@@ -334,8 +351,14 @@ function EventDetailContent() {
           <CardHeader className="pb-2">
             <CardDescription>Vendidas / Capacidad</CardDescription>
             <CardTitle className="text-2xl">
-              {event.sold} / {event.capacity}
+              {soldCount} / {event.capacity}
             </CardTitle>
+            {soldCount !== event.sold && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {event.sold - soldCount} archivada{event.sold - soldCount === 1 ? '' : 's'} no
+                contabilizada{event.sold - soldCount === 1 ? '' : 's'}
+              </p>
+            )}
           </CardHeader>
         </Card>
         <Card>
@@ -361,7 +384,7 @@ function EventDetailContent() {
         </Card>
       </section>
 
-      <Tabs defaultValue="management" className="space-y-4">
+      <Tabs defaultValue="tickets" className="space-y-4">
         <TabsList>
           <TabsTrigger value="management">
             <Settings2 className="w-4 h-4 mr-2" /> Gestión
@@ -464,110 +487,6 @@ function EventDetailContent() {
               </form>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Links generados</CardTitle>
-              <CardDescription>
-                {links.length} links · usá los botones de arriba para crear nuevos
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Entradas</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>Monto</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Comprador</TableHead>
-                    <TableHead>Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {links.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-muted-foreground text-center py-8">
-                        Sin links todavía.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    links.map((link) => {
-                      const favor = isComplimentaryLink(link);
-                      const cash = isCashLink(link);
-                      const instant = isInstantPaidLink(link);
-                      const url = instant
-                        ? `${appUrl}/ticket?token=${encodeURIComponent(link.token)}`
-                        : `${appUrl}/checkout/${link.token}`;
-                      const typeLabel = favor
-                        ? 'Favor'
-                        : cash
-                          ? 'Efectivo'
-                          : 'Mercado Pago';
-                      return (
-                        <TableRow key={link.id}>
-                          <TableCell>{link.ticketQuantity ?? 1}</TableCell>
-                          <TableCell>
-                            <Badge variant={cash ? 'secondary' : 'outline'}>
-                              {typeLabel}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{favor ? '—' : `$${link.amount}`}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {favor ? 'Favor' : LINK_STATUS[link.status]}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {[link.buyerName, link.buyerLastName].filter(Boolean).join(' ') ||
-                              link.buyerEmail ||
-                              '—'}
-                          </TableCell>
-                          <TableCell className="flex gap-1">
-                            {instant && link.status === 'PAID' && (
-                              <>
-                                <Button size="sm" variant="outline" onClick={() => copyUrl(url)}>
-                                  <Copy className="w-3 h-3" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => shareWhatsApp(url, favor)}
-                                >
-                                  <MessageCircle className="w-3 h-3" />
-                                </Button>
-                              </>
-                            )}
-                            {!instant && link.status === 'PENDING_PAYMENT' && (
-                              <>
-                                <Button size="sm" variant="outline" onClick={() => copyUrl(url)}>
-                                  <Copy className="w-3 h-3" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => shareWhatsApp(url)}
-                                >
-                                  <MessageCircle className="w-3 h-3" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => handleCancelLink(link.id)}
-                                >
-                                  Cancelar
-                                </Button>
-                              </>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="sellers">
@@ -668,23 +587,113 @@ function EventDetailContent() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="tickets">
+        <TabsContent value="tickets" className="space-y-4">
+          <section className="grid gap-4 sm:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Ingresos confirmados</CardDescription>
+                <CardTitle className="text-2xl">
+                  ${ticketTotals.totalRevenue.toLocaleString('es-AR')}
+                </CardTitle>
+              </CardHeader>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Entradas activas</CardDescription>
+                <CardTitle className="text-2xl">{ticketTotals.activeTickets}</CardTitle>
+              </CardHeader>
+            </Card>
+          </section>
+
           <Card>
-            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-              <section>
-                <CardTitle>Entradas emitidas</CardTitle>
-                <CardDescription>{tickets.length} entradas</CardDescription>
+            <CardHeader className="flex flex-col gap-3">
+              <section className="flex flex-row flex-wrap items-start justify-between gap-2">
+                <section>
+                  <CardTitle>Entradas emitidas</CardTitle>
+                  <CardDescription>
+                    {activeTickets.length} activas
+                    {showArchived && ticketTotals.archivedTickets > 0
+                      ? ` · ${ticketTotals.archivedTickets} archivadas`
+                      : ''}
+                  </CardDescription>
+                </section>
+                <section className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={handleExportCsv}>
+                    <Download className="w-4 h-4 mr-2" /> CSV
+                  </Button>
+                  <EventTicketsPdfExport
+                    tickets={activeTickets}
+                    eventName={event.name}
+                    eventDate={event.date}
+                    eventLocation={event.location}
+                  />
+                </section>
               </section>
-              <section className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={handleExportCsv}>
-                  <Download className="w-4 h-4 mr-2" /> CSV
-                </Button>
-                <EventTicketsPdfExport
-                  tickets={tickets}
-                  eventName={event.name}
-                  eventDate={event.date}
-                  eventLocation={event.location}
-                />
+              <section className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                <section className="grid gap-3 sm:grid-cols-3 flex-1 min-w-0">
+                  <section>
+                    <Label htmlFor="paymentFilter" className="text-xs text-muted-foreground">
+                      Medio de pago
+                    </Label>
+                    <Select
+                      value={paymentFilter}
+                      onValueChange={(v) => setPaymentFilter(v as PaymentFilter)}
+                    >
+                      <SelectTrigger id="paymentFilter" className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos</SelectItem>
+                        <SelectItem value="paid">Abonadas (MP + efectivo)</SelectItem>
+                        <SelectItem value="mercadopago">Mercado Pago</SelectItem>
+                        <SelectItem value="cash">Efectivo</SelectItem>
+                        <SelectItem value="complimentary">Favor</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </section>
+                  <section>
+                    <Label htmlFor="statusFilter" className="text-xs text-muted-foreground">
+                      Estado de la entrada
+                    </Label>
+                    <Select
+                      value={statusFilter}
+                      onValueChange={(v) => setStatusFilter(v as StatusFilter)}
+                    >
+                      <SelectTrigger id="statusFilter" className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas</SelectItem>
+                        <SelectItem value="VALID">Válidas</SelectItem>
+                        <SelectItem value="USED">Usadas (ingresó)</SelectItem>
+                        <SelectItem value="CANCELLED">Canceladas</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </section>
+                  <section>
+                    <Label htmlFor="buyerSearch" className="text-xs text-muted-foreground">
+                      Buscar
+                    </Label>
+                    <Input
+                      id="buyerSearch"
+                      className="mt-1"
+                      placeholder="Comprador, email o código"
+                      value={buyerSearch}
+                      onChange={(e) => setBuyerSearch(e.target.value)}
+                    />
+                  </section>
+                </section>
+                <section className="flex flex-wrap items-center gap-3 shrink-0">
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+                    <Switch checked={showArchived} onCheckedChange={setShowArchived} />
+                    Ver archivadas
+                  </label>
+                  {hasActiveFilters && (
+                    <Button type="button" variant="ghost" size="sm" onClick={clearTicketFilters}>
+                      Limpiar filtros
+                    </Button>
+                  )}
+                </section>
               </section>
             </CardHeader>
             <CardContent>
@@ -696,48 +705,106 @@ function EventDetailContent() {
                     <TableHead>Pago</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Fecha</TableHead>
-                    <TableHead className="w-[1%] text-right">QR</TableHead>
+                    <TableHead className="w-[1%] text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {tickets.length === 0 ? (
+                  {activeTickets.length === 0 && !showArchived ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                         Aún no hay entradas vendidas
                       </TableCell>
                     </TableRow>
+                  ) : filteredTickets.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                        Ninguna entrada coincide con los filtros.
+                      </TableCell>
+                    </TableRow>
                   ) : (
-                    tickets.map((t) => {
-                      const payment = getTicketPaymentDisplay(linkById.get(t.paymentLinkId));
-                      return (
-                      <TableRow key={t.id}>
+                    filteredTickets.map((t) => (
+                      <TableRow key={t.id} className={t.archived ? 'opacity-50' : undefined}>
                         <TableCell className="font-mono text-sm">{t.ticketCode}</TableCell>
                         <TableCell>{t.buyerName}</TableCell>
-                        <TableCell className="text-sm">{payment.formatted}</TableCell>
+                        <TableCell className="text-sm">{t.paymentFormatted}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{TICKET_STATUS[t.status] ?? t.status}</Badge>
+                          <Badge variant="outline">
+                            {t.archived
+                              ? 'Archivada'
+                              : (TICKET_STATUS[t.status] ?? t.status)}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           {new Date(t.createdAt).toLocaleString('es-AR')}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link
-                              href={`/ticket/${t.ticketCode}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <QrCode className="w-4 h-4 mr-1" />
-                              Ver QR
-                            </Link>
-                          </Button>
+                          <section className="flex items-center justify-end gap-1">
+                            <Button variant="ghost" size="sm" asChild>
+                              <Link
+                                href={`/ticket/${t.ticketCode}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <QrCode className="w-4 h-4 mr-1" />
+                                Ver QR
+                              </Link>
+                            </Button>
+                            {!t.archived && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                                    <MoreVertical className="w-4 h-4" />
+                                    <span className="sr-only">Más acciones</span>
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => handleArchiveTicket(t.id)}>
+                                    <Archive className="w-4 h-4 mr-2" />
+                                    Archivar (prueba)
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </section>
                         </TableCell>
                       </TableRow>
-                      );
-                    })
+                    ))
                   )}
                 </TableBody>
               </Table>
+              {activeTickets.length > 0 && (
+                <section className="mt-4 flex flex-wrap justify-between gap-4 border-t pt-4 text-sm">
+                  <span className="text-muted-foreground">
+                    {hasActiveFilters ? (
+                      <>
+                        Mostrando {filteredTickets.length} de {ticketsForList.length}
+                        {filteredTotals.activeTickets > 0 && (
+                          <> · {filteredTotals.activeTickets} activas en filtro</>
+                        )}
+                      </>
+                    ) : (
+                      <>{ticketTotals.activeTickets} entradas activas</>
+                    )}
+                  </span>
+                  <section className="flex flex-wrap justify-end gap-6">
+                    {hasActiveFilters && (
+                      <span className="text-muted-foreground">
+                        Subtotal filtro:{' '}
+                        <span className="font-medium text-foreground">
+                          $
+                          {filteredTickets
+                            .filter(countsTowardRevenue)
+                            .reduce((s, t) => s + t.paymentAmount, 0)
+                            .toLocaleString('es-AR')}
+                        </span>
+                      </span>
+                    )}
+                    <span className="font-semibold text-lg">
+                      Total ingresos: ${ticketTotals.totalRevenue.toLocaleString('es-AR')}
+                    </span>
+                  </section>
+                </section>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

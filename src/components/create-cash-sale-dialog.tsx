@@ -16,6 +16,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { copyTextSafe } from '@/lib/utils';
 import { Banknote, Loader2 } from 'lucide-react';
 
 interface CreateCashSaleDialogProps {
@@ -78,45 +79,60 @@ export function CreateCashSaleDialog({
     }
 
     setCreating(true);
-    const token = await getIdToken();
-    if (!token) {
-      setCreating(false);
-      return;
-    }
-
-    const res = await createCashSale(token, {
-      eventId,
-      ticketQuantity: quantity,
-      ...(buyerName.trim() ? { buyerName: buyerName.trim() } : {}),
-      ...(buyerLastName.trim() ? { buyerLastName: buyerLastName.trim() } : {}),
-      ...(buyerPhone.trim() ? { buyerPhone: buyerPhone.trim() } : {}),
-      ...(buyerEmail.trim() ? { buyerEmail: buyerEmail.trim() } : {}),
-      sendEmail: sendEmail && Boolean(buyerEmail.trim()),
-    });
-    setCreating(false);
-
-    if (res.success) {
-      await navigator.clipboard.writeText(res.data.ticketsUrl);
-      let description = `${quantity} entrada(s) emitida(s) · ${formatArs(total)} · URL copiada`;
-      if (sendEmail && buyerEmail.trim()) {
-        description += res.data.emailSent
-          ? ` · Email enviado a ${buyerEmail.trim()}`
-          : ` · ${res.data.emailError ?? 'No se pudo enviar el email'}`;
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        toast({
+          variant: 'destructive',
+          title: 'Sesión expirada',
+          description: 'Volvé a iniciar sesión e intentá de nuevo',
+        });
+        return;
       }
-      toast({
-        title: 'Cobro en efectivo registrado',
-        description,
+
+      const email = buyerEmail.trim();
+      const res = await createCashSale(token, {
+        eventId,
+        ticketQuantity: quantity,
+        ...(buyerName.trim() ? { buyerName: buyerName.trim() } : {}),
+        ...(buyerLastName.trim() ? { buyerLastName: buyerLastName.trim() } : {}),
+        ...(buyerPhone.trim() ? { buyerPhone: buyerPhone.trim() } : {}),
+        ...(email ? { buyerEmail: email } : {}),
+        sendEmail: sendEmail && Boolean(email),
       });
-      setOpen(false);
-      setBuyerName('');
-      setBuyerLastName('');
-      setBuyerPhone('');
-      setBuyerEmail('');
-      setQuantity(1);
-      setSendEmail(true);
-      onCreated?.();
-    } else {
-      toast({ variant: 'destructive', title: 'Error', description: res.error });
+
+      if (res.success) {
+        setOpen(false);
+        setBuyerName('');
+        setBuyerLastName('');
+        setBuyerPhone('');
+        setBuyerEmail('');
+        setQuantity(1);
+        setSendEmail(true);
+        onCreated?.();
+
+        const copied = await copyTextSafe(res.data.ticketsUrl);
+        let description = `${quantity} entrada(s) emitida(s) · ${formatArs(total)} · ${copied ? 'URL copiada' : 'Listo'}`;
+        if (sendEmail && email) {
+          description += res.data.emailSent
+            ? ` · Email enviado a ${email}`
+            : ` · ${res.data.emailError ?? 'No se pudo enviar el email'}`;
+        }
+        toast({
+          title: 'Cobro en efectivo registrado',
+          description,
+        });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: res.error });
+      }
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'No se pudo registrar el cobro. Intentá de nuevo.',
+      });
+    } finally {
+      setCreating(false);
     }
   }
 

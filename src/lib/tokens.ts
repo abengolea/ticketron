@@ -9,3 +9,8 @@ export function generateSecureToken(bytes = 24): string {
 export function generateTicketCode(): string {
   return randomBytes(8).toString('base64url').toUpperCase().slice(0, 12);
 }
+
+/** Código corto para activación de cuenta comprador (URL /a/{code}) */
+export function generateActivationCode(): string {
+  return randomBytes(6).toString('base64url').slice(0, 8);
+}

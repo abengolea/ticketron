@@ -3,7 +3,12 @@
 import { Timestamp, type Query } from 'firebase-admin/firestore';
 import { verifyIdTokenAndGetUser, requireRole } from '@/lib/auth-server';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
-import { createPaymentLinkSchema, buyerCheckoutSchema, cancelPaymentLinkSchema } from '@/lib/validations';
+import {
+  createPaymentLinkSchema,
+  buyerCheckoutSchema,
+  cancelPaymentLinkSchema,
+  archivePaymentLinkSchema,
+} from '@/lib/validations';
 import { generateSecureToken } from '@/lib/tokens';
 import { createPreference } from '@/lib/mercadopago';
 import { serializePaymentLink } from '@/lib/serialize';
@@ -266,9 +271,36 @@ export async function cancelPaymentLink(
   }
 }
 
+export async function archivePaymentLink(
+  idToken: string,
+  input: unknown
+): Promise<ActionResult<void>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    requireRole(user, 'admin');
+
+    const { paymentLinkId } = archivePaymentLinkSchema.parse(input);
+    const ref = getAdminDb().collection(COLLECTIONS.paymentLinks).doc(paymentLinkId);
+    const snap = await ref.get();
+    if (!snap.exists) return fail('Link no encontrado');
+
+    const link = snap.data()!;
+    if (link.archived) return ok(undefined);
+
+    await ref.update({
+      archived: true,
+      archivedAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    return ok(undefined);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error');
+  }
+}
+
 export async function listSalesAdmin(
   idToken: string,
-  filters?: { eventId?: string; sellerId?: string }
+  filters?: { eventId?: string; sellerId?: string; includeArchived?: boolean }
 ): Promise<ActionResult<SerializedPaymentLink[]>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
@@ -279,7 +311,13 @@ export async function listSalesAdmin(
     if (filters?.sellerId) query = query.where('sellerId', '==', filters.sellerId);
 
     const snap = await query.orderBy('createdAt', 'desc').limit(500).get();
-    return ok(snap.docs.map((d) => serializePaymentLink({ id: d.id, ...d.data() } as PaymentLink)));
+    let links = snap.docs.map((d) =>
+      serializePaymentLink({ id: d.id, ...d.data() } as PaymentLink)
+    );
+    if (!filters?.includeArchived) {
+      links = links.filter((l) => !l.archived);
+    }
+    return ok(links);
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error');
   }
