@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getTicketsByPaymentLinkToken } from '@/lib/actions/tickets';
-import { DigitalTicket } from '@/components/digital-ticket';
+import { DigitalTicketsSection } from '@/components/digital-tickets-section';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2, Mail, CheckCircle2 } from 'lucide-react';
 import type { SerializedTicket } from '@/lib/models';
@@ -147,24 +147,23 @@ function TicketByTokenContent() {
   }
 
   return (
-    <section className="py-8 space-y-6 max-w-md mx-auto">
+    <section className="space-y-6 max-w-md mx-auto">
       <EmailNotice email={buyerEmail} />
       {tickets.length > 1 && (
-        <p className="text-center text-muted-foreground">
+        <p className="text-center text-muted-foreground pt-4">
           {tickets.length} entradas para este pago
         </p>
       )}
-      {tickets.map((ticket) => (
-        <DigitalTicket
-          key={ticket.id}
-          eventName={ticket.eventName}
-          eventDate={ticket.eventDate}
-          buyerName={ticket.buyerName}
-          ticketCode={ticket.ticketCode}
-          qrPayload={ticket.qrPayload}
-          status={ticket.status}
-        />
-      ))}
+      <DigitalTicketsSection
+        tickets={tickets.map((ticket) => ({
+          eventName: ticket.eventName,
+          eventDate: ticket.eventDate,
+          buyerName: ticket.buyerName,
+          ticketCode: ticket.ticketCode,
+          qrPayload: ticket.qrPayload,
+          status: ticket.status,
+        }))}
+      />
     </section>
   );
 }

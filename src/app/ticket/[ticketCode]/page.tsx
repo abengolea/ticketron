@@ -1,5 +1,5 @@
 import { getTicketByCode } from '@/lib/actions/tickets';
-import { DigitalTicket } from '@/components/digital-ticket';
+import { DigitalTicketsSection } from '@/components/digital-tickets-section';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface PageProps {
@@ -24,15 +24,17 @@ export default async function TicketByCodePage({ params }: PageProps) {
   const ticket = result.data;
 
   return (
-    <section className="py-8">
-      <DigitalTicket
-        eventName={ticket.eventName}
-        eventDate={ticket.eventDate}
-        buyerName={ticket.buyerName}
-        ticketCode={ticket.ticketCode}
-        qrPayload={ticket.qrPayload}
-        status={ticket.status}
-      />
-    </section>
+    <DigitalTicketsSection
+      tickets={[
+        {
+          eventName: ticket.eventName,
+          eventDate: ticket.eventDate,
+          buyerName: ticket.buyerName,
+          ticketCode: ticket.ticketCode,
+          qrPayload: ticket.qrPayload,
+          status: ticket.status,
+        },
+      ]}
+    />
   );
 }

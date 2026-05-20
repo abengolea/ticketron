@@ -2,6 +2,15 @@
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      {
+        source: '/a/:code',
+        destination: '/activate?code=:code',
+        permanent: false,
+      },
+    ];
+  },
   serverExternalPackages: ['youtube-dl-exec', 'ffmpeg-static'],
   typescript: {
     ignoreBuildErrors: true,

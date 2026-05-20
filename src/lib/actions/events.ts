@@ -1,7 +1,7 @@
 'use server';
 
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { verifyIdTokenAndGetUser, requireRole, isAdmin } from '@/lib/auth-server';
+import { verifyIdTokenAndGetUser, requireRole, isAdmin, canAccessGate } from '@/lib/auth-server';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
 import { createEventSchema, updateEventSchema } from '@/lib/validations';
 import { serializeEvent } from '@/lib/serialize';
@@ -98,6 +98,51 @@ export async function updateEvent(
     );
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error al actualizar evento');
+  }
+}
+
+/** Eventos activos visibles en el hub de puerta (sin login). */
+export async function listActiveEventsPublic(): Promise<ActionResult<SerializedEvent[]>> {
+  try {
+    const snap = await getAdminDb()
+      .collection(COLLECTIONS.events)
+      .orderBy('date', 'desc')
+      .get();
+
+    const events = snap.docs
+      .map((d) =>
+        serializeEvent({ id: d.id, ...d.data() } as Parameters<typeof serializeEvent>[0])
+      )
+      .filter((e) => e.active);
+    return ok(events);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error al listar eventos');
+  }
+}
+
+/** Eventos activos para elegir en el validador digital (puerta). */
+export async function listEventsForGate(
+  idToken: string
+): Promise<ActionResult<SerializedEvent[]>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    if (!canAccessGate(user)) {
+      return fail('No autorizado');
+    }
+
+    const snap = await getAdminDb()
+      .collection(COLLECTIONS.events)
+      .orderBy('date', 'desc')
+      .get();
+
+    const events = snap.docs
+      .map((d) =>
+        serializeEvent({ id: d.id, ...d.data() } as Parameters<typeof serializeEvent>[0])
+      )
+      .filter((e) => e.active);
+    return ok(events);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error al listar eventos');
   }
 }
 

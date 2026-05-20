@@ -1,9 +1,12 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { RoleGuard } from '@/components/role-guard';
-import { Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useUser } from '@/firebase';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 
 const GateScanner = dynamic(
   () => import('@/components/gate-scanner').then((m) => m.GateScanner),
@@ -19,13 +22,29 @@ const GateScanner = dynamic(
 
 export default function GatePage() {
   const { eventId } = useParams<{ eventId: string }>();
+  const { user } = useUser();
 
   return (
-    <RoleGuard allowedRoles={['admin', 'gate']}>
-      <section className="space-y-4">
-        <h1 className="text-2xl font-headline font-bold text-center">Control de puerta</h1>
-        <GateScanner eventId={eventId} />
-      </section>
-    </RoleGuard>
+    <section className="space-y-4">
+      <Button variant="ghost" size="sm" asChild className="w-fit">
+        <Link href="/gate">
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Elegir otro evento
+        </Link>
+      </Button>
+      <h1 className="text-2xl font-headline font-bold text-center">Validador digital</h1>
+      {!user && (
+        <Alert>
+          <AlertDescription>
+            Para validar entradas necesitás{' '}
+            <Link href="/login" className="font-medium text-primary underline underline-offset-2">
+              iniciar sesión
+            </Link>
+            .
+          </AlertDescription>
+        </Alert>
+      )}
+      <GateScanner eventId={eventId} />
+    </section>
   );
 }

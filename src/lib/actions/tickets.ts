@@ -3,7 +3,7 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { verifyIdTokenAndGetUser, requireRole } from '@/lib/auth-server';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
-import { cancelTicketSchema } from '@/lib/validations';
+import { cancelTicketSchema, archiveTicketSchema } from '@/lib/validations';
 import { serializeTicket } from '@/lib/serialize';
 import { getTicketPaymentDisplay } from '@/lib/payment-display';
 import { loadSerializedPaymentLinksByIds } from '@/lib/services/payment-links-batch';
@@ -106,7 +106,8 @@ export async function getTicketsByPaymentLinkToken(
 
 export async function listTicketsForEvent(
   idToken: string,
-  eventId: string
+  eventId: string,
+  options?: { includeArchived?: boolean }
 ): Promise<ActionResult<SerializedTicketWithPayment[]>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
@@ -121,9 +122,13 @@ export async function listTicketsForEvent(
     if (!eventSnap.exists) return fail('Evento no encontrado');
     const unitPrice = eventSnap.data()!.price as number;
 
-    const tickets = snap.docs
+    let tickets = snap.docs
       .map((d) => serializeTicket({ id: d.id, ...d.data() } as PlatformTicket))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    if (!options?.includeArchived) {
+      tickets = tickets.filter((t) => !t.archived);
+    }
 
     const linkById = await loadSerializedPaymentLinksByIds(
       tickets.map((t) => t.paymentLinkId)
@@ -133,10 +138,41 @@ export async function listTicketsForEvent(
       const payment = getTicketPaymentDisplay(linkById.get(t.paymentLinkId), {
         unitPrice,
       });
-      return { ...t, paymentFormatted: payment.formatted };
+      return {
+        ...t,
+        paymentFormatted: payment.formatted,
+        paymentAmount: payment.amountPerTicket,
+        paymentMethod: payment.method,
+      };
     });
 
     return ok(withPayment);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error');
+  }
+}
+
+export async function archiveTicket(
+  idToken: string,
+  input: unknown
+): Promise<ActionResult<void>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    requireRole(user, 'admin');
+
+    const { ticketId } = archiveTicketSchema.parse(input);
+    const ref = getAdminDb().collection(COLLECTIONS.tickets).doc(ticketId);
+    const snap = await ref.get();
+    if (!snap.exists) return fail('Entrada no encontrada');
+
+    const ticket = snap.data()!;
+    if (ticket.archived) return ok(undefined);
+
+    await ref.update({
+      archived: true,
+      archivedAt: Timestamp.now(),
+    });
+    return ok(undefined);
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error');
   }

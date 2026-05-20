@@ -41,6 +41,10 @@ service cloud.firestore {
       return hasRole('gate') || isAdmin();
     }
 
+    function isBuyer() {
+      return hasRole('buyer');
+    }
+
     // Perfil de usuario — lectura propia; escritura solo admin vía consola/Admin SDK
     match /users/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
@@ -72,6 +76,11 @@ service cloud.firestore {
     match /tickets/{ticketId} {
       allow read: if isAdmin() || isGate();
       allow write: if false;
+    }
+
+    // Tokens de activación comprador — solo Admin SDK
+    match /buyerActivationTokens/{tokenId} {
+      allow read, write: if false;
     }
   }
 }
