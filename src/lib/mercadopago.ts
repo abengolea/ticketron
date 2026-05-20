@@ -50,7 +50,8 @@ export interface MercadoPagoPreferenceInput {
   unitPrice: number;
   quantity?: number;
   externalReference: string;
-  expiresAt: Date;
+  /** Si se omite, la preferencia en MP no vence por tiempo (uso único lo controla la app) */
+  expiresAt?: Date;
   payerEmail?: string;
   /** Token del checkout (/checkout/[token]) para URLs de retorno */
   checkoutToken?: string;
@@ -102,10 +103,17 @@ export async function createPreference(
       },
     ],
     external_reference: input.externalReference,
-    expiration_date_to: input.expiresAt.toISOString(),
     back_urls,
     notification_url: `${baseUrl}/api/mercadopago/webhook`,
   };
+
+  if (input.expiresAt) {
+    body.expires = true;
+    body.expiration_date_from = new Date().toISOString();
+    body.expiration_date_to = input.expiresAt.toISOString();
+  } else {
+    body.expires = false;
+  }
 
   if (input.payerEmail) {
     body.payer = { email: input.payerEmail };

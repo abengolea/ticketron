@@ -249,7 +249,7 @@ function SellerEventContent() {
 
                 <TableHead>Comprador</TableHead>
 
-                <TableHead>Vence</TableHead>
+                <TableHead>Validez</TableHead>
 
                 <TableHead>Acciones</TableHead>
 
@@ -295,7 +295,13 @@ function SellerEventContent() {
 
                       {cortesia
                         ? '—'
-                        : new Date(link.expiresAt).toLocaleString('es-AR')}
+                        : link.linkType === 'cash'
+                          ? new Date(link.expiresAt).toLocaleString('es-AR')
+                          : link.status === 'PENDING_PAYMENT'
+                            ? 'Hasta pagar'
+                            : link.status === 'PAID'
+                              ? 'Usado'
+                              : STATUS_LABELS[link.status]}
 
                     </TableCell>
 

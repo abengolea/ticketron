@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
 import { issueTicketsForLink } from '@/lib/services/issue-tickets';
+import { hasTimedExpiry } from '@/lib/payment-link-expiry';
 import type { PaymentLink, PlatformTicket } from '@/lib/models';
 
 /**
@@ -47,7 +48,11 @@ export async function fulfillPaymentLink(
   }
 
   const now = Timestamp.now();
-  if (link.expiresAt.toMillis() < now.toMillis() && link.status === 'PENDING_PAYMENT') {
+  if (
+    hasTimedExpiry(link) &&
+    link.expiresAt.toMillis() < now.toMillis() &&
+    link.status === 'PENDING_PAYMENT'
+  ) {
     await linkRef.update({ status: 'EXPIRED', updatedAt: FieldValue.serverTimestamp() });
     throw new Error('PaymentLink vencido');
   }

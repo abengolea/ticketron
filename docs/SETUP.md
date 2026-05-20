@@ -39,7 +39,6 @@ Copiar `.env.example` → `.env.local` y completar:
 | `MERCADO_PAGO_ACCESS_TOKEN` | Token MP (sandbox o producción) |
 | `TICKET_SIGNING_SECRET` | Secreto HMAC para QR (32+ chars) |
 | `CRON_SECRET` | Bearer para `/api/cron/expire-links` |
-| `PAYMENT_LINK_EXPIRY_MINUTES` | Default: 30 |
 | `RESEND_API_KEY` | API key de [Resend](https://resend.com) para emails al comprador |
 | `EMAIL_FROM` | Remitente verificado (ej. `Ticketron <entradas@tudominio.com>`) |
 

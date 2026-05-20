@@ -13,12 +13,9 @@ import { generateSecureToken } from '@/lib/tokens';
 import { createPreference } from '@/lib/mercadopago';
 import { serializePaymentLink } from '@/lib/serialize';
 import { ensureLinkNotExpired } from '@/lib/services/expire-links';
+import { PAYMENT_LINK_INDEFINITE_EXPIRES_AT } from '@/lib/payment-link-expiry';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type { PaymentLink, SerializedPaymentLink } from '@/lib/models';
-
-function getExpiryMinutes(): number {
-  return parseInt(process.env.PAYMENT_LINK_EXPIRY_MINUTES ?? '30', 10);
-}
 
 export async function createPaymentLink(
   idToken: string,
@@ -59,7 +56,7 @@ export async function createPaymentLink(
     }
 
     const token = generateSecureToken();
-    const expiresAt = Timestamp.fromMillis(Date.now() + getExpiryMinutes() * 60 * 1000);
+    const expiresAt = PAYMENT_LINK_INDEFINITE_EXPIRES_AT;
     const ref = db.collection(COLLECTIONS.paymentLinks).doc();
     const now = Timestamp.now();
     const amount = event.price * ticketQuantity;
@@ -69,6 +66,7 @@ export async function createPaymentLink(
       eventId,
       sellerId: user.uid,
       ticketQuantity,
+      linkType: 'payment',
       amount,
       status: 'PENDING_PAYMENT',
       expiresAt,
@@ -81,7 +79,6 @@ export async function createPaymentLink(
       unitPrice: event.price,
       quantity: ticketQuantity,
       externalReference: ref.id,
-      expiresAt: expiresAt.toDate(),
       checkoutToken: token,
     });
 
@@ -229,7 +226,6 @@ export async function updateCheckoutBuyer(
       unitPrice: event.price,
       quantity: ticketQuantity,
       externalReference: doc.id,
-      expiresAt: link.expiresAt.toDate(),
       payerEmail: buyerEmail,
       checkoutToken: token,
     });
