@@ -148,11 +148,15 @@ export function Header() {
   };
 
   const platformNav = session ? navByRole[session.role] ?? [] : [];
+  /** Comprador: un solo ítem igual al título de página — evita "Mis entradas" duplicado en el header. */
+  const showPlatformNav =
+    !!session && session.role !== 'buyer' && platformNav.length > 0;
   const showValidators =
     !!user &&
     (!session || session.role === 'admin' || session.role === 'gate');
   const showGateShortcut = showValidators;
   const showPrintNav = session?.role === 'admin' || (!session && !!user);
+  const showNavSection = showValidators || showPlatformNav || showPrintNav;
 
   return (
     <header className="bg-card/95 backdrop-blur-sm border-b sticky top-0 z-50">
@@ -217,26 +221,20 @@ export function Header() {
           </section>
         </section>
 
-        {user && (
+        {user && showNavSection && (
           <section className="flex flex-col gap-3 pt-3 border-t border-border/60">
             {showValidators && (
               <NavRow label="Validadores" items={validatorNavItems} pathname={pathname} />
             )}
             <section className="flex flex-col lg:flex-row lg:flex-wrap lg:items-center gap-3">
-              {session && platformNav.length > 0 && (
+              {showPlatformNav && (
                 <NavRow
-                  label={
-                    session.role === 'admin'
-                      ? 'Venta digital'
-                      : session.role === 'buyer'
-                        ? 'Mis entradas'
-                        : 'Panel'
-                  }
+                  label={session!.role === 'admin' ? 'Venta digital' : 'Panel'}
                   items={platformNav}
                   pathname={pathname}
                 />
               )}
-              {session && platformNav.length > 0 && (
+              {showPlatformNav && (
                 <div className="hidden lg:block w-px h-8 bg-border shrink-0" aria-hidden />
               )}
               {showPrintNav && (
