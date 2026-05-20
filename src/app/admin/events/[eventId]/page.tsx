@@ -17,7 +17,11 @@ import { CreatePaymentLinkDialog } from '@/components/create-payment-link-dialog
 import { CreateComplimentaryLinkDialog } from '@/components/create-complimentary-link-dialog';
 import { CreateCashSaleDialog } from '@/components/create-cash-sale-dialog';
 import { EventTicketsPdfExport } from '@/components/event-tickets-pdf-export';
-import type { SerializedEvent, SerializedPaymentLink, SerializedTicket } from '@/lib/models';
+import type {
+  SerializedEvent,
+  SerializedPaymentLink,
+  SerializedTicketWithPayment,
+} from '@/lib/models';
 import type { SerializedSellerAccess } from '@/lib/models';
 import type { UserListItem } from '@/lib/actions/sellers';
 import { Button } from '@/components/ui/button';
@@ -44,7 +48,6 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { downloadFile } from '@/lib/utils';
-import { getTicketPaymentDisplay } from '@/lib/payment-display';
 import {
   ArrowLeft,
   Copy,
@@ -115,7 +118,7 @@ function EventDetailContent() {
 
   const [event, setEvent] = useState<SerializedEvent | null>(null);
   const [links, setLinks] = useState<SerializedPaymentLink[]>([]);
-  const [tickets, setTickets] = useState<SerializedTicket[]>([]);
+  const [tickets, setTickets] = useState<SerializedTicketWithPayment[]>([]);
   const [access, setAccess] = useState<SerializedSellerAccess[]>([]);
   const [sellers, setSellers] = useState<UserListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -272,8 +275,6 @@ function EventDetailContent() {
 
   const remaining = event.capacity - event.sold;
   const maxLinkTickets = event.active && remaining > 0 ? Math.min(remaining, 20) : 0;
-  const linkById = new Map(links.map((l) => [l.id, l]));
-
   return (
     <section className="space-y-6">
       <section className="flex flex-wrap items-center gap-3">
@@ -295,7 +296,7 @@ function EventDetailContent() {
         <section className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
             <Link href={`/gate/${event.id}`}>
-              <DoorOpen className="w-4 h-4 mr-2" /> Control puerta
+              <DoorOpen className="w-4 h-4 mr-2" /> Validador digital
             </Link>
           </Button>
           {maxLinkTickets > 0 && (
@@ -707,13 +708,11 @@ function EventDetailContent() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    tickets.map((t) => {
-                      const payment = getTicketPaymentDisplay(linkById.get(t.paymentLinkId));
-                      return (
+                    tickets.map((t) => (
                       <TableRow key={t.id}>
                         <TableCell className="font-mono text-sm">{t.ticketCode}</TableCell>
                         <TableCell>{t.buyerName}</TableCell>
-                        <TableCell className="text-sm">{payment.formatted}</TableCell>
+                        <TableCell className="text-sm">{t.paymentFormatted}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{TICKET_STATUS[t.status] ?? t.status}</Badge>
                         </TableCell>
@@ -733,8 +732,7 @@ function EventDetailContent() {
                           </Button>
                         </TableCell>
                       </TableRow>
-                      );
-                    })
+                    ))
                   )}
                 </TableBody>
               </Table>

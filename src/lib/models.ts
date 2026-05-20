@@ -138,6 +138,10 @@ export interface SerializedTicket {
   createdAt: string;
 }
 
+export interface SerializedTicketWithPayment extends SerializedTicket {
+  paymentFormatted: string;
+}
+
 export interface SerializedSellerAccess {
   id: string;
   sellerId: string;

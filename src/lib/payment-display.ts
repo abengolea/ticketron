@@ -24,7 +24,11 @@ export function getTicketPaymentMethod(
   if (!link) return 'cash';
   if (link.linkType === 'complimentary') return 'complimentary';
   if (link.linkType === 'cash') return 'cash';
-  if (link.mercadoPagoPaymentId) return 'mercadopago';
+  if (link.mercadoPagoPaymentId || link.mercadoPagoPreferenceId) {
+    return 'mercadopago';
+  }
+  // Links de checkout MP no siempre tienen linkType; si está pagado y no es efectivo/favor → MP
+  if (link.status === 'PAID') return 'mercadopago';
   return 'cash';
 }
 
@@ -34,13 +38,31 @@ const METHOD_LABELS: Record<TicketPaymentMethod, string> = {
   complimentary: 'Entrada de favor',
 };
 
+function resolveAmountPerTicket(
+  method: TicketPaymentMethod,
+  link: SerializedPaymentLink | undefined,
+  unitPrice?: number
+): number {
+  if (method === 'complimentary') return 0;
+
+  // MP + entrada emitida: mostrar siempre el precio fijado del evento
+  if (method === 'mercadopago' && unitPrice && unitPrice > 0) {
+    return unitPrice;
+  }
+
+  const qty = link?.ticketQuantity ?? 1;
+  const fromLink = Math.round((link?.amount ?? 0) / qty);
+  if (fromLink > 0) return fromLink;
+  if (unitPrice && unitPrice > 0) return unitPrice;
+  return 0;
+}
+
 export function getTicketPaymentDisplay(
-  link: SerializedPaymentLink | undefined
+  link: SerializedPaymentLink | undefined,
+  options?: { unitPrice?: number }
 ): TicketPaymentDisplay {
   const method = getTicketPaymentMethod(link);
-  const qty = link?.ticketQuantity ?? 1;
-  const amountPerTicket =
-    method === 'complimentary' ? 0 : Math.round((link?.amount ?? 0) / qty);
+  const amountPerTicket = resolveAmountPerTicket(method, link, options?.unitPrice);
   const label = METHOD_LABELS[method];
   return {
     method,
