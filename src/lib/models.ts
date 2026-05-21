@@ -158,7 +158,19 @@ export interface SerializedSellerAccess {
   eventDate: string;
   quota: number;
   sold: number;
+  /** Entradas reservadas por links de pago pendientes (no vendidas aún). */
+  pendingPayment: number;
+  /** Vendidas + reservadas en links pendientes. */
+  issued: number;
   remaining: number;
   price: number;
   active: boolean;
+}
+
+export interface EventReservationStats {
+  capacity: number;
+  sold: number;
+  pendingPayment: number;
+  issued: number;
+  remainingForLinks: number;
 }

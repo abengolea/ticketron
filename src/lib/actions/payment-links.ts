@@ -14,8 +14,13 @@ import { createPreference } from '@/lib/mercadopago';
 import { serializePaymentLink } from '@/lib/serialize';
 import { ensureLinkNotExpired } from '@/lib/services/expire-links';
 import { PAYMENT_LINK_INDEFINITE_EXPIRES_AT } from '@/lib/payment-link-expiry';
+import { sumPendingPaymentReservations } from '@/lib/services/payment-link-reservations';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
-import type { PaymentLink, SerializedPaymentLink } from '@/lib/models';
+import type {
+  EventReservationStats,
+  PaymentLink,
+  SerializedPaymentLink,
+} from '@/lib/models';
 
 export async function createPaymentLink(
   idToken: string,
@@ -33,9 +38,16 @@ export async function createPaymentLink(
     const event = eventSnap.data()!;
     if (!event.active) return fail('Evento inactivo');
 
-    const remainingCapacity = event.capacity - event.sold;
+    const pendingEvent = await sumPendingPaymentReservations(db, { eventId });
+    const issuedEvent = (event.sold ?? 0) + pendingEvent;
+    const remainingCapacity = event.capacity - issuedEvent;
     if (ticketQuantity > remainingCapacity) {
-      return fail(`Solo quedan ${remainingCapacity} entradas disponibles`);
+      if (remainingCapacity <= 0) {
+        return fail('Cupo de entradas emitidas agotado. No se pueden crear más links de pago.');
+      }
+      return fail(
+        `Solo quedan ${remainingCapacity} entradas para emitir (${pendingEvent} en links sin pagar)`
+      );
     }
 
     if (user.role === 'seller') {
@@ -49,9 +61,19 @@ export async function createPaymentLink(
 
       if (accessSnap.empty) return fail('No tenés acceso a este evento');
       const access = accessSnap.docs[0]!.data();
-      const sellerRemaining = access.quota - access.sold;
+      const pendingSeller = await sumPendingPaymentReservations(db, {
+        eventId,
+        sellerId: user.uid,
+      });
+      const issuedSeller = (access.sold ?? 0) + pendingSeller;
+      const sellerRemaining = access.quota - issuedSeller;
       if (ticketQuantity > sellerRemaining) {
-        return fail(`Tu cupo permite vender hasta ${sellerRemaining} entradas más`);
+        if (sellerRemaining <= 0) {
+          return fail('Tu cupo de entradas emitidas está agotado.');
+        }
+        return fail(
+          `Tu cupo permite emitir hasta ${sellerRemaining} entradas más (${pendingSeller} en links sin pagar)`
+        );
       }
     }
 
@@ -289,6 +311,62 @@ export async function archivePaymentLink(
       updatedAt: Timestamp.now(),
     });
     return ok(undefined);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error');
+  }
+}
+
+export async function getEventReservationStats(
+  idToken: string,
+  eventId: string
+): Promise<ActionResult<EventReservationStats>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    requireRole(user, 'admin', 'seller');
+
+    const db = getAdminDb();
+    const eventSnap = await db.collection(COLLECTIONS.events).doc(eventId).get();
+    if (!eventSnap.exists) return fail('Evento no encontrado');
+    const event = eventSnap.data()!;
+
+    if (user.role === 'seller') {
+      const accessSnap = await db
+        .collection(COLLECTIONS.sellerEventAccess)
+        .where('sellerId', '==', user.uid)
+        .where('eventId', '==', eventId)
+        .where('active', '==', true)
+        .limit(1)
+        .get();
+      if (accessSnap.empty) return fail('No tenés acceso a este evento');
+      const access = accessSnap.docs[0]!.data();
+      const pendingPayment = await sumPendingPaymentReservations(db, {
+        eventId,
+        sellerId: user.uid,
+      });
+      const sold = access.sold ?? 0;
+      const issued = sold + pendingPayment;
+      const remainingForLinks = Math.max(0, access.quota - issued);
+      return ok({
+        capacity: access.quota,
+        sold,
+        pendingPayment,
+        issued,
+        remainingForLinks,
+      });
+    }
+
+    const pendingPayment = await sumPendingPaymentReservations(db, { eventId });
+    const sold = event.sold ?? 0;
+    const issued = sold + pendingPayment;
+    const remainingForLinks = Math.max(0, event.capacity - issued);
+
+    return ok({
+      capacity: event.capacity,
+      sold,
+      pendingPayment,
+      issued,
+      remainingForLinks,
+    });
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error');
   }

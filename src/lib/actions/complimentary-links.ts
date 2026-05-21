@@ -24,7 +24,7 @@ export async function createComplimentaryLink(
 > {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'seller', 'admin');
+    requireRole(user, 'admin');
 
     const parsed = createComplimentaryLinkSchema.parse(input);
     const {
@@ -44,23 +44,6 @@ export async function createComplimentaryLink(
     const remainingCapacity = event.capacity - event.sold;
     if (ticketQuantity > remainingCapacity) {
       return fail(`Solo quedan ${remainingCapacity} entradas disponibles`);
-    }
-
-    if (user.role === 'seller') {
-      const accessSnap = await db
-        .collection(COLLECTIONS.sellerEventAccess)
-        .where('sellerId', '==', user.uid)
-        .where('eventId', '==', eventId)
-        .where('active', '==', true)
-        .limit(1)
-        .get();
-
-      if (accessSnap.empty) return fail('No tenés acceso a este evento');
-      const access = accessSnap.docs[0]!.data();
-      const sellerRemaining = access.quota - access.sold;
-      if (ticketQuantity > sellerRemaining) {
-        return fail(`Tu cupo permite emitir hasta ${sellerRemaining} entradas más`);
-      }
     }
 
     const token = generateSecureToken();

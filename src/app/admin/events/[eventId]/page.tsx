@@ -11,13 +11,28 @@ import {
   assignSellerAccess,
   listSellerAccessAdmin,
 } from '@/lib/actions/sellers';
+import {
+  listSalesAdmin,
+  cancelPaymentLink,
+  getEventReservationStats,
+} from '@/lib/actions/payment-links';
 import { listTicketsForEvent, exportTicketsCsv, archiveTicket } from '@/lib/actions/tickets';
 import { computeTicketTotals, countsTowardRevenue } from '@/lib/ticket-totals';
 import { CreatePaymentLinkDialog } from '@/components/create-payment-link-dialog';
 import { CreateComplimentaryLinkDialog } from '@/components/create-complimentary-link-dialog';
 import { CreateCashSaleDialog } from '@/components/create-cash-sale-dialog';
 import { EventTicketsPdfExport } from '@/components/event-tickets-pdf-export';
-import type { SerializedEvent, SerializedTicketWithPayment } from '@/lib/models';
+import type {
+  EventReservationStats,
+  SerializedEvent,
+  SerializedPaymentLink,
+  SerializedTicketWithPayment,
+} from '@/lib/models';
+import {
+  computePaymentLinkRevenue,
+  formatArs,
+  isPaymentLinkAwaitingPayment,
+} from '@/lib/payment-link-utils';
 import type { SerializedSellerAccess } from '@/lib/models';
 import type { UserListItem } from '@/lib/actions/sellers';
 import { Button } from '@/components/ui/button';
@@ -53,13 +68,17 @@ import { downloadFile } from '@/lib/utils';
 import {
   Archive,
   ArrowLeft,
+  Copy,
   DoorOpen,
   Download,
+  Link2,
   Loader2,
+  MessageCircle,
   MoreVertical,
   QrCode,
   Settings2,
   Users,
+  XCircle,
 } from 'lucide-react';
 
 function toDatetimeLocalValue(iso: string): string {
@@ -87,22 +106,60 @@ const TICKET_STATUS: Record<string, string> = {
 
 type PaymentFilter = 'all' | 'paid' | 'mercadopago' | 'cash' | 'complimentary';
 type StatusFilter = 'all' | 'VALID' | 'USED' | 'CANCELLED';
+type PaymentLinkFilter = 'pending' | 'all';
+
+const PAYMENT_LINK_STATUS: Record<string, string> = {
+  PENDING_PAYMENT: 'Sin pagar',
+  PAID: 'Pagado',
+  EXPIRED: 'Vencido',
+  CANCELLED: 'Cancelado',
+};
 
 function computeSellerQuotaSummary(access: SerializedSellerAccess[], capacity: number) {
   const active = access.filter((a) => a.active);
   const assignedQuota = active.reduce((sum, a) => sum + a.quota, 0);
   const soldBySellers = active.reduce((sum, a) => sum + a.sold, 0);
+  const pendingBySellers = active.reduce((sum, a) => sum + (a.pendingPayment ?? 0), 0);
   const remainingWithSellers = active.reduce((sum, a) => sum + a.remaining, 0);
   const unassignedQuota = Math.max(0, capacity - assignedQuota);
   const overAssigned = Math.max(0, assignedQuota - capacity);
   return {
     assignedQuota,
     soldBySellers,
+    pendingBySellers,
     remainingWithSellers,
     unassignedQuota,
     overAssigned,
     sellerCount: active.length,
   };
+}
+
+function isMercadoPagoPaymentLink(link: SerializedPaymentLink) {
+  return (link.linkType ?? 'payment') === 'payment';
+}
+
+function matchesPaymentLinkListFilters(
+  link: SerializedPaymentLink,
+  filter: PaymentLinkFilter,
+  search: string
+) {
+  if (!isMercadoPagoPaymentLink(link)) return false;
+  if (filter === 'pending' && !isPaymentLinkAwaitingPayment(link)) return false;
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    const haystack = [
+      link.buyerName,
+      link.buyerLastName,
+      link.buyerEmail,
+      link.buyerPhone,
+      link.token,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    if (!haystack.includes(q)) return false;
+  }
+  return true;
 }
 
 function matchesTicketFilters(
@@ -161,16 +218,24 @@ function EventDetailContent() {
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [buyerSearch, setBuyerSearch] = useState('');
+  const [paymentLinks, setPaymentLinks] = useState<SerializedPaymentLink[]>([]);
+  const [reservationStats, setReservationStats] = useState<EventReservationStats | null>(
+    null
+  );
+  const [paymentLinkFilter, setPaymentLinkFilter] = useState<PaymentLinkFilter>('pending');
+  const [paymentLinkSearch, setPaymentLinkSearch] = useState('');
 
   const load = useCallback(async () => {
     const token = await getIdToken();
     if (!token) return;
 
-    const [evRes, ticketsRes, accessRes, usersRes] = await Promise.all([
+    const [evRes, ticketsRes, accessRes, usersRes, linksRes, statsRes] = await Promise.all([
       getEvent(token, eventId),
       listTicketsForEvent(token, eventId, { includeArchived: true }),
       listSellerAccessAdmin(token, { eventId }),
       listUsers(token),
+      listSalesAdmin(token, { eventId }),
+      getEventReservationStats(token, eventId),
     ]);
 
     if (evRes.success) {
@@ -185,6 +250,8 @@ function EventDetailContent() {
     if (ticketsRes.success) setTickets(ticketsRes.data);
     if (accessRes.success) setAccess(accessRes.data);
     if (usersRes.success) setSellers(usersRes.data.filter((u) => u.role === 'seller' && u.active));
+    if (linksRes.success) setPaymentLinks(linksRes.data);
+    if (statsRes.success) setReservationStats(statsRes.data);
     setLoading(false);
   }, [eventId, getIdToken, router, toast]);
 
@@ -266,6 +333,35 @@ function EventDetailContent() {
     }
   }
 
+  async function handleCancelPaymentLink(linkId: string) {
+    const token = await getIdToken();
+    if (!token) return;
+    const res = await cancelPaymentLink(token, { paymentLinkId: linkId });
+    if (res.success) {
+      toast({ title: 'Link cancelado', description: 'El cupo quedó liberado.' });
+      load();
+    } else {
+      toast({ variant: 'destructive', title: 'Error', description: res.error });
+    }
+  }
+
+  function copyCheckoutUrl(linkToken: string) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const url = `${appUrl}/checkout/${linkToken}`;
+    navigator.clipboard.writeText(url);
+    toast({ title: 'Link copiado' });
+  }
+
+  function sharePaymentLinkWhatsApp(link: SerializedPaymentLink) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const url = `${appUrl}/checkout/${link.token}`;
+    const buyer = [link.buyerName, link.buyerLastName].filter(Boolean).join(' ');
+    const text = buyer
+      ? `Hola ${buyer}, tu link para pagar la entrada: ${url}`
+      : `Comprá tu entrada acá: ${url}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  }
+
   async function handleArchiveTicket(id: string) {
     const token = await getIdToken();
     if (!token) return;
@@ -287,10 +383,22 @@ function EventDetailContent() {
   }
 
   const ticketTotals = computeTicketTotals(tickets);
-  const soldCount = ticketTotals.activeTickets;
-  const remaining = event.capacity - soldCount;
+  const soldCount = reservationStats?.sold ?? event.sold;
+  const pendingPayment = reservationStats?.pendingPayment ?? 0;
+  const issuedCount = reservationStats?.issued ?? soldCount + pendingPayment;
+  const remainingForLinks = reservationStats?.remainingForLinks ?? 0;
   const sellerQuota = computeSellerQuotaSummary(access, event.capacity);
-  const maxLinkTickets = event.active && remaining > 0 ? Math.min(remaining, 20) : 0;
+  const maxLinkTickets =
+    event.active && remainingForLinks > 0 ? Math.min(remainingForLinks, 20) : 0;
+
+  const linkRevenue = computePaymentLinkRevenue(paymentLinks);
+  const collectedRevenue = ticketTotals.totalRevenue;
+  const pendingRevenue = linkRevenue.pending;
+  const projectedRevenue = collectedRevenue + pendingRevenue;
+
+  const filteredPaymentLinks = paymentLinks.filter((link) =>
+    matchesPaymentLinkListFilters(link, paymentLinkFilter, paymentLinkSearch)
+  );
   const activeTickets = tickets.filter((t) => !t.archived);
   const ticketsForList = showArchived ? tickets : activeTickets;
 
@@ -365,32 +473,45 @@ function EventDetailContent() {
       </section>
 
       <section className="space-y-4">
-        <section className="grid gap-4 md:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Vendidas / Capacidad</CardDescription>
+              <CardDescription>Emitidas / Capacidad</CardDescription>
               <CardTitle className="text-2xl">
-                {soldCount} / {event.capacity}
+                {issuedCount} / {event.capacity}
               </CardTitle>
-              {soldCount !== event.sold && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Vendidas {soldCount}
+                {pendingPayment > 0 ? ` · ${pendingPayment} en links sin pagar` : ''}
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Vendidas (pagadas)</CardDescription>
+              <CardTitle className="text-2xl">{soldCount}</CardTitle>
+              {ticketTotals.activeTickets !== soldCount && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  {event.sold - soldCount} archivada{event.sold - soldCount === 1 ? '' : 's'} no
-                  contabilizada{event.sold - soldCount === 1 ? '' : 's'}
-                </p>
-              )}
-              {sellerQuota.sellerCount > 0 && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  {sellerQuota.soldBySellers} vendidas por vendedores
+                  {ticketTotals.activeTickets} tickets activos en listado
                 </p>
               )}
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Disponibles (global)</CardDescription>
-              <CardTitle className="text-2xl">{remaining}</CardTitle>
+              <CardDescription>Links sin pagar</CardDescription>
+              <CardTitle className="text-2xl">{pendingPayment}</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
-                Tope real para vender (admin incluye cupo de vendedores no usado)
+                Reservan cupo hasta pagar o cancelar
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Disponibles para links</CardDescription>
+              <CardTitle className="text-2xl">{remainingForLinks}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Al llegar a 0 no se pueden emitir más links de pago
               </p>
             </CardHeader>
           </Card>
@@ -407,6 +528,38 @@ function EventDetailContent() {
                 <Switch checked={event.active} onCheckedChange={toggleActive} />
                 <span className="text-sm font-medium">{event.active ? 'Activo' : 'Inactivo'}</span>
               </section>
+            </CardHeader>
+          </Card>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Recaudado (confirmado)</CardDescription>
+              <CardTitle className="text-2xl">{formatArs(collectedRevenue)}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Entradas pagadas (MP, efectivo; sin cortesía)
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Por cobrar (links sin pagar)</CardDescription>
+              <CardTitle className="text-2xl">{formatArs(pendingRevenue)}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                {pendingPayment > 0
+                  ? `${pendingPayment} entrada${pendingPayment === 1 ? '' : 's'} en links pendientes`
+                  : 'Sin links de pago pendientes'}
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Proyección de recaudación</CardDescription>
+              <CardTitle className="text-2xl">{formatArs(projectedRevenue)}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Confirmado + pendiente si pagan todos los links
+              </p>
             </CardHeader>
           </Card>
         </section>
@@ -458,7 +611,16 @@ function EventDetailContent() {
           <TabsTrigger value="sellers">
             <Users className="w-4 h-4 mr-2" /> Vendedores
           </TabsTrigger>
-          <TabsTrigger value="tickets">Entradas</TabsTrigger>
+          <TabsTrigger value="tickets">Entradas vendidas</TabsTrigger>
+          <TabsTrigger value="payment-links">
+            <Link2 className="w-4 h-4 mr-2" />
+            Links de pago
+            {pendingPayment > 0 && (
+              <Badge variant="secondary" className="ml-2">
+                {pendingPayment}
+              </Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="management" className="space-y-4">
@@ -614,7 +776,7 @@ function EventDetailContent() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Vendedor</TableHead>
-                    <TableHead>Vendidos / Cupo</TableHead>
+                    <TableHead>Emitidos / Cupo</TableHead>
                     <TableHead>Restante</TableHead>
                     <TableHead>Estado</TableHead>
                   </TableRow>
@@ -636,7 +798,12 @@ function EventDetailContent() {
                               {seller ? `${seller.displayName} (${seller.email})` : a.sellerId}
                             </TableCell>
                             <TableCell>
-                              {a.sold} / {a.quota}
+                              {a.issued} / {a.quota}
+                              {(a.pendingPayment ?? 0) > 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                  {a.sold} vendidas · {a.pendingPayment} pendientes
+                                </p>
+                              )}
                             </TableCell>
                             <TableCell>{a.remaining}</TableCell>
                             <TableCell>
@@ -665,14 +832,168 @@ function EventDetailContent() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="payment-links" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-col gap-3">
+              <section>
+                <CardTitle>Links de pago emitidos</CardTitle>
+                <CardDescription>
+                  Entradas reservadas al generar el link. Usá el filtro &quot;Sin pagar&quot; para
+                  avisar a quien aún no completó el pago.
+                </CardDescription>
+              </section>
+              <section className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                <section className="grid gap-3 sm:grid-cols-2 flex-1 min-w-0">
+                  <section>
+                    <Label htmlFor="paymentLinkFilter" className="text-xs text-muted-foreground">
+                      Estado
+                    </Label>
+                    <Select
+                      value={paymentLinkFilter}
+                      onValueChange={(v) => setPaymentLinkFilter(v as PaymentLinkFilter)}
+                    >
+                      <SelectTrigger id="paymentLinkFilter" className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Sin pagar (para avisar)</SelectItem>
+                        <SelectItem value="all">Todos los links de pago</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </section>
+                  <section>
+                    <Label htmlFor="paymentLinkSearch" className="text-xs text-muted-foreground">
+                      Buscar
+                    </Label>
+                    <Input
+                      id="paymentLinkSearch"
+                      className="mt-1"
+                      placeholder="Comprador, email, teléfono"
+                      value={paymentLinkSearch}
+                      onChange={(e) => setPaymentLinkSearch(e.target.value)}
+                    />
+                  </section>
+                </section>
+              </section>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Vendedor</TableHead>
+                    <TableHead>Entradas</TableHead>
+                    <TableHead>Monto</TableHead>
+                    <TableHead>Comprador</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredPaymentLinks.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                        {paymentLinkFilter === 'pending'
+                          ? 'No hay links de pago pendientes'
+                          : 'No hay links de pago para este evento'}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredPaymentLinks.map((link) => {
+                      const seller = sellers.find((s) => s.uid === link.sellerId);
+                      const buyer =
+                        [link.buyerName, link.buyerLastName].filter(Boolean).join(' ') ||
+                        '—';
+                      const contact = link.buyerEmail || link.buyerPhone || '';
+                      return (
+                        <TableRow key={link.id}>
+                          <TableCell>
+                            {new Date(link.createdAt).toLocaleString('es-AR')}
+                          </TableCell>
+                          <TableCell>
+                            {seller ? seller.displayName : link.sellerId}
+                          </TableCell>
+                          <TableCell>{link.ticketQuantity ?? 1}</TableCell>
+                          <TableCell>${link.amount.toLocaleString('es-AR')}</TableCell>
+                          <TableCell>
+                            <span className="block">{buyer}</span>
+                            {contact && (
+                              <span className="text-xs text-muted-foreground">{contact}</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {PAYMENT_LINK_STATUS[link.status] ?? link.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {link.status === 'PENDING_PAYMENT' && (
+                              <section className="flex justify-end gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => copyCheckoutUrl(link.token)}
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => sharePaymentLinkWhatsApp(link)}
+                                >
+                                  <MessageCircle className="w-3 h-3" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleCancelPaymentLink(link.id)}
+                                >
+                                  <XCircle className="w-3 h-3" />
+                                </Button>
+                              </section>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+              {(pendingPayment > 0 || pendingRevenue > 0) && (
+                <p className="text-sm text-muted-foreground mt-4">
+                  {paymentLinkFilter === 'pending' && (
+                    <>
+                      {filteredPaymentLinks.length} link
+                      {filteredPaymentLinks.length === 1 ? '' : 's'} en lista ·{' '}
+                    </>
+                  )}
+                  {pendingPayment} entrada{pendingPayment === 1 ? '' : 's'} sin pagar ·{' '}
+                  <span className="font-medium text-foreground">
+                    {formatArs(pendingRevenue)} por cobrar
+                  </span>
+                  {' · '}
+                  Proyección total del evento: {formatArs(projectedRevenue)}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="tickets" className="space-y-4">
-          <section className="grid gap-4 sm:grid-cols-2">
+          <section className="grid gap-4 sm:grid-cols-3">
             <Card>
               <CardHeader className="pb-2">
-                <CardDescription>Ingresos confirmados</CardDescription>
-                <CardTitle className="text-2xl">
-                  ${ticketTotals.totalRevenue.toLocaleString('es-AR')}
-                </CardTitle>
+                <CardDescription>Recaudado (confirmado)</CardDescription>
+                <CardTitle className="text-2xl">{formatArs(collectedRevenue)}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Por cobrar + proyección</CardDescription>
+                <CardTitle className="text-2xl">{formatArs(projectedRevenue)}</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formatArs(pendingRevenue)} pendiente de {formatArs(collectedRevenue)} cobrado
+                </p>
               </CardHeader>
             </Card>
             <Card>

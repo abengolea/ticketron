@@ -64,6 +64,8 @@ export default function LoginPage() {
   const [buyerPassword, setBuyerPassword] = useState('');
   const [buyerMessage, setBuyerMessage] = useState<string | null>(null);
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
+  const [teamEmail, setTeamEmail] = useState('');
+  const [teamPassword, setTeamPassword] = useState('');
 
   useEffect(() => {
     async function redirectIfLoggedIn() {
@@ -78,6 +80,51 @@ export default function LoginPage() {
     redirectIfLoggedIn();
   }, [user, userLoading, router]);
 
+  const TEAM_ROLES: UserRole[] = ['admin', 'seller', 'gate'];
+
+  async function handleTeamSignIn(e: React.FormEvent) {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const cred = await signInWithEmailAndPassword(
+        auth,
+        teamEmail.trim(),
+        teamPassword
+      );
+      const token = await cred.user.getIdToken();
+      const session = await getSessionUser(token);
+
+      if (!session.success) {
+        await auth.signOut();
+        setError(session.error ?? 'No se pudo iniciar sesión.');
+        return;
+      }
+
+      if (!TEAM_ROLES.includes(session.data.role)) {
+        await auth.signOut();
+        setError(
+          'Esta cuenta es de comprador. Usá el formulario principal para «mis entradas».'
+        );
+        return;
+      }
+
+      toast({ title: 'Bienvenido', description: `Hola, ${session.data.displayName}` });
+      router.push(roleHome(session.data.role));
+    } catch (e: unknown) {
+      const err = e as { code?: string; message?: string };
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
+        setError('Email o contraseña incorrectos.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setError('Demasiados intentos. Esperá un momento e intentá de nuevo.');
+      } else {
+        setError(err.message ?? 'Error al iniciar sesión');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   async function handleGoogleSignIn() {
     setIsSubmitting(true);
     setError(null);
@@ -91,6 +138,14 @@ export default function LoginPage() {
         await auth.signOut();
         setError(
           session.error ?? 'Tu cuenta no está habilitada. Contactá al administrador.'
+        );
+        return;
+      }
+
+      if (!TEAM_ROLES.includes(session.data.role)) {
+        await auth.signOut();
+        setError(
+          'Esta cuenta es de comprador. Usá el formulario principal para «mis entradas».'
         );
         return;
       }
@@ -332,6 +387,44 @@ export default function LoginPage() {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
+            <form onSubmit={handleTeamSignIn} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="teamEmail">Email</Label>
+                <Input
+                  id="teamEmail"
+                  type="email"
+                  value={teamEmail}
+                  onChange={(e) => setTeamEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="teamPassword">Contraseña</Label>
+                <Input
+                  id="teamPassword"
+                  type="password"
+                  value={teamPassword}
+                  onChange={(e) => setTeamPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Ingresar
+              </Button>
+            </form>
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">o</span>
+              </div>
+            </div>
             <Button
               variant="outline"
               className="w-full"
@@ -345,6 +438,9 @@ export default function LoginPage() {
               )}
               Iniciar sesión con Google
             </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              Los vendedores usan el email y la contraseña que les asignó el administrador.
+            </p>
           </DialogContent>
         </Dialog>
       </Card>

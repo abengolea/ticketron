@@ -7,6 +7,7 @@ import { createCashSaleSchema } from '@/lib/validations';
 import { generateSecureToken } from '@/lib/tokens';
 import { serializePaymentLink } from '@/lib/serialize';
 import { issueTicketsForLink } from '@/lib/services/issue-tickets';
+import { sumPendingPaymentReservations } from '@/lib/services/payment-link-reservations';
 import { sendPurchaseConfirmationEmail } from '@/lib/services/purchase-confirmation-email';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type { PaymentLink, SerializedPaymentLink } from '@/lib/models';
@@ -24,7 +25,7 @@ export async function createCashSale(
 > {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireRole(user, 'seller', 'admin');
 
     const parsed = createCashSaleSchema.parse(input);
     const {
@@ -43,9 +44,43 @@ export async function createCashSale(
     const event = eventSnap.data()!;
     if (!event.active) return fail('Evento inactivo');
 
-    const remainingCapacity = event.capacity - event.sold;
+    const pendingEvent = await sumPendingPaymentReservations(db, { eventId });
+    const issuedEvent = (event.sold ?? 0) + pendingEvent;
+    const remainingCapacity = event.capacity - issuedEvent;
     if (ticketQuantity > remainingCapacity) {
-      return fail(`Solo quedan ${remainingCapacity} entradas disponibles`);
+      if (remainingCapacity <= 0) {
+        return fail('Cupo de entradas emitidas agotado.');
+      }
+      return fail(
+        `Solo quedan ${remainingCapacity} entradas para emitir (${pendingEvent} en links sin pagar)`
+      );
+    }
+
+    if (user.role === 'seller') {
+      const accessSnap = await db
+        .collection(COLLECTIONS.sellerEventAccess)
+        .where('sellerId', '==', user.uid)
+        .where('eventId', '==', eventId)
+        .where('active', '==', true)
+        .limit(1)
+        .get();
+
+      if (accessSnap.empty) return fail('No tenés acceso a este evento');
+      const access = accessSnap.docs[0]!.data();
+      const pendingSeller = await sumPendingPaymentReservations(db, {
+        eventId,
+        sellerId: user.uid,
+      });
+      const issuedSeller = (access.sold ?? 0) + pendingSeller;
+      const sellerRemaining = access.quota - issuedSeller;
+      if (ticketQuantity > sellerRemaining) {
+        if (sellerRemaining <= 0) {
+          return fail('Tu cupo de entradas emitidas está agotado.');
+        }
+        return fail(
+          `Tu cupo permite emitir hasta ${sellerRemaining} entradas más (${pendingSeller} en links sin pagar)`
+        );
+      }
     }
 
     const token = generateSecureToken();

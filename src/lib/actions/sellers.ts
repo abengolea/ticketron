@@ -9,6 +9,7 @@ import {
 import { verifyIdTokenAndGetUser, requireRole } from '@/lib/auth-server';
 import { getAdminAuth, getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
 import { createSellerAccessSchema, createSellerSchema, updateUserSchema } from '@/lib/validations';
+import { sumPendingPaymentReservations } from '@/lib/services/payment-link-reservations';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type { SerializedSellerAccess, UserRole } from '@/lib/models';
 
@@ -210,6 +211,12 @@ async function buildSellerAccessList(
     const eventSnap = await db.collection(COLLECTIONS.events).doc(access.eventId).get();
     if (!eventSnap.exists) continue;
     const event = eventSnap.data()!;
+    const pendingPayment = await sumPendingPaymentReservations(db, {
+      eventId: access.eventId,
+      sellerId: access.sellerId,
+    });
+    const sold = access.sold ?? 0;
+    const issued = sold + pendingPayment;
     result.push({
       id: doc.id,
       sellerId: access.sellerId,
@@ -217,8 +224,10 @@ async function buildSellerAccessList(
       eventName: event.name,
       eventDate: event.date.toDate().toISOString(),
       quota: access.quota,
-      sold: access.sold,
-      remaining: Math.max(0, access.quota - access.sold),
+      sold,
+      pendingPayment,
+      issued,
+      remaining: Math.max(0, access.quota - issued),
       price: event.price,
       active: access.active && event.active,
     });
