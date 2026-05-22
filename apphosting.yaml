@@ -59,9 +59,6 @@ env:
   - variable: TICKET_SIGNING_SECRET
     secret: TICKET_SIGNING_SECRET
 
-  - variable: CRON_SECRET
-    secret: CRON_SECRET
-
   - variable: PAYMENT_LINK_EXPIRY_MINUTES
     secret: PAYMENT_LINK_EXPIRY_MINUTES
 
