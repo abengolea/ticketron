@@ -10,8 +10,7 @@ src/
 │   ├── checkout/[token]/             # Checkout público
 │   ├── ticket/[ticketCode]/          # Entrada digital
 │   ├── gate/[eventId]/               # Control de puerta
-│   ├── api/mercadopago/webhook/      # Webhook MP
-│   └── api/cron/expire-links/        # Expirar links
+│   └── api/mercadopago/webhook/      # Webhook MP
 ├── lib/
 │   ├── types/                        # Modelos TypeScript
 │   ├── validations/                  # Esquemas Zod
@@ -37,8 +36,7 @@ Copiar `.env.example` → `.env.local` y completar:
 | `NEXT_PUBLIC_FIREBASE_*` | Credenciales Firebase client |
 | `FIREBASE_SERVICE_ACCOUNT_KEY` | JSON service account (una línea) |
 | `MERCADO_PAGO_ACCESS_TOKEN` | Token MP (sandbox o producción) |
-| `TICKET_SIGNING_SECRET` | Secreto HMAC para QR (32+ chars) |
-| `CRON_SECRET` | Bearer para `/api/cron/expire-links` |
+| `TICKET_SIGNING_SECRET` | Secreto HMAC para QR (32+ chars). **Debe ser idéntico** en `.env.local`, Firebase Secret Manager y donde se emiten entradas; si difiere, el validador muestra «Firma QR inválida». |
 | `RESEND_API_KEY` | API key de [Resend](https://resend.com) para emails al comprador |
 | `EMAIL_FROM` | Remitente verificado (ej. `Ticketron <entradas@tudominio.com>`) |
 
@@ -78,64 +76,9 @@ El `uid` se obtiene tras el primer login con Google (Firebase Auth → Users).
 3. Configurar webhook: `{NEXT_PUBLIC_APP_URL}/api/mercadopago/webhook`
 4. Eventos: `payment`
 
-## Cron de expiración (paso 4)
+## Expiración de links
 
-### Desarrollo local (automático)
-
-Con el servidor de desarrollo y expiración cada 5 min:
-
-```bash
-npm run dev:full
-```
-
-O en otra terminal mientras corre `npm run dev`:
-
-```bash
-npm run cron:expire:watch
-```
-
-Una sola ejecución manual:
-
-```bash
-npm run cron:expire
-```
-
-### Producción — Firebase App Hosting (Google Cloud Scheduler)
-
-1. Asegurate de tener `CRON_SECRET` en las variables de App Hosting.
-2. Desplegá la app con la URL pública final.
-3. En PowerShell (con [gcloud CLI](https://cloud.google.com/sdk/docs/install)):
-
-```powershell
-$env:NEXT_PUBLIC_APP_URL = "https://TU-URL-DE-APP"
-$env:CRON_SECRET = "tu-secreto-igual-que-en-hosting"
-$env:GCP_PROJECT = "tu-project-id"
-.\scripts\setup-cloud-scheduler.ps1
-```
-
-Probar el job:
-
-```powershell
-gcloud scheduler jobs run ticketron-expire-payment-links --location=us-central1
-```
-
-### Alternativa — GitHub Actions
-
-Si el repo está en GitHub, el workflow `.github/workflows/cron-expire-links.yml` corre cada 5 min.
-
-Configurar secrets en el repo:
-
-| Secret | Valor |
-|--------|--------|
-| `APP_URL` | URL pública (ej. `https://tu-app.web.app`) |
-| `CRON_SECRET` | Mismo que en hosting |
-
-### Endpoint HTTP
-
-```
-POST o GET {NEXT_PUBLIC_APP_URL}/api/cron/expire-links
-Authorization: Bearer {CRON_SECRET}
-```
+Los links de Mercado Pago no vencen por tiempo. Cortesía y venta en efectivo se marcan `EXPIRED` al consultarlos (`ensureLinkNotExpired` en server actions), sin cron.
 
 ## Despliegue de reglas e índices
 

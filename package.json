@@ -9,11 +9,7 @@
     "build": "NODE_ENV=production next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
-    "cron:expire": "tsx scripts/expire-links-cron.ts",
-    "cron:expire:watch": "tsx scripts/expire-links-cron.ts --watch",
-    "cron:expire:http": "tsx scripts/call-expire-links-api.ts",
-    "dev:full": "concurrently -n dev,cron -c blue,magenta \"npm run dev\" \"npm run cron:expire:watch\""
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@genkit-ai/google-genai": "^1.20.0",
