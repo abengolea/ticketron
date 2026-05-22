@@ -10,19 +10,13 @@ import { sendEmailViaResend } from '@/lib/email/resend-send';
 import type { ResendInlineAttachment } from '@/lib/email/resend-send';
 import { createActivationLinkForEmail } from '@/lib/services/buyer-activation';
 import type { PaymentLink, PlatformTicket } from '@/lib/models';
+import { formatEventDateForDisplay } from '@/lib/format-event-date';
 
 function getAppUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:9002').replace(
     /\/$/,
     ''
   );
-}
-
-function formatEventDate(date: Date): string {
-  return date.toLocaleString('es-AR', {
-    dateStyle: 'full',
-    timeStyle: 'short',
-  });
 }
 
 export interface PurchaseConfirmationEmailContent {
@@ -59,7 +53,7 @@ export async function buildPurchaseConfirmationEmailContent(
     [link.buyerName, link.buyerLastName].filter(Boolean).join(' ') || 'Comprador';
   const ticketQuantity = link.ticketQuantity ?? 1;
   const ticketsUrl = `${getAppUrl()}/ticket?token=${encodeURIComponent(link.token)}`;
-  const eventDate = formatEventDate(event.date.toDate());
+  const eventDate = formatEventDateForDisplay(event.date.toDate());
 
   const ticketsSnap = await db
     .collection(COLLECTIONS.tickets)
