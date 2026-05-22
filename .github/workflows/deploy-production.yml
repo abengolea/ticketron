@@ -1,0 +1,42 @@
+# Rollout de producción desde GitHub (commit visible en Firebase App Hosting).
+# Requiere: backend "studio" conectado a abengolea/ticketron (ver docs/DEPLOY.md).
+# NO usar `firebase deploy --only apphosting` — sube ZIP sin commit.
+
+name: Deploy producción — App Hosting
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: apphosting-production
+  cancel-in-progress: true
+
+jobs:
+  rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Autenticar Firebase / GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Instalar Firebase CLI
+        run: npm install -g firebase-tools@latest
+
+      - name: Rollout desde commit de GitHub
+        run: |
+          firebase apphosting:rollouts:create studio \
+            --git-commit "${{ github.sha }}" \
+            --force \
+            --project studio-9893505602-68edc
+
+      - name: Resumen
+        run: |
+          echo "Rollout iniciado para commit ${{ github.sha }}"
+          echo "Consola: https://console.firebase.google.com/project/studio-9893505602-68edc/apphosting"
