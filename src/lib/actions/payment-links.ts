@@ -30,7 +30,8 @@ export async function createPaymentLink(
     const user = await verifyIdTokenAndGetUser(idToken);
     requireRole(user, 'seller', 'admin');
 
-    const { eventId, ticketQuantity } = createPaymentLinkSchema.parse(input);
+    const { eventId, ticketQuantity, recipientLabel } = createPaymentLinkSchema.parse(input);
+    const label = recipientLabel?.trim() || undefined;
     const db = getAdminDb();
 
     const eventSnap = await db.collection(COLLECTIONS.events).doc(eventId).get();
@@ -88,6 +89,7 @@ export async function createPaymentLink(
       eventId,
       sellerId: user.uid,
       ticketQuantity,
+      ...(label ? { recipientLabel: label } : {}),
       linkType: 'payment',
       amount,
       status: 'PENDING_PAYMENT',
@@ -384,10 +386,11 @@ export async function listSalesAdmin(
     if (filters?.eventId) query = query.where('eventId', '==', filters.eventId);
     if (filters?.sellerId) query = query.where('sellerId', '==', filters.sellerId);
 
-    const snap = await query.orderBy('createdAt', 'desc').limit(500).get();
-    let links = snap.docs.map((d) =>
-      serializePaymentLink({ id: d.id, ...d.data() } as PaymentLink)
-    );
+    // Sin orderBy en Firestore: eventId + createdAt requiere índice compuesto que no está desplegado.
+    const snap = await query.limit(500).get();
+    let links = snap.docs
+      .map((d) => serializePaymentLink({ id: d.id, ...d.data() } as PaymentLink))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     if (!filters?.includeArchived) {
       links = links.filter((l) => !l.archived);
     }

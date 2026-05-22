@@ -33,6 +33,7 @@ import {
   formatArs,
   isPaymentLinkAwaitingPayment,
 } from '@/lib/payment-link-utils';
+import { getTicketPaymentMethod } from '@/lib/payment-display';
 import type { SerializedSellerAccess } from '@/lib/models';
 import type { UserListItem } from '@/lib/actions/sellers';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,12 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import {
   Table,
   TableBody,
@@ -134,20 +141,22 @@ function computeSellerQuotaSummary(access: SerializedSellerAccess[], capacity: n
   };
 }
 
-function isMercadoPagoPaymentLink(link: SerializedPaymentLink) {
-  return (link.linkType ?? 'payment') === 'payment';
-}
+const LINK_TYPE_LABELS: Record<string, string> = {
+  payment: 'Link de pago',
+  complimentary: 'Cortesía',
+  cash: 'Efectivo',
+};
 
 function matchesPaymentLinkListFilters(
   link: SerializedPaymentLink,
   filter: PaymentLinkFilter,
   search: string
 ) {
-  if (!isMercadoPagoPaymentLink(link)) return false;
   if (filter === 'pending' && !isPaymentLinkAwaitingPayment(link)) return false;
   if (search.trim()) {
     const q = search.trim().toLowerCase();
     const haystack = [
+      link.recipientLabel,
       link.buyerName,
       link.buyerLastName,
       link.buyerEmail,
@@ -222,7 +231,7 @@ function EventDetailContent() {
   const [reservationStats, setReservationStats] = useState<EventReservationStats | null>(
     null
   );
-  const [paymentLinkFilter, setPaymentLinkFilter] = useState<PaymentLinkFilter>('pending');
+  const [paymentLinkFilter, setPaymentLinkFilter] = useState<PaymentLinkFilter>('all');
   const [paymentLinkSearch, setPaymentLinkSearch] = useState('');
 
   const load = useCallback(async () => {
@@ -250,7 +259,16 @@ function EventDetailContent() {
     if (ticketsRes.success) setTickets(ticketsRes.data);
     if (accessRes.success) setAccess(accessRes.data);
     if (usersRes.success) setSellers(usersRes.data.filter((u) => u.role === 'seller' && u.active));
-    if (linksRes.success) setPaymentLinks(linksRes.data);
+    if (linksRes.success) {
+      setPaymentLinks(linksRes.data);
+    } else {
+      setPaymentLinks([]);
+      toast({
+        variant: 'destructive',
+        title: 'No se pudieron cargar los links',
+        description: linksRes.error,
+      });
+    }
     if (statsRes.success) setReservationStats(statsRes.data);
     setLoading(false);
   }, [eventId, getIdToken, router, toast]);
@@ -333,7 +351,15 @@ function EventDetailContent() {
     }
   }
 
-  async function handleCancelPaymentLink(linkId: string) {
+  async function handleCancelPaymentLink(linkId: string, label?: string) {
+    const detail = label ? ` (${label})` : '';
+    if (
+      !window.confirm(
+        `¿Anular este link de pago${detail}? Se liberan las entradas reservadas y el comprador ya no podrá pagar.`
+      )
+    ) {
+      return;
+    }
     const token = await getIdToken();
     if (!token) return;
     const res = await cancelPaymentLink(token, { paymentLinkId: linkId });
@@ -399,6 +425,11 @@ function EventDetailContent() {
   const filteredPaymentLinks = paymentLinks.filter((link) =>
     matchesPaymentLinkListFilters(link, paymentLinkFilter, paymentLinkSearch)
   );
+  const pendingMpLinks = paymentLinks.filter(isPaymentLinkAwaitingPayment);
+  const pendingMpTickets = pendingMpLinks.reduce(
+    (sum, link) => sum + (link.ticketQuantity ?? 1),
+    0
+  );
   const activeTickets = tickets.filter((t) => !t.archived);
   const ticketsForList = showArchived ? tickets : activeTickets;
 
@@ -428,14 +459,24 @@ function EventDetailContent() {
       </section>
 
       <section className="flex flex-wrap justify-between items-start gap-4">
-        <section>
-          <h1 className="text-2xl font-headline font-bold">{event.name}</h1>
-          <p className="text-muted-foreground mt-1">
+        <section className="min-w-0 flex-1 space-y-2">
+          <section className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-headline font-bold">{event.name}</h1>
+            <Badge variant={event.active ? 'default' : 'secondary'}>
+              {event.active ? 'Activo' : 'Inactivo'}
+            </Badge>
+          </section>
+          <p className="text-muted-foreground">
             {new Date(event.date).toLocaleString('es-AR')}
             {event.location ? ` · ${event.location}` : ''}
+            {' · '}${event.price.toLocaleString('es-AR')} por entrada
           </p>
+          <label className="flex items-center gap-2 cursor-pointer w-fit">
+            <Switch checked={event.active} onCheckedChange={toggleActive} />
+            <span className="text-sm text-muted-foreground">Visible para venta</span>
+          </label>
         </section>
-        <section className="flex flex-wrap gap-2">
+        <section className="flex flex-wrap gap-2 shrink-0">
           <Button asChild variant="outline">
             <Link href={`/gate/${event.id}`}>
               <DoorOpen className="w-4 h-4 mr-2" /> Validador digital
@@ -472,139 +513,8 @@ function EventDetailContent() {
         </section>
       </section>
 
-      <section className="space-y-4">
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Emitidas / Capacidad</CardDescription>
-              <CardTitle className="text-2xl">
-                {issuedCount} / {event.capacity}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                Vendidas {soldCount}
-                {pendingPayment > 0 ? ` · ${pendingPayment} en links sin pagar` : ''}
-              </p>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Vendidas (pagadas)</CardDescription>
-              <CardTitle className="text-2xl">{soldCount}</CardTitle>
-              {ticketTotals.activeTickets !== soldCount && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  {ticketTotals.activeTickets} tickets activos en listado
-                </p>
-              )}
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Links sin pagar</CardDescription>
-              <CardTitle className="text-2xl">{pendingPayment}</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                Reservan cupo hasta pagar o cancelar
-              </p>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Disponibles para links</CardDescription>
-              <CardTitle className="text-2xl">{remainingForLinks}</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                Al llegar a 0 no se pueden emitir más links de pago
-              </p>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Precio</CardDescription>
-              <CardTitle className="text-2xl">${event.price}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Estado</CardDescription>
-              <section className="flex items-center gap-2 pt-1">
-                <Switch checked={event.active} onCheckedChange={toggleActive} />
-                <span className="text-sm font-medium">{event.active ? 'Activo' : 'Inactivo'}</span>
-              </section>
-            </CardHeader>
-          </Card>
-        </section>
-
-        <section className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Recaudado (confirmado)</CardDescription>
-              <CardTitle className="text-2xl">{formatArs(collectedRevenue)}</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                Entradas pagadas (MP, efectivo; sin cortesía)
-              </p>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Por cobrar (links sin pagar)</CardDescription>
-              <CardTitle className="text-2xl">{formatArs(pendingRevenue)}</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                {pendingPayment > 0
-                  ? `${pendingPayment} entrada${pendingPayment === 1 ? '' : 's'} en links pendientes`
-                  : 'Sin links de pago pendientes'}
-              </p>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Proyección de recaudación</CardDescription>
-              <CardTitle className="text-2xl">{formatArs(projectedRevenue)}</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                Confirmado + pendiente si pagan todos los links
-              </p>
-            </CardHeader>
-          </Card>
-        </section>
-
-        <section className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Cupo asignado a vendedores</CardDescription>
-              <CardTitle className="text-2xl">{sellerQuota.assignedQuota}</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                {sellerQuota.sellerCount === 0
-                  ? 'Sin vendedores activos'
-                  : `${sellerQuota.sellerCount} vendedor${sellerQuota.sellerCount === 1 ? '' : 'es'} · ${sellerQuota.soldBySellers} ya vendidas`}
-              </p>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>En manos de vendedores</CardDescription>
-              <CardTitle className="text-2xl">{sellerQuota.remainingWithSellers}</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                Cupo sin usar que aún pueden vender los vendedores
-              </p>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Sin asignar a vendedores</CardDescription>
-              <CardTitle className="text-2xl">{sellerQuota.unassignedQuota}</CardTitle>
-              {sellerQuota.overAssigned > 0 ? (
-                <p className="text-xs text-destructive mt-1">
-                  Cupos suman {sellerQuota.overAssigned} más que la capacidad
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Capacidad no reservada en cupos de vendedores
-                </p>
-              )}
-            </CardHeader>
-          </Card>
-        </section>
-      </section>
-
       <Tabs defaultValue="tickets" className="space-y-4">
-        <TabsList>
+        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1">
           <TabsTrigger value="management">
             <Settings2 className="w-4 h-4 mr-2" /> Gestión
           </TabsTrigger>
@@ -622,6 +532,140 @@ function EventDetailContent() {
             )}
           </TabsTrigger>
         </TabsList>
+
+      <section className="space-y-3">
+        <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Resumen
+        </h2>
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="border-primary/40 bg-primary/5 sm:col-span-2 lg:col-span-1">
+            <CardHeader className="pb-2">
+              <CardDescription>Recaudado (confirmado)</CardDescription>
+              <CardTitle className="text-3xl">{formatArs(collectedRevenue)}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                MP y efectivo; sin cortesía
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Por cobrar</CardDescription>
+              <CardTitle className="text-2xl">{formatArs(pendingRevenue)}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                {pendingPayment > 0
+                  ? `${pendingPayment} entrada${pendingPayment === 1 ? '' : 's'} en links pendientes`
+                  : 'Sin links pendientes'}
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Proyección</CardDescription>
+              <CardTitle className="text-2xl">{formatArs(projectedRevenue)}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Si pagan todos los links pendientes
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Emitidas / capacidad</CardDescription>
+              <CardTitle className="text-2xl">
+                {issuedCount} / {event.capacity}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                {soldCount} pagadas
+                {pendingPayment > 0 ? ` · ${pendingPayment} en links` : ''}
+                {remainingForLinks > 0 ? ` · ${remainingForLinks} disponibles para links` : ''}
+              </p>
+            </CardHeader>
+          </Card>
+        </section>
+
+        <Accordion type="single" collapsible className="rounded-lg border px-4">
+          <AccordionItem value="cupos" className="border-0">
+            <AccordionTrigger className="py-3 text-sm font-medium hover:no-underline">
+              Cupos, links e vendedores
+            </AccordionTrigger>
+            <AccordionContent className="space-y-4 pb-2">
+              <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Vendidas (pagadas)</CardDescription>
+                    <CardTitle className="text-xl">{soldCount}</CardTitle>
+                    {ticketTotals.activeTickets !== soldCount && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {ticketTotals.activeTickets} activas en listado
+                      </p>
+                    )}
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Links sin pagar</CardDescription>
+                    <CardTitle className="text-xl">{pendingPayment}</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">Reservan cupo hasta pagar</p>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Disponibles para links</CardDescription>
+                    <CardTitle className="text-xl">{remainingForLinks}</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Cupo libre para nuevos links de pago
+                    </p>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Entradas en listado</CardDescription>
+                    <CardTitle className="text-xl">{ticketTotals.activeTickets}</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">Activas (sin archivadas)</p>
+                  </CardHeader>
+                </Card>
+              </section>
+              <section className="space-y-3">
+                <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Vendedores
+                </h3>
+                <section className="grid gap-4 sm:grid-cols-3">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardDescription>Cupo asignado</CardDescription>
+                      <CardTitle className="text-xl">{sellerQuota.assignedQuota}</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {sellerQuota.sellerCount === 0
+                          ? 'Sin vendedores activos'
+                          : `${sellerQuota.sellerCount} vendedor${sellerQuota.sellerCount === 1 ? '' : 'es'} · ${sellerQuota.soldBySellers} vendidas`}
+                      </p>
+                    </CardHeader>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardDescription>En manos de vendedores</CardDescription>
+                      <CardTitle className="text-xl">{sellerQuota.remainingWithSellers}</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-1">Cupo sin usar aún</p>
+                    </CardHeader>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardDescription>Sin asignar</CardDescription>
+                      <CardTitle className="text-xl">{sellerQuota.unassignedQuota}</CardTitle>
+                      {sellerQuota.overAssigned > 0 ? (
+                        <p className="text-xs text-destructive mt-1">
+                          Cupos exceden capacidad en {sellerQuota.overAssigned}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground mt-1">No reservado en vendedores</p>
+                      )}
+                    </CardHeader>
+                  </Card>
+                </section>
+              </section>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </section>
 
         <TabsContent value="management" className="space-y-4">
           <Card>
@@ -838,8 +882,8 @@ function EventDetailContent() {
               <section>
                 <CardTitle>Links de pago emitidos</CardTitle>
                 <CardDescription>
-                  Entradas reservadas al generar el link. Usá el filtro &quot;Sin pagar&quot; para
-                  avisar a quien aún no completó el pago.
+                  Cada link reserva cupo hasta que se pague o lo anules. Usá la referencia al
+                  crear el link para recordar a quién se lo mandaste.
                 </CardDescription>
               </section>
               <section className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -868,7 +912,7 @@ function EventDetailContent() {
                     <Input
                       id="paymentLinkSearch"
                       className="mt-1"
-                      placeholder="Comprador, email, teléfono"
+                      placeholder="Referencia, comprador, email, teléfono"
                       value={paymentLinkSearch}
                       onChange={(e) => setPaymentLinkSearch(e.target.value)}
                     />
@@ -881,6 +925,8 @@ function EventDetailContent() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Fecha</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Referencia</TableHead>
                     <TableHead>Vendedor</TableHead>
                     <TableHead>Entradas</TableHead>
                     <TableHead>Monto</TableHead>
@@ -892,10 +938,14 @@ function EventDetailContent() {
                 <TableBody>
                   {filteredPaymentLinks.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                        {paymentLinkFilter === 'pending'
-                          ? 'No hay links de pago pendientes'
-                          : 'No hay links de pago para este evento'}
+                      <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                        {paymentLinks.length === 0 && pendingPayment > 0
+                          ? 'Hay entradas reservadas pero no se cargó el listado. Recargá la página.'
+                          : paymentLinkFilter === 'pending'
+                            ? 'No hay links de Mercado Pago sin pagar'
+                            : paymentLinkSearch.trim()
+                              ? 'Ningún link coincide con la búsqueda'
+                              : 'No hay links emitidos para este evento'}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -910,11 +960,25 @@ function EventDetailContent() {
                           <TableCell>
                             {new Date(link.createdAt).toLocaleString('es-AR')}
                           </TableCell>
+                          <TableCell className="text-sm">
+                            {LINK_TYPE_LABELS[link.linkType ?? 'payment'] ?? link.linkType}
+                          </TableCell>
+                          <TableCell>
+                            {link.recipientLabel ? (
+                              <span className="font-medium">{link.recipientLabel}</span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
                           <TableCell>
                             {seller ? seller.displayName : link.sellerId}
                           </TableCell>
                           <TableCell>{link.ticketQuantity ?? 1}</TableCell>
-                          <TableCell>${link.amount.toLocaleString('es-AR')}</TableCell>
+                          <TableCell>
+                            {getTicketPaymentMethod(link) === 'complimentary'
+                              ? '—'
+                              : `$${link.amount.toLocaleString('es-AR')}`}
+                          </TableCell>
                           <TableCell>
                             <span className="block">{buyer}</span>
                             {contact && (
@@ -946,7 +1010,15 @@ function EventDetailContent() {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  onClick={() => handleCancelPaymentLink(link.id)}
+                                  title="Anular link y liberar cupo"
+                                  onClick={() =>
+                                    handleCancelPaymentLink(
+                                      link.id,
+                                      link.recipientLabel ||
+                                        [link.buyerName, link.buyerLastName].filter(Boolean).join(' ') ||
+                                        undefined
+                                    )
+                                  }
                                 >
                                   <XCircle className="w-3 h-3" />
                                 </Button>
@@ -959,19 +1031,24 @@ function EventDetailContent() {
                   )}
                 </TableBody>
               </Table>
-              {(pendingPayment > 0 || pendingRevenue > 0) && (
+              {(pendingPayment > 0 || pendingRevenue > 0 || paymentLinks.length > 0) && (
                 <p className="text-sm text-muted-foreground mt-4">
-                  {paymentLinkFilter === 'pending' && (
+                  {pendingMpLinks.length > 0 && (
                     <>
-                      {filteredPaymentLinks.length} link
-                      {filteredPaymentLinks.length === 1 ? '' : 's'} en lista ·{' '}
+                      {pendingMpTickets} entrada{pendingMpTickets === 1 ? '' : 's'} en{' '}
+                      {pendingMpLinks.length} link{pendingMpLinks.length === 1 ? '' : 's'} sin pagar
+                      {pendingRevenue > 0 && (
+                        <>
+                          {' '}
+                          ·{' '}
+                          <span className="font-medium text-foreground">
+                            {formatArs(pendingRevenue)} por cobrar
+                          </span>
+                        </>
+                      )}
+                      {' · '}
                     </>
                   )}
-                  {pendingPayment} entrada{pendingPayment === 1 ? '' : 's'} sin pagar ·{' '}
-                  <span className="font-medium text-foreground">
-                    {formatArs(pendingRevenue)} por cobrar
-                  </span>
-                  {' · '}
                   Proyección total del evento: {formatArs(projectedRevenue)}
                 </p>
               )}
@@ -980,30 +1057,6 @@ function EventDetailContent() {
         </TabsContent>
 
         <TabsContent value="tickets" className="space-y-4">
-          <section className="grid gap-4 sm:grid-cols-3">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Recaudado (confirmado)</CardDescription>
-                <CardTitle className="text-2xl">{formatArs(collectedRevenue)}</CardTitle>
-              </CardHeader>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Por cobrar + proyección</CardDescription>
-                <CardTitle className="text-2xl">{formatArs(projectedRevenue)}</CardTitle>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {formatArs(pendingRevenue)} pendiente de {formatArs(collectedRevenue)} cobrado
-                </p>
-              </CardHeader>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Entradas activas</CardDescription>
-                <CardTitle className="text-2xl">{ticketTotals.activeTickets}</CardTitle>
-              </CardHeader>
-            </Card>
-          </section>
-
           <Card>
             <CardHeader className="flex flex-col gap-3">
               <section className="flex flex-row flex-wrap items-start justify-between gap-2">

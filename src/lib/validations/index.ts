@@ -50,6 +50,12 @@ export const updateUserSchema = z.object({
 export const createPaymentLinkSchema = z.object({
   eventId: z.string().min(1),
   ticketQuantity: z.coerce.number().int().min(1).max(20),
+  recipientLabel: z
+    .string()
+    .trim()
+    .max(80, 'Máximo 80 caracteres')
+    .optional()
+    .or(z.literal('')),
 });
 
 export const createComplimentaryLinkSchema = z.object({

@@ -60,6 +60,8 @@ export interface PaymentLink {
   eventId: string;
   sellerId: string;
   ticketQuantity: number;
+  /** Referencia interna (ej. a quién se envió el link). No la ve el comprador. */
+  recipientLabel?: string;
   linkType?: PaymentLinkType;
   complimentaryMessage?: string;
   buyerName?: string;
@@ -113,6 +115,7 @@ export interface SerializedPaymentLink {
   eventId: string;
   sellerId: string;
   ticketQuantity: number;
+  recipientLabel?: string;
   linkType?: PaymentLinkType;
   complimentaryMessage?: string;
   buyerName?: string;

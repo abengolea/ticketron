@@ -40,7 +40,13 @@ export function CreatePaymentLinkDialog({
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [quantity, setQuantity] = useState(1);
+  const [recipientLabel, setRecipientLabel] = useState('');
   const [creating, setCreating] = useState(false);
+
+  function resetForm() {
+    setQuantity(1);
+    setRecipientLabel('');
+  }
 
   async function handleCreate() {
     if (quantity < 1 || quantity > maxTickets) {
@@ -64,17 +70,24 @@ export function CreatePaymentLinkDialog({
         return;
       }
 
-      const res = await createPaymentLink(token, { eventId, ticketQuantity: quantity });
+      const res = await createPaymentLink(token, {
+        eventId,
+        ticketQuantity: quantity,
+        recipientLabel: recipientLabel.trim() || undefined,
+      });
 
       if (res.success) {
         setOpen(false);
-        setQuantity(1);
+        resetForm();
         onCreated?.();
 
+        const labelNote = res.data.link.recipientLabel
+          ? ` · ${res.data.link.recipientLabel}`
+          : '';
         const copied = await copyTextSafe(res.data.checkoutUrl);
         toast({
           title: 'Link creado',
-          description: `${quantity} entrada(s) · $${res.data.link.amount} · ${copied ? 'URL copiada' : 'Listo'}`,
+          description: `${quantity} entrada(s) · $${res.data.link.amount}${labelNote} · ${copied ? 'URL copiada' : 'Listo'}`,
         });
       } else {
         toast({ variant: 'destructive', title: 'Error', description: res.error });
@@ -91,7 +104,13 @@ export function CreatePaymentLinkDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) resetForm();
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
           <Link2 className="w-4 h-4 mr-2" />
@@ -105,19 +124,34 @@ export function CreatePaymentLinkDialog({
             {eventName} · ${unitPrice} por entrada
           </DialogDescription>
         </DialogHeader>
-        <section className="space-y-2">
-          <Label htmlFor="ticketQuantity">Cantidad de entradas</Label>
-          <Input
-            id="ticketQuantity"
-            type="number"
-            min={1}
-            max={maxTickets}
-            value={quantity}
-            onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 1)}
-          />
-          <p className="text-sm text-muted-foreground">
-            Disponibles: {maxTickets} · Total: ${unitPrice * quantity} ARS
-          </p>
+        <section className="space-y-4">
+          <section className="space-y-2">
+            <Label htmlFor="recipientLabel">Referencia (opcional)</Label>
+            <Input
+              id="recipientLabel"
+              placeholder="Ej. Juan Pérez, mesa 3, grupo amigos"
+              value={recipientLabel}
+              onChange={(e) => setRecipientLabel(e.target.value)}
+              maxLength={80}
+            />
+            <p className="text-sm text-muted-foreground">
+              Solo para vos: identificá a quién le mandás el link
+            </p>
+          </section>
+          <section className="space-y-2">
+            <Label htmlFor="ticketQuantity">Cantidad de entradas</Label>
+            <Input
+              id="ticketQuantity"
+              type="number"
+              min={1}
+              max={maxTickets}
+              value={quantity}
+              onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 1)}
+            />
+            <p className="text-sm text-muted-foreground">
+              Disponibles: {maxTickets} · Total: ${unitPrice * quantity} ARS
+            </p>
+          </section>
         </section>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
