@@ -185,7 +185,7 @@ export async function getCheckoutByToken(
     const event = eventSnap.data()!;
 
     if (link.status === 'PAID') {
-      return fail('Este link ya fue pagado', 'PAID');
+      return fail('Este link de pago ya fue utilizado', 'PAID');
     }
     if (link.status === 'CANCELLED') {
       return fail('Este link fue cancelado', 'CANCELLED');

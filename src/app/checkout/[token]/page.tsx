@@ -28,8 +28,6 @@ import {
 } from '@/components/ui/form';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2, CreditCard } from 'lucide-react';
-import Link from 'next/link';
-
 function CheckoutPageContent() {
   const { token } = useParams<{ token: string }>();
   const searchParams = useSearchParams();
@@ -69,9 +67,6 @@ function CheckoutPageContent() {
       const res = await getCheckoutByToken(token);
       if (!res.success) {
         setError({ message: res.error, code: res.code });
-        if (res.code === 'PAID') {
-          router.push(`/ticket?token=${token}`);
-        }
         setLoading(false);
         return;
       }
@@ -96,7 +91,7 @@ function CheckoutPageContent() {
       setLoading(false);
     }
     load();
-  }, [token, router, form]);
+  }, [token, form]);
 
   async function onSubmit(values: BuyerCheckoutInput) {
     setSubmitting(true);
@@ -134,16 +129,21 @@ function CheckoutPageContent() {
             {error.code === 'EXPIRED'
               ? 'Link vencido'
               : error.code === 'PAID'
-                ? 'Ya pagado'
+                ? 'Link ya usado'
                 : 'Link no disponible'}
           </AlertTitle>
-          <AlertDescription>{error.message}</AlertDescription>
+          <AlertDescription>
+            {error.code === 'PAID' ? (
+              <>
+                Este link de pago ya fue utilizado. Tus entradas están en el
+                correo de confirmación que te enviamos al pagar. Si no lo
+                encontrás, revisá spam o correo no deseado.
+              </>
+            ) : (
+              error.message
+            )}
+          </AlertDescription>
         </Alert>
-        {error.code === 'PAID' && (
-          <Button asChild className="mt-4 w-full">
-            <Link href={`/ticket?token=${token}`}>Ver mi entrada</Link>
-          </Button>
-        )}
       </section>
     );
   }
