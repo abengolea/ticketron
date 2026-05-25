@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { QuantityStepper } from '@/components/quantity-stepper';
 import {
   Dialog,
   DialogContent,
@@ -117,12 +118,12 @@ export function CreateComplimentaryLinkDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outline" className="w-full sm:w-auto">
           <Gift className="w-4 h-4 mr-2" />
           {triggerLabel}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[calc(100svh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Entrada de cortesía</DialogTitle>
           <DialogDescription>
@@ -163,24 +164,22 @@ export function CreateComplimentaryLinkDialog({
           </section>
           <section className="space-y-2">
             <Label htmlFor="cortesiaQuantity">Cantidad de entradas</Label>
-            <Input
+            <QuantityStepper
               id="cortesiaQuantity"
-              type="number"
-              min={1}
               max={maxTickets}
               value={quantity}
-              onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 1)}
+              onChange={setQuantity}
             />
             <p className="text-sm text-muted-foreground">
               Disponibles: {maxTickets}
             </p>
           </section>
         </section>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => setOpen(false)} className="w-full sm:w-auto">
             Cancelar
           </Button>
-          <Button onClick={handleCreate} disabled={creating}>
+          <Button onClick={handleCreate} disabled={creating} className="w-full sm:w-auto">
             {creating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
             Generar y enviar
           </Button>

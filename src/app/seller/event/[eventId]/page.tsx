@@ -272,7 +272,7 @@ function SellerEventContent() {
             </div>
           </section>
           {maxTickets > 0 ? (
-            <section className="flex flex-wrap gap-2 shrink-0">
+            <section className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
               <CreatePaymentLinkDialog
                 eventId={eventId}
                 eventName={eventName}

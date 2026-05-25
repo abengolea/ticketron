@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { QuantityStepper } from '@/components/quantity-stepper';
 import {
   Dialog,
   DialogContent,
@@ -139,12 +140,12 @@ export function CreateCashSaleDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outline" className="w-full sm:w-auto">
           <Banknote className="w-4 h-4 mr-2" />
           {triggerLabel}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[calc(100svh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Cobro en efectivo</DialogTitle>
           <DialogDescription>
@@ -154,13 +155,11 @@ export function CreateCashSaleDialog({
         <section className="space-y-4">
           <section className="space-y-2">
             <Label htmlFor="cashQuantity">Cantidad de entradas</Label>
-            <Input
+            <QuantityStepper
               id="cashQuantity"
-              type="number"
-              min={1}
               max={maxTickets}
               value={quantity}
-              onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 1)}
+              onChange={setQuantity}
             />
             <p className="text-sm text-muted-foreground">
               Disponibles: {maxTickets} · Total: {formatArs(total)}
@@ -218,13 +217,13 @@ export function CreateCashSaleDialog({
             </Label>
           </section>
         </section>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => setOpen(false)} className="w-full sm:w-auto">
             Cancelar
           </Button>
-          <Button onClick={handleCreate} disabled={creating}>
+          <Button onClick={handleCreate} disabled={creating} className="w-full sm:w-auto">
             {creating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            Cobrar e emitir
+            Cobrar y emitir
           </Button>
         </DialogFooter>
       </DialogContent>
