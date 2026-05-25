@@ -66,10 +66,17 @@ async function main() {
     .where('paymentLinkId', '==', paymentLinkId)
     .get();
 
-  const tickets = ticketsSnap.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-  }));
+  const tickets = ticketsSnap.docs.map((d) => {
+    const data = d.data() as {
+      ticketCode?: string;
+      status?: string;
+      archived?: boolean;
+    };
+    return {
+      id: d.id,
+      ...data,
+    };
+  });
 
   console.log('--- Resumen ---');
   console.log(`Payment link: ${paymentLinkId}`);
@@ -80,7 +87,7 @@ async function main() {
   console.log(`Tickets (${tickets.length}):`);
   for (const t of tickets) {
     console.log(
-      `  - ${t.ticketCode} (${t.id}) status=${t.status} archived=${t.archived === true}`
+      `  - ${t.ticketCode ?? '(sin codigo)'} (${t.id}) status=${t.status ?? '(sin estado)'} archived=${t.archived === true}`
     );
   }
 

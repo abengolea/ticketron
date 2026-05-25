@@ -31,9 +31,9 @@ export function EventHistory() {
     return collection(firestore, 'events');
   }, [firestore]);
 
-  const { data: events, loading, error } = useCollection<Event>(eventsQuery);
+  const { data: events, isLoading, error } = useCollection<Event>(eventsQuery);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <Card>
         <CardHeader>

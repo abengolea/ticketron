@@ -202,7 +202,7 @@ class ScannerController {
         this.running = true;
         await this.scanner!.start(
             { facingMode: "environment" },
-            { fps: 5, qrbox: { width: 260, height: 260 }, rememberLastUsedCamera: true },
+            { fps: 5, qrbox: { width: 260, height: 260 } },
             async (decodedText: string) => {
                 await this.pause();
                 await onDecode(decodedText);
@@ -269,7 +269,9 @@ export default function ValidatorDebugPage() {
         addLog('error', 'No se pudo cargar la librería de escaneo', err);
     });
     
-    return unsub;
+    return () => {
+      unsub();
+    };
   }, []); // addLog is not a dependency as it's stable via useCallback
 
   useEffect(() => {
