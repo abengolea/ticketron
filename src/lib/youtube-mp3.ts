@@ -12,7 +12,6 @@ export {
 } from '@/lib/youtube-mp3-shared';
 
 function getFfmpegPath(): string {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const ffmpegPath = require('ffmpeg-static') as string | null;
   if (!ffmpegPath) {
     throw new Error('ffmpeg-static no está disponible. Reinstalá dependencias (npm install).');
@@ -62,7 +61,7 @@ export async function downloadMp3ToTemp(
     ...baseYtDlpFlags(),
     extractAudio: true,
     audioFormat: 'mp3',
-    audioQuality: '256K',
+    audioQuality: 256,
     output: outputTemplate,
     restrictFilenames: true,
   });

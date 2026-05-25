@@ -5,6 +5,7 @@ import { createPaymentLink } from '@/lib/actions/payment-links';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { QuantityStepper } from '@/components/quantity-stepper';
 import {
   Dialog,
   DialogContent,
@@ -112,12 +113,12 @@ export function CreatePaymentLinkDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outline" className="w-full sm:w-auto">
           <Link2 className="w-4 h-4 mr-2" />
           {triggerLabel}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="w-[calc(100%-2rem)] max-w-md">
         <DialogHeader>
           <DialogTitle>Generar link de pago</DialogTitle>
           <DialogDescription>
@@ -140,24 +141,22 @@ export function CreatePaymentLinkDialog({
           </section>
           <section className="space-y-2">
             <Label htmlFor="ticketQuantity">Cantidad de entradas</Label>
-            <Input
+            <QuantityStepper
               id="ticketQuantity"
-              type="number"
-              min={1}
               max={maxTickets}
               value={quantity}
-              onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 1)}
+              onChange={setQuantity}
             />
             <p className="text-sm text-muted-foreground">
               Disponibles: {maxTickets} · Total: ${unitPrice * quantity} ARS
             </p>
           </section>
         </section>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => setOpen(false)} className="w-full sm:w-auto">
             Cancelar
           </Button>
-          <Button onClick={handleCreate} disabled={creating}>
+          <Button onClick={handleCreate} disabled={creating} className="w-full sm:w-auto">
             {creating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
             Crear y copiar link
           </Button>

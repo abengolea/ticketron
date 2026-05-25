@@ -30,6 +30,13 @@ type FinalRedeemedState = {
   message: string;
 }
 
+type OnlineTicketData = {
+  status?: TicketStatus | 'voided' | 'redeemed';
+  voidedReason?: string;
+  redeemedAt?: { seconds: number };
+  ticketNumber?: number;
+};
+
 type LogEntry = {
     timestamp: string;
     level: 'info' | 'error' | 'success' | 'warn';
@@ -146,7 +153,7 @@ export function TicketValidatorOnline() {
       }
 
       addLog('success', 'Ticket encontrado en Firestore.');
-      const ticketData = ticketDoc.data();
+      const ticketData = ticketDoc.data() as OnlineTicketData;
       addLog('info', 'Datos del ticket:', ticketData);
       
       if (ticketData.status === 'voided') {
@@ -154,12 +161,16 @@ export function TicketValidatorOnline() {
           setValidationResult({ status: 'voided', message: msg });
           addLog('warn', msg);
       } else if (ticketData.status === 'redeemed') {
-          const msg = `Este ticket YA FUE CANJEADO el ${new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()}.`;
+          const redeemedAt = ticketData.redeemedAt?.seconds
+            ? new Date(ticketData.redeemedAt.seconds * 1000).toLocaleString()
+            : 'fecha desconocida';
+          const msg = `Este ticket YA FUE CANJEADO el ${redeemedAt}.`;
           setValidationResult({ status: 'redeemed', message: msg });
           addLog('warn', msg);
       } else {
-          const msg = `Ticket VÁLIDO (Nº ${ticketData.ticketNumber}) y listo para ser canjeado.`;
-          setValidationResult({ status: 'active', message: msg, ticketId, eventId, ticketNumber: ticketData.ticketNumber });
+          const ticketNumber = ticketData.ticketNumber ?? 0;
+          const msg = `Ticket VÁLIDO (Nº ${ticketNumber || 's/n'}) y listo para ser canjeado.`;
+          setValidationResult({ status: 'active', message: msg, ticketId, eventId, ticketNumber });
           addLog('success', msg);
       }
 

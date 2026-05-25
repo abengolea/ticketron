@@ -28,7 +28,7 @@ export function EventTicketsPdfExport({
 }: EventTicketsPdfExportProps) {
   const { toast } = useToast();
   const [exporting, setExporting] = useState(false);
-  const refs = useRef<(HTMLDivElement | null)[]>([]);
+  const refs = useRef<(HTMLElement | null)[]>([]);
 
   const validTickets = tickets.filter((t) => t.status === 'VALID');
   const dateLabel = new Date(eventDate).toLocaleString('es-AR', {

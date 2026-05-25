@@ -7,6 +7,7 @@ import { getMyTickets, type BuyerTicketItem } from '@/lib/actions/buyers';
 import { useIdToken } from '@/hooks/use-id-token';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2, Ticket } from 'lucide-react';
+import { formatEventDateForDisplay } from '@/lib/format-event-date';
 
 function MyTicketsContent() {
   const { getIdToken } = useIdToken();
@@ -78,6 +79,7 @@ function MyTicketsContent() {
         tickets={tickets.map((ticket) => ({
           eventName: ticket.eventName,
           eventDate: ticket.eventDate,
+          eventDateLabel: formatEventDateForDisplay(new Date(ticket.eventDate)),
           buyerName: ticket.buyerName,
           ticketCode: ticket.ticketCode,
           qrPayload: ticket.qrPayload,

@@ -2,6 +2,22 @@
 
 import type { jsPDF } from "jspdf";
 
+type DomToImageMore = {
+  toPng: (
+    node: HTMLElement,
+    options?: {
+      width?: number;
+      height?: number;
+      bgcolor?: string;
+      quality?: number;
+      cacheBust?: boolean;
+      copyStyles?: boolean;
+      filter?: (node: Node) => boolean;
+      style?: Partial<CSSStyleDeclaration>;
+    }
+  ) => Promise<string>;
+};
+
 type ImprentaTemplate = {
   page: { format: "a4"; orientation: "portrait" | "landscape" };
   slots: Array<{ x: number; y: number; w: number; h: number }>; // mm
@@ -223,7 +239,9 @@ export async function captureTicketPNG(
   targetMm?: { w: number; h: number },
   ppi = 300
 ): Promise<string> {
-  const { default: domtoimage } = await import("dom-to-image-more");
+  const { default: domtoimage } = (await import("dom-to-image-more")) as {
+    default: DomToImageMore;
+  };
   try { await (document as any).fonts?.ready; } catch {}
 
   // 1) Clonar
@@ -276,7 +294,7 @@ export async function captureTicketPNG(
       quality: 1,
       cacheBust: true,
       copyStyles: false, // <- importantísimo, evita SecurityError
-      filter: (n) => !(n instanceof HTMLLinkElement || n instanceof HTMLStyleElement),
+      filter: (n: Node) => !(n instanceof HTMLLinkElement || n instanceof HTMLStyleElement),
       style: { background: "#ffffff" },
     });
     return dataUrl;

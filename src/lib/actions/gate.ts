@@ -4,7 +4,12 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { verifyIdTokenAndGetUser, canAccessGate } from '@/lib/auth-server';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
 import { gateValidateSchema } from '@/lib/validations';
-import { parseQrPayload, verifyQrSignature } from '@/lib/qr';
+import {
+  normalizeQrScanInput,
+  parseQrPayload,
+  qrPayloadMatchesStored,
+  verifyQrSignature,
+} from '@/lib/qr';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type { GateValidationResult } from '@/lib/models';
 
@@ -26,24 +31,37 @@ export async function validateTicketAtGate(
     }
 
     const { eventId, qrPayload } = gateValidateSchema.parse(input);
-    const parsed = parseQrPayload(qrPayload);
+    const normalizedPayload = normalizeQrScanInput(qrPayload);
+    const parsed = parseQrPayload(normalizedPayload);
 
     if (!parsed) {
       return ok({ result: 'INVALID', message: 'QR inválido o corrupto' });
     }
 
-    if (!verifyQrSignature(parsed.ticketCode, parsed.sig)) {
-      return ok({ result: 'INVALID', message: 'Firma QR inválida' });
-    }
+    const ticketCode = parsed.ticketCode.trim();
 
     const lookup = await getAdminDb()
       .collection(COLLECTIONS.tickets)
-      .where('ticketCode', '==', parsed.ticketCode)
+      .where('ticketCode', '==', ticketCode)
       .limit(1)
       .get();
 
     if (lookup.empty) {
       return ok({ result: 'INVALID', message: 'Entrada no encontrada' });
+    }
+
+    const storedPayload = lookup.docs[0]!.data().qrPayload as string | undefined;
+    const signatureOk =
+      verifyQrSignature(ticketCode, parsed.sig) ||
+      (typeof storedPayload === 'string' &&
+        qrPayloadMatchesStored(normalizedPayload, storedPayload));
+
+    if (!signatureOk) {
+      return ok({
+        result: 'INVALID',
+        message:
+          'Firma QR inválida. Verificá que TICKET_SIGNING_SECRET sea el mismo en todos los entornos.',
+      });
     }
 
     const ticketRef = lookup.docs[0]!.ref;

@@ -476,8 +476,8 @@ function EventDetailContent() {
             <span className="text-sm text-muted-foreground">Visible para venta</span>
           </label>
         </section>
-        <section className="flex flex-wrap gap-2 shrink-0">
-          <Button asChild variant="outline">
+        <section className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+          <Button asChild variant="outline" className="w-full sm:w-auto">
             <Link href={`/gate/${event.id}`}>
               <DoorOpen className="w-4 h-4 mr-2" /> Validador digital
             </Link>

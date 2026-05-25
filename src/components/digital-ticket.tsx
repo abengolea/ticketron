@@ -8,7 +8,8 @@ import Image from 'next/image';
 
 interface DigitalTicketProps {
   eventName: string;
-  eventDate: string;
+  /** Texto ya formateado en servidor (evita hydration mismatch Node vs navegador). */
+  eventDateLabel: string;
   buyerName: string;
   ticketCode: string;
   qrPayload: string;
@@ -17,7 +18,7 @@ interface DigitalTicketProps {
 
 export function DigitalTicket({
   eventName,
-  eventDate,
+  eventDateLabel,
   buyerName,
   ticketCode,
   qrPayload,
@@ -30,12 +31,7 @@ export function DigitalTicket({
     <Card className="max-w-md mx-auto">
       <CardHeader className="text-center">
         <CardTitle className="font-headline">{eventName}</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          {new Date(eventDate).toLocaleString('es-AR', {
-            dateStyle: 'full',
-            timeStyle: 'short',
-          })}
-        </p>
+        <p className="text-sm text-muted-foreground">{eventDateLabel}</p>
       </CardHeader>
       <CardContent className="flex flex-col items-center gap-4">
         <Badge variant={status === 'VALID' ? 'default' : 'destructive'}>{status}</Badge>
