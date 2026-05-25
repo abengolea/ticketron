@@ -7,6 +7,7 @@ import { DigitalTicketsSection } from '@/components/digital-tickets-section';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2, Mail, CheckCircle2 } from 'lucide-react';
 import type { SerializedTicket } from '@/lib/models';
+import { formatEventDateForDisplay } from '@/lib/format-event-date';
 
 function EmailNotice({ email }: { email?: string }) {
   return (
@@ -37,7 +38,11 @@ function TicketByTokenContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
   const [tickets, setTickets] = useState<
-    (SerializedTicket & { eventName: string; eventDate: string })[]
+    (SerializedTicket & {
+      eventName: string;
+      eventDate: string;
+      eventDateLabel: string;
+    })[]
   >([]);
   const [buyerEmail, setBuyerEmail] = useState<string | undefined>();
   const [pending, setPending] = useState(false);
@@ -78,6 +83,7 @@ function TicketByTokenContent() {
           ...t,
           eventName,
           eventDate,
+          eventDateLabel: formatEventDateForDisplay(new Date(eventDate)),
         }))
       );
       setError(null);
@@ -158,6 +164,7 @@ function TicketByTokenContent() {
         tickets={tickets.map((ticket) => ({
           eventName: ticket.eventName,
           eventDate: ticket.eventDate,
+          eventDateLabel: ticket.eventDateLabel,
           buyerName: ticket.buyerName,
           ticketCode: ticket.ticketCode,
           qrPayload: ticket.qrPayload,

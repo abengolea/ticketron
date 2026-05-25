@@ -7,6 +7,7 @@ import { useIdToken } from '@/hooks/use-id-token';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { validateTicketAtGate } from '@/lib/actions/gate';
+import { normalizeQrScanInput } from '@/lib/qr';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import {
@@ -118,7 +119,10 @@ export function GateScanner({ eventId }: GateScannerProps) {
         return;
       }
 
-      const response = await validateTicketAtGate(token, { eventId, qrPayload });
+      const response = await validateTicketAtGate(token, {
+        eventId,
+        qrPayload: normalizeQrScanInput(qrPayload),
+      });
       if (response.success) {
         setLastResult(response.data);
       } else {

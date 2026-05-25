@@ -10,7 +10,9 @@ import { Download, Loader2 } from 'lucide-react';
 
 export type DigitalTicketItem = {
   eventName: string;
+  /** ISO para PDF; la etiqueta visible va en eventDateLabel. */
   eventDate: string;
+  eventDateLabel: string;
   buyerName: string;
   ticketCode: string;
   qrPayload: string;
@@ -94,7 +96,7 @@ export function DigitalTicketsSection({ tickets }: DigitalTicketsSectionProps) {
         <DigitalTicket
           key={ticket.ticketCode}
           eventName={ticket.eventName}
-          eventDate={ticket.eventDate}
+          eventDateLabel={ticket.eventDateLabel}
           buyerName={ticket.buyerName}
           ticketCode={ticket.ticketCode}
           qrPayload={ticket.qrPayload}
