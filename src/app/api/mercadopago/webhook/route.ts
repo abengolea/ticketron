@@ -4,6 +4,11 @@ import {
   findPaymentLinkForPayment,
   fulfillPaymentLink,
 } from '@/lib/services/payment-fulfillment';
+import {
+  findBarOrderForPayment,
+  fulfillBarOrder,
+  parseBarOrderExternalReference,
+} from '@/lib/services/bar-fulfillment';
 import { sendPurchaseConfirmationEmail } from '@/lib/services/purchase-confirmation-email';
 
 /**
@@ -34,12 +39,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true, status: payment.status });
     }
 
+    // Órdenes de bar usan external_reference con prefijo "bar:"
+    if (parseBarOrderExternalReference(payment.external_reference)) {
+      const barOrder = await findBarOrderForPayment(
+        payment.preference_id,
+        payment.external_reference
+      );
+      if (!barOrder) {
+        console.error('BarOrder no encontrada para pago', paymentId);
+        return NextResponse.json({ error: 'Bar order not found' }, { status: 404 });
+      }
+      const barResult = await fulfillBarOrder(barOrder.id, paymentId);
+      return NextResponse.json({
+        received: true,
+        fulfilled: true,
+        bar: true,
+        created: barResult.created,
+        voucherCode: barResult.voucherCode,
+      });
+    }
+
     const paymentLink = await findPaymentLinkForPayment(
       payment.preference_id,
       payment.external_reference
     );
 
     if (!paymentLink) {
+      // Fallback: pago de bar reportado sin external_reference
+      const barOrder = await findBarOrderForPayment(payment.preference_id, undefined);
+      if (barOrder) {
+        const barResult = await fulfillBarOrder(barOrder.id, paymentId);
+        return NextResponse.json({
+          received: true,
+          fulfilled: true,
+          bar: true,
+          created: barResult.created,
+          voucherCode: barResult.voucherCode,
+        });
+      }
       console.error('PaymentLink no encontrado para pago', paymentId);
       return NextResponse.json({ error: 'Payment link not found' }, { status: 404 });
     }

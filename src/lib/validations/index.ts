@@ -81,6 +81,31 @@ export const gateValidateSchema = z.object({
   qrPayload: z.string().min(10),
 });
 
+export const createBarProductSchema = z.object({
+  eventId: z.string().min(1),
+  name: z.string().trim().min(2, 'Nombre del producto requerido').max(60, 'Máximo 60 caracteres'),
+  price: z.coerce.number().positive('Precio debe ser mayor a 0'),
+});
+
+export const updateBarProductSchema = z.object({
+  productId: z.string().min(1),
+  name: z.string().trim().min(2, 'Nombre del producto requerido').max(60).optional(),
+  price: z.coerce.number().positive('Precio debe ser mayor a 0').optional(),
+  active: z.boolean().optional(),
+});
+
+export const createBarOrderSchema = z.object({
+  eventId: z.string().min(1),
+  productId: z.string().min(1),
+  quantity: z.coerce.number().int().min(1).max(20),
+  buyerName: z.string().trim().max(60, 'Máximo 60 caracteres').optional().or(z.literal('')),
+});
+
+export const barValidateSchema = z.object({
+  eventId: z.string().min(1),
+  qrPayload: z.string().min(10),
+});
+
 export const cancelPaymentLinkSchema = z.object({
   paymentLinkId: z.string().min(1),
 });

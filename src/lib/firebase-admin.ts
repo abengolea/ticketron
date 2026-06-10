@@ -50,4 +50,6 @@ export const COLLECTIONS = {
   paymentLinks: 'paymentLinks',
   tickets: 'tickets',
   buyerActivationTokens: 'buyerActivationTokens',
+  barProducts: 'barProducts',
+  barOrders: 'barOrders',
 } as const;

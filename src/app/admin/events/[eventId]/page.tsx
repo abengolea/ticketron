@@ -18,6 +18,7 @@ import {
 } from '@/lib/actions/payment-links';
 import { listTicketsForEvent, exportTicketsCsv, archiveTicket } from '@/lib/actions/tickets';
 import { computeTicketTotals, countsTowardRevenue } from '@/lib/ticket-totals';
+import { BarTab } from '@/components/bar-tab';
 import { CreatePaymentLinkDialog } from '@/components/create-payment-link-dialog';
 import { CreateComplimentaryLinkDialog } from '@/components/create-complimentary-link-dialog';
 import { CreateCashSaleDialog } from '@/components/create-cash-sale-dialog';
@@ -75,6 +76,7 @@ import { downloadFile } from '@/lib/utils';
 import {
   Archive,
   ArrowLeft,
+  Beer,
   Copy,
   DoorOpen,
   Download,
@@ -530,6 +532,9 @@ function EventDetailContent() {
                 {pendingPayment}
               </Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="bar">
+            <Beer className="w-4 h-4 mr-2" /> Bar
           </TabsTrigger>
         </TabsList>
 
@@ -1259,6 +1264,10 @@ function EventDetailContent() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="bar">
+          <BarTab eventId={event.id} eventName={event.name} getIdToken={getIdToken} />
         </TabsContent>
       </Tabs>
     </section>
