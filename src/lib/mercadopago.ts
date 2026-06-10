@@ -55,6 +55,8 @@ export interface MercadoPagoPreferenceInput {
   payerEmail?: string;
   /** Token del checkout (/checkout/[token]) para URLs de retorno */
   checkoutToken?: string;
+  /** Path relativo para URLs de retorno (ej. /bar/order/[token]). Tiene prioridad sobre checkoutToken. */
+  returnPath?: string;
 }
 
 export interface MercadoPagoPreference {
@@ -71,7 +73,15 @@ export interface MercadoPagoPayment {
   preference_id?: string;
 }
 
-function buildBackUrls(baseUrl: string, checkoutToken?: string) {
+function buildBackUrls(baseUrl: string, checkoutToken?: string, returnPath?: string) {
+  if (returnPath) {
+    const base = `${baseUrl}${returnPath}`;
+    return {
+      success: `${base}?mp=approved`,
+      failure: `${base}?mp=failure`,
+      pending: `${base}?mp=pending`,
+    };
+  }
   if (checkoutToken) {
     const base = `${baseUrl}/checkout/${checkoutToken}`;
     return {
@@ -91,7 +101,7 @@ export async function createPreference(
   input: MercadoPagoPreferenceInput
 ): Promise<MercadoPagoPreference> {
   const baseUrl = getAppBaseUrl();
-  const back_urls = buildBackUrls(baseUrl, input.checkoutToken);
+  const back_urls = buildBackUrls(baseUrl, input.checkoutToken, input.returnPath);
 
   const body: Record<string, unknown> = {
     items: [

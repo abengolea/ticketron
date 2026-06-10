@@ -82,5 +82,14 @@ service cloud.firestore {
     match /buyerActivationTokens/{tokenId} {
       allow read, write: if false;
     }
+
+    // Bar: productos y órdenes — solo Admin SDK (server actions)
+    match /barProducts/{productId} {
+      allow read, write: if false;
+    }
+
+    match /barOrders/{orderId} {
+      allow read, write: if false;
+    }
   }
 }

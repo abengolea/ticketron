@@ -1,8 +1,12 @@
 import type { Timestamp } from 'firebase-admin/firestore';
 import type {
+  BarOrder,
+  BarProduct,
   PlatformEvent,
   PaymentLink,
   PlatformTicket,
+  SerializedBarOrder,
+  SerializedBarProduct,
   SerializedEvent,
   SerializedPaymentLink,
   SerializedTicket,
@@ -47,6 +51,37 @@ export function serializePaymentLink(p: PaymentLink): SerializedPaymentLink {
     mercadoPagoPaymentId: p.mercadoPagoPaymentId,
     archived: p.archived === true,
     createdAt: p.createdAt.toDate().toISOString(),
+  };
+}
+
+export function serializeBarProduct(p: BarProduct): SerializedBarProduct {
+  return {
+    id: p.id,
+    eventId: p.eventId,
+    name: p.name,
+    price: p.price,
+    active: p.active,
+    createdAt: p.createdAt.toDate().toISOString(),
+  };
+}
+
+export function serializeBarOrder(o: BarOrder): SerializedBarOrder {
+  return {
+    id: o.id,
+    token: o.token,
+    eventId: o.eventId,
+    productId: o.productId,
+    productName: o.productName,
+    unitPrice: o.unitPrice,
+    quantity: o.quantity,
+    amount: o.amount,
+    buyerName: o.buyerName,
+    status: o.status,
+    voucherCode: o.voucherCode,
+    voucherQrPayload: o.voucherQrPayload,
+    voucherStatus: o.voucherStatus,
+    usedAt: tsToIso(o.usedAt),
+    createdAt: o.createdAt.toDate().toISOString(),
   };
 }
 

@@ -170,6 +170,77 @@ export interface SerializedSellerAccess {
   active: boolean;
 }
 
+export type BarOrderStatus = 'PENDING_PAYMENT' | 'PAID' | 'CANCELLED';
+
+export type BarVoucherStatus = 'VALID' | 'USED';
+
+export type BarValidationResult =
+  | 'VALID'
+  | 'ALREADY_USED'
+  | 'INVALID'
+  | 'NOT_PAID'
+  | 'WRONG_EVENT';
+
+export interface BarProduct {
+  id: string;
+  eventId: string;
+  name: string;
+  price: number;
+  active: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface BarOrder {
+  id: string;
+  /** Token URL-safe para la página pública del voucher (/bar/order/[token]) */
+  token: string;
+  eventId: string;
+  productId: string;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  amount: number;
+  buyerName?: string;
+  status: BarOrderStatus;
+  mercadoPagoPreferenceId?: string;
+  mercadoPagoPaymentId?: string;
+  voucherCode?: string;
+  voucherQrPayload?: string;
+  voucherStatus?: BarVoucherStatus;
+  usedAt?: Timestamp;
+  usedBy?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface SerializedBarProduct {
+  id: string;
+  eventId: string;
+  name: string;
+  price: number;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface SerializedBarOrder {
+  id: string;
+  token: string;
+  eventId: string;
+  productId: string;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  amount: number;
+  buyerName?: string;
+  status: BarOrderStatus;
+  voucherCode?: string;
+  voucherQrPayload?: string;
+  voucherStatus?: BarVoucherStatus;
+  usedAt?: string;
+  createdAt: string;
+}
+
 export interface EventReservationStats {
   capacity: number;
   sold: number;
