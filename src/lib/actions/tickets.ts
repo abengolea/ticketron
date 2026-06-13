@@ -104,27 +104,55 @@ export async function getTicketsByPaymentLinkToken(
   }
 }
 
+export type ListTicketsForEventResult = {
+  tickets: SerializedTicketWithPayment[];
+  hasMore: boolean;
+};
+
+const DEFAULT_TICKETS_PAGE_SIZE = 20;
+
 export async function listTicketsForEvent(
   idToken: string,
   eventId: string,
-  options?: { includeArchived?: boolean }
-): Promise<ActionResult<SerializedTicketWithPayment[]>> {
+  options?: {
+    includeArchived?: boolean;
+    limit?: number;
+    cursor?: string;
+  }
+): Promise<ActionResult<ListTicketsForEventResult>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
     requireRole(user, 'admin');
 
     const db = getAdminDb();
+    const pageSize = options?.limit ?? DEFAULT_TICKETS_PAGE_SIZE;
+
+    let ticketsQuery = db
+      .collection(COLLECTIONS.tickets)
+      .where('eventId', '==', eventId)
+      .orderBy('createdAt', 'desc');
+
+    if (options?.cursor) {
+      const cursorSnap = await db.collection(COLLECTIONS.tickets).doc(options.cursor).get();
+      if (cursorSnap.exists) {
+        ticketsQuery = ticketsQuery.startAfter(cursorSnap);
+      }
+    }
+
     const [snap, eventSnap] = await Promise.all([
-      db.collection(COLLECTIONS.tickets).where('eventId', '==', eventId).limit(500).get(),
+      ticketsQuery.limit(pageSize + 1).get(),
       db.collection(COLLECTIONS.events).doc(eventId).get(),
     ]);
 
     if (!eventSnap.exists) return fail('Evento no encontrado');
     const unitPrice = eventSnap.data()!.price as number;
 
-    let tickets = snap.docs
-      .map((d) => serializeTicket({ id: d.id, ...d.data() } as PlatformTicket))
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const hasMore = snap.docs.length > pageSize;
+    const pageDocs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
+
+    let tickets = pageDocs.map((d) =>
+      serializeTicket({ id: d.id, ...d.data() } as PlatformTicket)
+    );
 
     if (!options?.includeArchived) {
       tickets = tickets.filter((t) => !t.archived);
@@ -146,7 +174,7 @@ export async function listTicketsForEvent(
       };
     });
 
-    return ok(withPayment);
+    return ok({ tickets: withPayment, hasMore });
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error');
   }

@@ -118,6 +118,8 @@ type PaymentFilter = 'all' | 'paid' | 'mercadopago' | 'cash' | 'complimentary';
 type StatusFilter = 'all' | 'VALID' | 'USED' | 'CANCELLED';
 type PaymentLinkFilter = 'pending' | 'all';
 
+const TICKETS_PAGE_SIZE = 20;
+
 const PAYMENT_LINK_STATUS: Record<string, string> = {
   PENDING_PAYMENT: 'Sin pagar',
   PAID: 'Pagado',
@@ -236,6 +238,8 @@ function EventDetailContent() {
   );
   const [paymentLinkFilter, setPaymentLinkFilter] = useState<PaymentLinkFilter>('all');
   const [paymentLinkSearch, setPaymentLinkSearch] = useState('');
+  const [ticketsHasMore, setTicketsHasMore] = useState(false);
+  const [loadingMoreTickets, setLoadingMoreTickets] = useState(false);
 
   const load = useCallback(async () => {
     const token = await getIdToken();
@@ -243,7 +247,7 @@ function EventDetailContent() {
 
     const [evRes, ticketsRes, accessRes, usersRes, linksRes, statsRes] = await Promise.all([
       getEvent(token, eventId),
-      listTicketsForEvent(token, eventId, { includeArchived: true }),
+      listTicketsForEvent(token, eventId, { includeArchived: true, limit: TICKETS_PAGE_SIZE }),
       listSellerAccessAdmin(token, { eventId }),
       listUsers(token),
       listSalesAdmin(token, { eventId }),
@@ -259,7 +263,10 @@ function EventDetailContent() {
       router.push('/admin/events');
       return;
     }
-    if (ticketsRes.success) setTickets(ticketsRes.data);
+    if (ticketsRes.success) {
+      setTickets(ticketsRes.data.tickets);
+      setTicketsHasMore(ticketsRes.data.hasMore);
+    }
     if (accessRes.success) setAccess(accessRes.data);
     if (usersRes.success) setSellers(usersRes.data.filter((u) => u.role === 'seller' && u.active));
     if (linksRes.success) {
@@ -279,6 +286,27 @@ function EventDetailContent() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function loadMoreTickets() {
+    if (!ticketsHasMore || loadingMoreTickets || tickets.length === 0) return;
+    const token = await getIdToken();
+    if (!token) return;
+
+    const lastId = tickets[tickets.length - 1]!.id;
+    setLoadingMoreTickets(true);
+    const res = await listTicketsForEvent(token, eventId, {
+      includeArchived: true,
+      limit: TICKETS_PAGE_SIZE,
+      cursor: lastId,
+    });
+    if (res.success) {
+      setTickets((prev) => [...prev, ...res.data.tickets]);
+      setTicketsHasMore(res.data.hasMore);
+    } else {
+      toast({ variant: 'destructive', title: 'Error', description: res.error });
+    }
+    setLoadingMoreTickets(false);
+  }
 
   async function toggleActive() {
     if (!event) return;
@@ -421,7 +449,7 @@ function EventDetailContent() {
     event.active && remainingForLinks > 0 ? Math.min(remainingForLinks, 20) : 0;
 
   const linkRevenue = computePaymentLinkRevenue(paymentLinks);
-  const collectedRevenue = ticketTotals.totalRevenue;
+  const collectedRevenue = linkRevenue.collected;
   const pendingRevenue = linkRevenue.pending;
   const projectedRevenue = collectedRevenue + pendingRevenue;
 
@@ -607,11 +635,6 @@ function EventDetailContent() {
                   <CardHeader className="pb-2">
                     <CardDescription>Vendidas (pagadas)</CardDescription>
                     <CardTitle className="text-xl">{soldCount}</CardTitle>
-                    {ticketTotals.activeTickets !== soldCount && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {ticketTotals.activeTickets} activas en listado
-                      </p>
-                    )}
                   </CardHeader>
                 </Card>
                 <Card>
@@ -632,9 +655,11 @@ function EventDetailContent() {
                 </Card>
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardDescription>Entradas en listado</CardDescription>
-                    <CardTitle className="text-xl">{ticketTotals.activeTickets}</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-1">Activas (sin archivadas)</p>
+                    <CardDescription>Cargadas en pantalla</CardDescription>
+                    <CardTitle className="text-xl">{tickets.length}</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {ticketsHasMore ? 'Últimas entradas · podés cargar más' : 'Listado completo cargado'}
+                    </p>
                   </CardHeader>
                 </Card>
               </section>
@@ -1077,9 +1102,10 @@ function EventDetailContent() {
                 <section>
                   <CardTitle>Entradas emitidas</CardTitle>
                   <CardDescription>
-                    {activeTickets.length} activas
+                    {soldCount} vendidas
+                    {tickets.length < soldCount ? ` · mostrando últimas ${tickets.length}` : ''}
                     {showArchived && ticketTotals.archivedTickets > 0
-                      ? ` · ${ticketTotals.archivedTickets} archivadas`
+                      ? ` · ${ticketTotals.archivedTickets} archivadas en listado`
                       : ''}
                   </CardDescription>
                 </section>
@@ -1238,18 +1264,34 @@ function EventDetailContent() {
                   )}
                 </TableBody>
               </Table>
+              {ticketsHasMore && (
+                <section className="mt-4 flex justify-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={loadMoreTickets}
+                    disabled={loadingMoreTickets}
+                  >
+                    {loadingMoreTickets && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                    Cargar más
+                  </Button>
+                </section>
+              )}
               {activeTickets.length > 0 && (
                 <section className="mt-4 flex flex-wrap justify-between gap-4 border-t pt-4 text-sm">
                   <span className="text-muted-foreground">
                     {hasActiveFilters ? (
                       <>
-                        Mostrando {filteredTickets.length} de {ticketsForList.length}
+                        Mostrando {filteredTickets.length} de {ticketsForList.length} cargadas
                         {filteredTotals.activeTickets > 0 && (
                           <> · {filteredTotals.activeTickets} activas en filtro</>
                         )}
                       </>
                     ) : (
-                      <>{ticketTotals.activeTickets} entradas activas</>
+                      <>
+                        Mostrando {filteredTickets.length} de {soldCount} vendidas
+                        {ticketsHasMore ? ' (cargá más para ver anteriores)' : ''}
+                      </>
                     )}
                   </span>
                   <section className="flex flex-wrap justify-end gap-6">
@@ -1266,7 +1308,7 @@ function EventDetailContent() {
                       </span>
                     )}
                     <span className="font-semibold text-lg">
-                      Total ingresos: ${ticketTotals.totalRevenue.toLocaleString('es-AR')}
+                      Total ingresos: {formatArs(collectedRevenue)}
                     </span>
                   </section>
                 </section>
