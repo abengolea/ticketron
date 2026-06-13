@@ -12,12 +12,10 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { CopyGateLinkButton } from '@/components/copy-gate-link-button';
 import { DoorOpen, Loader2, ShieldCheck } from 'lucide-react';
-import { useUser } from '@/firebase';
 
 export default function GateHubPage() {
-  const { user } = useUser();
   const [events, setEvents] = useState<SerializedEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,20 +41,9 @@ export default function GateHubPage() {
         <h1 className="text-3xl font-headline font-bold text-primary">Validador digital</h1>
         <p className="text-muted-foreground mt-2">
           Elegí el evento y escaneá los QR de entradas vendidas online, en efectivo o de cortesía.
+          Podés compartir el link del validador con el personal de entrada.
         </p>
       </section>
-
-      {!user && (
-        <Alert>
-          <AlertDescription>
-            Podés elegir el evento sin iniciar sesión. Para escanear y validar entradas,{' '}
-            <Link href="/login" className="font-medium text-primary underline underline-offset-2">
-              ingresá con tu cuenta
-            </Link>{' '}
-            (admin o puerta).
-          </AlertDescription>
-        </Alert>
-      )}
 
       {loading ? (
         <section className="flex justify-center py-12">
@@ -85,13 +72,18 @@ export default function GateHubPage() {
                     {event.location ? ` · ${event.location}` : ''}
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-2">
                   <Button asChild className="w-full">
                     <Link href={`/gate/${event.id}`}>
                       <ShieldCheck className="w-4 h-4 mr-2" />
                       Abrir validador
                     </Link>
                   </Button>
+                  <CopyGateLinkButton
+                    eventId={event.id}
+                    eventName={event.name}
+                    className="w-full"
+                  />
                 </CardContent>
               </Card>
             </li>

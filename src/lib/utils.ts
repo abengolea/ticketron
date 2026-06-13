@@ -16,6 +16,17 @@ export async function copyTextSafe(text: string): Promise<boolean> {
   }
 }
 
+export function getClientAppBaseUrl(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, '');
+  if (fromEnv) return fromEnv;
+  if (typeof window !== 'undefined') return window.location.origin;
+  return '';
+}
+
+export function gateValidatorUrl(eventId: string): string {
+  return `${getClientAppBaseUrl()}/gate/${eventId}`;
+}
+
 export function downloadFile(filename: string, content: string, mimeType: string) {
   const element = document.createElement("a");
   const file = new Blob([content], { type: mimeType });

@@ -1,13 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import type { Html5Qrcode } from 'html5-qrcode';
-import { useIdToken } from '@/hooks/use-id-token';
+import { validateTicketAtGatePublic } from '@/lib/actions/gate';
+import { normalizeQrScanInput } from '@/lib/qr';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { validateTicketAtGate } from '@/lib/actions/gate';
-import { normalizeQrScanInput } from '@/lib/qr';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import {
@@ -74,7 +72,6 @@ export function GateScanner({ eventId }: GateScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const processingRef = useRef(false);
   const lastPayloadRef = useRef<string | null>(null);
-  const { getIdToken, user } = useIdToken();
   const [lastResult, setLastResult] = useState<ScanResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
@@ -108,18 +105,7 @@ export function GateScanner({ eventId }: GateScannerProps) {
       setIsValidating(true);
       await stopScanner();
 
-      const token = await getIdToken();
-      if (!token) {
-        setLastResult({
-          result: 'INVALID',
-          message: 'Iniciá sesión para validar entradas en puerta.',
-        });
-        setIsValidating(false);
-        processingRef.current = false;
-        return;
-      }
-
-      const response = await validateTicketAtGate(token, {
+      const response = await validateTicketAtGatePublic({
         eventId,
         qrPayload: normalizeQrScanInput(qrPayload),
       });
@@ -131,11 +117,10 @@ export function GateScanner({ eventId }: GateScannerProps) {
       setIsValidating(false);
       processingRef.current = false;
     },
-    [eventId, getIdToken, stopScanner]
+    [eventId, stopScanner]
   );
 
   const startScanner = useCallback(async () => {
-    if (!user) return;
     setCameraError(null);
     setLastResult(null);
     lastPayloadRef.current = null;
@@ -160,17 +145,15 @@ export function GateScanner({ eventId }: GateScannerProps) {
       setCameraError(e instanceof Error ? e.message : 'No se pudo iniciar la cámara');
       setIsScanning(false);
     }
-  }, [handleScan, user]);
+  }, [handleScan]);
 
   useEffect(() => {
-    if (user) {
-      startScanner();
-    }
+    startScanner();
     return () => {
       scannerRef.current?.stop().catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId, user]);
+  }, [eventId]);
 
   const resetForNextScan = () => {
     setLastResult(null);
@@ -227,17 +210,6 @@ export function GateScanner({ eventId }: GateScannerProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!user && (
-            <Alert>
-              <AlertDescription className="flex flex-col sm:flex-row sm:items-center gap-3">
-                <span>Iniciá sesión para escanear y validar entradas.</span>
-                <Button asChild size="sm" variant="secondary" className="shrink-0">
-                  <Link href="/login">Ingresar</Link>
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
-
           {isValidating && (
             <div className="flex flex-col items-center justify-center gap-3 py-12">
               <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -245,7 +217,7 @@ export function GateScanner({ eventId }: GateScannerProps) {
             </div>
           )}
 
-          {showScanner && user && (
+          {showScanner && (
             <>
               <div
                 id={SCANNER_ID}
@@ -275,7 +247,7 @@ export function GateScanner({ eventId }: GateScannerProps) {
 
           {lastResult && !isValidating && renderResult()}
 
-          {user && !lastResult && !isScanning && !isValidating && cameraError && (
+          {!lastResult && !isScanning && !isValidating && cameraError && (
             <Button onClick={startScanner} className="w-full" size="lg">
               <Camera className="mr-2 h-5 w-5" />
               Reintentar cámara
