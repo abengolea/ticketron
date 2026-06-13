@@ -22,6 +22,7 @@ import { BarTab } from '@/components/bar-tab';
 import { CreatePaymentLinkDialog } from '@/components/create-payment-link-dialog';
 import { CreateComplimentaryLinkDialog } from '@/components/create-complimentary-link-dialog';
 import { CreateCashSaleDialog } from '@/components/create-cash-sale-dialog';
+import { CopyGateLinkButton } from '@/components/copy-gate-link-button';
 import { EventTicketsPdfExport } from '@/components/event-tickets-pdf-export';
 import type {
   EventReservationStats,
@@ -479,11 +480,19 @@ function EventDetailContent() {
           </label>
         </section>
         <section className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
-          <Button asChild variant="outline" className="w-full sm:w-auto">
-            <Link href={`/gate/${event.id}`}>
-              <DoorOpen className="w-4 h-4 mr-2" /> Validador digital
-            </Link>
-          </Button>
+          <section className="flex w-full flex-col gap-2 sm:w-auto">
+            <Button asChild variant="outline" className="w-full sm:w-auto">
+              <Link href={`/gate/${event.id}`}>
+                <DoorOpen className="w-4 h-4 mr-2" /> Validador digital
+              </Link>
+            </Button>
+            <CopyGateLinkButton
+              eventId={event.id}
+              eventName={event.name}
+              showWhatsApp
+              className="w-full sm:w-auto"
+            />
+          </section>
           {maxLinkTickets > 0 && (
             <>
               <CreatePaymentLinkDialog

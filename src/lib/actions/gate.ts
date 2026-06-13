@@ -20,16 +20,11 @@ export interface GateValidationResponse {
   ticketCode?: string;
 }
 
-export async function validateTicketAtGate(
-  idToken: string,
-  input: unknown
+async function validateTicketAtGateCore(
+  input: unknown,
+  usedBy: string
 ): Promise<ActionResult<GateValidationResponse>> {
   try {
-    const user = await verifyIdTokenAndGetUser(idToken);
-    if (!canAccessGate(user)) {
-      return fail('No autorizado para control de puerta');
-    }
-
     const { eventId, qrPayload } = gateValidateSchema.parse(input);
     const normalizedPayload = normalizeQrScanInput(qrPayload);
     const parsed = parseQrPayload(normalizedPayload);
@@ -114,7 +109,7 @@ export async function validateTicketAtGate(
       tx.update(ticketRef, {
         status: 'USED',
         usedAt: Timestamp.now(),
-        usedBy: user.uid,
+        usedBy,
       });
 
       return {
@@ -161,6 +156,28 @@ export async function validateTicketAtGate(
           ticketCode: 'ticketCode' in outcome ? outcome.ticketCode : undefined,
         });
     }
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error de validación');
+  }
+}
+
+/** Validación en puerta sin sesión — para compartir el link del validador con el personal de entrada. */
+export async function validateTicketAtGatePublic(
+  input: unknown
+): Promise<ActionResult<GateValidationResponse>> {
+  return validateTicketAtGateCore(input, 'gate-public');
+}
+
+export async function validateTicketAtGate(
+  idToken: string,
+  input: unknown
+): Promise<ActionResult<GateValidationResponse>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    if (!canAccessGate(user)) {
+      return fail('No autorizado para control de puerta');
+    }
+    return validateTicketAtGateCore(input, user.uid);
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error de validación');
   }

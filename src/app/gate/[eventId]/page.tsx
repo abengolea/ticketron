@@ -4,8 +4,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useUser } from '@/firebase';
+import { CopyGateLinkButton } from '@/components/copy-gate-link-button';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 
 const GateScanner = dynamic(
@@ -22,7 +21,6 @@ const GateScanner = dynamic(
 
 export default function GatePage() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { user } = useUser();
 
   return (
     <section className="space-y-4">
@@ -33,17 +31,7 @@ export default function GatePage() {
         </Link>
       </Button>
       <h1 className="text-2xl font-headline font-bold text-center">Validador digital</h1>
-      {!user && (
-        <Alert>
-          <AlertDescription>
-            Para validar entradas necesitás{' '}
-            <Link href="/login" className="font-medium text-primary underline underline-offset-2">
-              iniciar sesión
-            </Link>
-            .
-          </AlertDescription>
-        </Alert>
-      )}
+      <CopyGateLinkButton eventId={eventId} className="w-full max-w-lg mx-auto" />
       <GateScanner eventId={eventId} />
     </section>
   );
