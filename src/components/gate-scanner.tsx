@@ -70,6 +70,7 @@ interface GateScannerProps {
 
 export function GateScanner({ eventId }: GateScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const mountedRef = useRef(true);
   const processingRef = useRef(false);
   const lastPayloadRef = useRef<string | null>(null);
   const [lastResult, setLastResult] = useState<ScanResult | null>(null);
@@ -77,10 +78,25 @@ export function GateScanner({ eventId }: GateScannerProps) {
   const [isValidating, setIsValidating] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
+  const disposeScanner = useCallback(async () => {
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    if (!scanner) return;
+    try {
+      const state = scanner.getState();
+      if (state === 2) {
+        await scanner.stop();
+      }
+      scanner.clear();
+    } catch {
+      /* ignorar al desmontar o si el DOM ya no existe */
+    }
+  }, []);
+
   const stopScanner = useCallback(async () => {
     const scanner = scannerRef.current;
     if (!scanner) {
-      setIsScanning(false);
+      if (mountedRef.current) setIsScanning(false);
       return;
     }
     try {
@@ -91,7 +107,7 @@ export function GateScanner({ eventId }: GateScannerProps) {
     } catch {
       /* ignorar al desmontar */
     } finally {
-      setIsScanning(false);
+      if (mountedRef.current) setIsScanning(false);
     }
   }, []);
 
@@ -102,13 +118,16 @@ export function GateScanner({ eventId }: GateScannerProps) {
 
       processingRef.current = true;
       lastPayloadRef.current = qrPayload;
+      if (!mountedRef.current) return;
       setIsValidating(true);
       await stopScanner();
+      if (!mountedRef.current) return;
 
       const response = await validateTicketAtGatePublic({
         eventId,
         qrPayload: normalizeQrScanInput(qrPayload),
       });
+      if (!mountedRef.current) return;
       if (response.success) {
         setLastResult(response.data);
       } else {
@@ -121,6 +140,7 @@ export function GateScanner({ eventId }: GateScannerProps) {
   );
 
   const startScanner = useCallback(async () => {
+    if (!mountedRef.current) return;
     setCameraError(null);
     setLastResult(null);
     lastPayloadRef.current = null;
@@ -128,6 +148,8 @@ export function GateScanner({ eventId }: GateScannerProps) {
 
     try {
       const { Html5Qrcode } = await import('html5-qrcode');
+      if (!mountedRef.current) return;
+      if (!document.getElementById(SCANNER_ID)) return;
       if (!scannerRef.current) {
         scannerRef.current = new Html5Qrcode(SCANNER_ID, false);
       }
@@ -141,16 +163,22 @@ export function GateScanner({ eventId }: GateScannerProps) {
         },
         () => {}
       );
+      if (!mountedRef.current) {
+        await disposeScanner();
+      }
     } catch (e) {
+      if (!mountedRef.current) return;
       setCameraError(e instanceof Error ? e.message : 'No se pudo iniciar la cámara');
       setIsScanning(false);
     }
-  }, [handleScan]);
+  }, [handleScan, disposeScanner]);
 
   useEffect(() => {
-    startScanner();
+    mountedRef.current = true;
+    void startScanner();
     return () => {
-      scannerRef.current?.stop().catch(() => {});
+      mountedRef.current = false;
+      void disposeScanner();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
@@ -217,15 +245,16 @@ export function GateScanner({ eventId }: GateScannerProps) {
             </div>
           )}
 
+          <div
+            id={SCANNER_ID}
+            className={cn(
+              'w-full rounded-lg overflow-hidden min-h-[280px] bg-muted',
+              !showScanner || !isScanning ? 'hidden' : undefined
+            )}
+          />
+
           {showScanner && (
             <>
-              <div
-                id={SCANNER_ID}
-                className={cn(
-                  'w-full rounded-lg overflow-hidden min-h-[280px] bg-muted',
-                  !isScanning && 'hidden'
-                )}
-              />
               {cameraError && (
                 <Alert variant="destructive">
                   <AlertDescription>{cameraError}</AlertDescription>
