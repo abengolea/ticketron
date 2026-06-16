@@ -39,7 +39,9 @@ const GoogleIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 function roleHome(role: UserRole): string {
   switch (role) {
-    case 'admin':
+    case 'superadmin':
+      return '/superadmin';
+    case 'producer':
       return '/admin/events';
     case 'seller':
       return '/seller';
@@ -66,21 +68,40 @@ export default function LoginPage() {
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
   const [teamEmail, setTeamEmail] = useState('');
   const [teamPassword, setTeamPassword] = useState('');
+  const [sessionChecked, setSessionChecked] = useState(false);
 
   useEffect(() => {
     async function redirectIfLoggedIn() {
-      if (!userLoading && user) {
+      if (userLoading) return;
+
+      if (!user) {
+        setSessionChecked(true);
+        return;
+      }
+
+      setSessionChecked(false);
+      try {
         const token = await user.getIdToken();
         const session = await getSessionUser(token);
         if (session.success) {
           router.push(roleHome(session.data.role));
+          return;
         }
+        await auth.signOut();
+        setError(
+          session.error ??
+            'Tu cuenta no está habilitada. Contactá al administrador.'
+        );
+        setSessionChecked(true);
+      } catch {
+        await auth.signOut();
+        setSessionChecked(true);
       }
     }
-    redirectIfLoggedIn();
-  }, [user, userLoading, router]);
+    void redirectIfLoggedIn();
+  }, [user, userLoading, router, auth]);
 
-  const TEAM_ROLES: UserRole[] = ['admin', 'seller', 'gate'];
+  const TEAM_ROLES: UserRole[] = ['superadmin', 'producer', 'seller', 'gate'];
 
   async function handleTeamSignIn(e: React.FormEvent) {
     e.preventDefault();
@@ -222,7 +243,7 @@ export default function LoginPage() {
     }
   }
 
-  if (userLoading || user) {
+  if (userLoading || (user && !sessionChecked)) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />

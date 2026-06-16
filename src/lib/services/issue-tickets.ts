@@ -70,7 +70,11 @@ export async function issueTicketsForLink(
       const sellerSnap = await tx.get(
         db.collection(COLLECTIONS.users).doc(link.sellerId)
       );
-      if (!sellerSnap.exists || sellerSnap.data()?.role !== 'admin') {
+      if (!sellerSnap.exists) {
+        throw new Error('Acceso vendedor no encontrado');
+      }
+      const sellerRole = sellerSnap.data()?.role;
+      if (sellerRole !== 'producer' && sellerRole !== 'superadmin') {
         throw new Error('Acceso vendedor no encontrado');
       }
     }

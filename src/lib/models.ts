@@ -1,6 +1,19 @@
 import type { Timestamp } from 'firebase-admin/firestore';
 
-export type UserRole = 'admin' | 'seller' | 'gate' | 'buyer';
+export type UserRole = 'superadmin' | 'producer' | 'seller' | 'gate' | 'buyer';
+
+export type QuotaType = 'monthly' | 'lifetime' | 'unlimited';
+
+export interface ProducerPlan {
+  maxEvents: number;
+  quotaType: QuotaType;
+  eventsUsed: number;
+  quotaPeriodStart: Timestamp;
+  pricePerEvent: number;
+  planActive: boolean;
+  planNotes?: string;
+  createdBy: string;
+}
 
 export type PaymentLinkStatus =
   | 'PENDING_PAYMENT'
@@ -25,6 +38,10 @@ export interface AppUser {
   displayName: string;
   role: UserRole;
   active: boolean;
+  /** Solo productores: plan de cupo y facturación */
+  producerPlan?: ProducerPlan;
+  /** Token de acceso MP del productor (solo server-side vía Admin SDK) */
+  mercadoPagoAccessToken?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -38,6 +55,8 @@ export interface PlatformEvent {
   capacity: number;
   sold: number;
   price: number;
+  /** UID del productor o superadmin dueño del evento */
+  ownerId: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -107,6 +126,26 @@ export interface SerializedEvent {
   capacity: number;
   sold: number;
   price: number;
+  ownerId?: string;
+}
+
+export interface SerializedProducer {
+  uid: string;
+  email: string;
+  displayName: string;
+  active: boolean;
+  producerPlan?: {
+    maxEvents: number;
+    quotaType: QuotaType;
+    eventsUsed: number;
+    quotaPeriodStart: string;
+    pricePerEvent: number;
+    planActive: boolean;
+    planNotes?: string;
+    createdBy: string;
+  };
+  hasMercadoPago: boolean;
+  createdAt: string;
 }
 
 export interface SerializedPaymentLink {
@@ -181,12 +220,22 @@ export type BarValidationResult =
   | 'NOT_PAID'
   | 'WRONG_EVENT';
 
+export interface BarOrderItem {
+  productId: string;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+}
+
 export interface BarProduct {
   id: string;
   eventId: string;
   name: string;
   price: number;
   active: boolean;
+  /** null = stock ilimitado */
+  stock?: number | null;
+  sortOrder?: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -196,10 +245,13 @@ export interface BarOrder {
   /** Token URL-safe para la página pública del voucher (/bar/order/[token]) */
   token: string;
   eventId: string;
-  productId: string;
-  productName: string;
-  unitPrice: number;
-  quantity: number;
+  /** Carrito multi-producto (preferido) */
+  items?: BarOrderItem[];
+  /** Campos legacy (órdenes de un solo producto) */
+  productId?: string;
+  productName?: string;
+  unitPrice?: number;
+  quantity?: number;
   amount: number;
   buyerName?: string;
   status: BarOrderStatus;
@@ -220,6 +272,8 @@ export interface SerializedBarProduct {
   name: string;
   price: number;
   active: boolean;
+  stock: number | null;
+  sortOrder?: number;
   createdAt: string;
 }
 
@@ -227,10 +281,13 @@ export interface SerializedBarOrder {
   id: string;
   token: string;
   eventId: string;
-  productId: string;
-  productName: string;
-  unitPrice: number;
-  quantity: number;
+  items?: BarOrderItem[];
+  itemsLabel: string;
+  /** Legacy */
+  productId?: string;
+  productName?: string;
+  unitPrice?: number;
+  quantity?: number;
   amount: number;
   buyerName?: string;
   status: BarOrderStatus;
@@ -247,4 +304,58 @@ export interface EventReservationStats {
   pendingPayment: number;
   issued: number;
   remainingForLinks: number;
+}
+
+export interface EventPostStatsSellerRow {
+  sellerId: string;
+  sellerName: string;
+  sold: number;
+  used: number;
+  revenue: number;
+}
+
+export interface EventPostStatsPaymentMethodRow {
+  count: number;
+  revenue: number;
+}
+
+export interface EventPostStatsEntryHour {
+  hour: string;
+  label: string;
+  count: number;
+}
+
+export interface EventPostStats {
+  event: SerializedEvent;
+  isPastEvent: boolean;
+  tickets: {
+    total: number;
+    active: number;
+    used: number;
+    valid: number;
+    cancelled: number;
+    archived: number;
+  };
+  attendanceRate: number;
+  noShowCount: number;
+  revenue: {
+    collected: number;
+    pending: number;
+    byMethod: {
+      mercadopago: EventPostStatsPaymentMethodRow;
+      cash: EventPostStatsPaymentMethodRow;
+      complimentary: EventPostStatsPaymentMethodRow;
+    };
+  };
+  bySeller: EventPostStatsSellerRow[];
+  entryTimeline: EventPostStatsEntryHour[];
+  peakEntryHour: string | null;
+  firstEntryAt: string | null;
+  lastEntryAt: string | null;
+  bar: {
+    revenue: number;
+    ordersPaid: number;
+    vouchersRedeemed: number;
+    vouchersPending: number;
+  };
 }

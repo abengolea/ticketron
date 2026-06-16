@@ -8,12 +8,10 @@ import {
   User,
   LogOut,
   Store,
-  Printer,
-  History,
-  Music,
   QrCode,
-  FileText,
   DoorOpen,
+  Shield,
+  Settings2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { useUser, useAuth } from '@/firebase';
@@ -26,19 +24,19 @@ import { cn } from '@/lib/utils';
 
 const validatorNavItems = [
   { href: '/gate', label: 'Validador digital', icon: QrCode, emphasized: true },
-  { href: '/validate', label: 'Validador PDF', icon: FileText, emphasized: false },
-];
-
-const printNavItems = [
-  { href: '/print', label: 'Generador', icon: Printer },
-  { href: '/history', label: 'Historial', icon: History },
-  { href: '/youtube-mp3', label: 'MP3 YouTube', icon: Music, openInNewTab: true },
 ];
 
 const navByRole: Record<UserRole, { href: string; label: string; icon: typeof Ticket }[]> = {
-  admin: [
+  superadmin: [
+    { href: '/superadmin', label: 'Super Admin', icon: Shield },
+    { href: '/admin/events', label: 'Mis eventos', icon: Ticket },
+    { href: '/admin/sellers', label: 'Vendedores', icon: Store },
+    { href: '/admin/settings', label: 'Mercado Pago', icon: Settings2 },
+  ],
+  producer: [
     { href: '/admin/events', label: 'Eventos', icon: Ticket },
     { href: '/admin/sellers', label: 'Vendedores', icon: Store },
+    { href: '/admin/settings', label: 'Mercado Pago', icon: Settings2 },
   ],
   seller: [{ href: '/seller', label: 'Mis ventas', icon: Store }],
   gate: [],
@@ -56,10 +54,7 @@ type NavItem = {
 function isNavItemActive(pathname: string, href: string): boolean {
   if (pathname === href) return true;
   if (href === '/gate' && pathname.startsWith('/gate')) return true;
-  if (href === '/validate' && pathname.startsWith('/validate')) return true;
-  if (href !== '/print' && href !== '/gate' && href !== '/validate' && pathname.startsWith(href)) {
-    return true;
-  }
+  if (href !== '/gate' && pathname.startsWith(href)) return true;
   return false;
 }
 
@@ -148,37 +143,37 @@ export function Header() {
   };
 
   const platformNav = session ? navByRole[session.role] ?? [] : [];
-  /** Comprador: un solo ítem igual al título de página — evita "Mis entradas" duplicado en el header. */
   const showPlatformNav =
     !!session && session.role !== 'buyer' && platformNav.length > 0;
   const showValidators =
     !!user &&
-    (!session || session.role === 'admin' || session.role === 'gate');
+    (!session ||
+      session.role === 'producer' ||
+      session.role === 'superadmin' ||
+      session.role === 'gate');
   const showGateShortcut = showValidators;
-  const showPrintNav = session?.role === 'admin' || (!session && !!user);
-  const showNavSection = showValidators || showPlatformNav || showPrintNav;
+  const showNavSection = showValidators || showPlatformNav;
+
+  const homeHref =
+    session?.role === 'superadmin'
+      ? '/superadmin'
+      : session?.role === 'producer'
+        ? '/admin/events'
+        : session?.role === 'gate'
+          ? '/gate'
+          : session?.role === 'seller'
+            ? '/seller'
+            : session?.role === 'buyer'
+              ? '/my-tickets'
+              : user
+                ? '/gate'
+                : '/login';
 
   return (
     <header className="bg-card/95 backdrop-blur-sm border-b sticky top-0 z-50">
       <section className="container mx-auto px-4 py-3 space-y-3">
-        {/* Fila 1: marca + usuario */}
         <section className="flex justify-between items-center gap-4">
-          <Link
-            href={
-              session?.role === 'admin'
-                ? '/admin/events'
-                : session?.role === 'gate'
-                  ? '/gate'
-                  : session?.role === 'seller'
-                    ? '/seller'
-                    : session?.role === 'buyer'
-                      ? '/my-tickets'
-                      : user
-                        ? '/gate'
-                        : '/login'
-            }
-            className="flex items-center gap-3"
-          >
+          <Link href={homeHref} className="flex items-center gap-3">
             <section className="bg-primary/10 p-2 rounded-lg">
               <Ticket className="w-6 h-6 text-primary" />
             </section>
@@ -226,21 +221,17 @@ export function Header() {
             {showValidators && (
               <NavRow label="Validadores" items={validatorNavItems} pathname={pathname} />
             )}
-            <section className="flex flex-col lg:flex-row lg:flex-wrap lg:items-center gap-3">
-              {showPlatformNav && (
-                <NavRow
-                  label={session!.role === 'admin' ? 'Venta digital' : 'Panel'}
-                  items={platformNav}
-                  pathname={pathname}
-                />
-              )}
-              {showPlatformNav && (
-                <div className="hidden lg:block w-px h-8 bg-border shrink-0" aria-hidden />
-              )}
-              {showPrintNav && (
-                <NavRow label="Impresión" items={[...printNavItems]} pathname={pathname} />
-              )}
-            </section>
+            {showPlatformNav && (
+              <NavRow
+                label={
+                  session!.role === 'producer' || session!.role === 'superadmin'
+                    ? 'Venta digital'
+                    : 'Panel'
+                }
+                items={platformNav}
+                pathname={pathname}
+              />
+            )}
           </section>
         )}
       </section>

@@ -6,14 +6,18 @@
 
 const MP_API = 'https://api.mercadopago.com';
 
-function getAccessToken(): string {
-  const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+function resolveAccessToken(override?: string): string {
+  const token = override?.trim() || process.env.MERCADO_PAGO_ACCESS_TOKEN;
   if (!token) {
     throw new Error(
-      'MERCADO_PAGO_ACCESS_TOKEN no configurado. Ver .env.example'
+      'Mercado Pago no configurado. El productor debe vincular su cuenta en Ajustes.'
     );
   }
   return token;
+}
+
+function isProdToken(token: string): boolean {
+  return token.startsWith('APP_USR');
 }
 
 /** URL base sin barra final — requerida para back_urls de MP */
@@ -45,10 +49,18 @@ function canUseAutoReturn(baseUrl: string): boolean {
   }
 }
 
+export interface MercadoPagoLineItem {
+  title: string;
+  unitPrice: number;
+  quantity: number;
+}
+
 export interface MercadoPagoPreferenceInput {
   title: string;
   unitPrice: number;
   quantity?: number;
+  /** Si se define, reemplaza title/unitPrice/quantity por líneas del carrito */
+  items?: MercadoPagoLineItem[];
   externalReference: string;
   /** Si se omite, la preferencia en MP no vence por tiempo (uso único lo controla la app) */
   expiresAt?: Date;
@@ -98,20 +110,23 @@ function buildBackUrls(baseUrl: string, checkoutToken?: string, returnPath?: str
 }
 
 export async function createPreference(
-  input: MercadoPagoPreferenceInput
+  input: MercadoPagoPreferenceInput,
+  accessToken?: string
 ): Promise<MercadoPagoPreference> {
+  const token = resolveAccessToken(accessToken);
   const baseUrl = getAppBaseUrl();
   const back_urls = buildBackUrls(baseUrl, input.checkoutToken, input.returnPath);
 
   const body: Record<string, unknown> = {
-    items: [
-      {
-        title: input.title,
-        quantity: input.quantity ?? 1,
-        unit_price: input.unitPrice,
-        currency_id: 'ARS',
-      },
-    ],
+    items: (input.items?.length
+      ? input.items
+      : [{ title: input.title, quantity: input.quantity ?? 1, unitPrice: input.unitPrice }]
+    ).map((item) => ({
+      title: item.title,
+      quantity: item.quantity,
+      unit_price: item.unitPrice,
+      currency_id: 'ARS',
+    })),
     external_reference: input.externalReference,
     back_urls,
     notification_url: `${baseUrl}/api/mercadopago/webhook`,
@@ -137,7 +152,7 @@ export async function createPreference(
   const res = await fetch(`${MP_API}/checkout/preferences`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${getAccessToken()}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -151,9 +166,13 @@ export async function createPreference(
   return res.json() as Promise<MercadoPagoPreference>;
 }
 
-export async function getPayment(paymentId: string): Promise<MercadoPagoPayment> {
+export async function getPayment(
+  paymentId: string,
+  accessToken?: string
+): Promise<MercadoPagoPayment> {
+  const token = resolveAccessToken(accessToken);
   const res = await fetch(`${MP_API}/v1/payments/${paymentId}`, {
-    headers: { Authorization: `Bearer ${getAccessToken()}` },
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!res.ok) {
@@ -163,3 +182,5 @@ export async function getPayment(paymentId: string): Promise<MercadoPagoPayment>
 
   return res.json() as Promise<MercadoPagoPayment>;
 }
+
+export { isProdToken };

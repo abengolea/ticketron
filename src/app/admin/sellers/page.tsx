@@ -38,7 +38,7 @@ import { Loader2 } from 'lucide-react';
 
 export default function AdminSellersPage() {
   return (
-    <RoleGuard allowedRoles={['admin']}>
+    <RoleGuard allowedRoles={['producer', 'superadmin']}>
       <SellersContent />
     </RoleGuard>
   );

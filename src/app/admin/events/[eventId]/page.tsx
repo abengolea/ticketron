@@ -19,11 +19,11 @@ import {
 import { listTicketsForEvent, exportTicketsCsv, archiveTicket } from '@/lib/actions/tickets';
 import { computeTicketTotals, countsTowardRevenue } from '@/lib/ticket-totals';
 import { BarTab } from '@/components/bar-tab';
+import { EventStatsTab } from '@/components/event-stats-tab';
 import { CreatePaymentLinkDialog } from '@/components/create-payment-link-dialog';
 import { CreateComplimentaryLinkDialog } from '@/components/create-complimentary-link-dialog';
 import { CreateCashSaleDialog } from '@/components/create-cash-sale-dialog';
 import { CopyGateLinkButton } from '@/components/copy-gate-link-button';
-import { EventTicketsPdfExport } from '@/components/event-tickets-pdf-export';
 import type {
   EventReservationStats,
   SerializedEvent,
@@ -77,6 +77,7 @@ import { downloadFile } from '@/lib/utils';
 import {
   Archive,
   ArrowLeft,
+  BarChart2,
   Beer,
   Copy,
   DoorOpen,
@@ -201,7 +202,7 @@ function matchesTicketFilters(
 
 export default function AdminEventDetailPage() {
   return (
-    <RoleGuard allowedRoles={['admin']}>
+    <RoleGuard allowedRoles={['producer', 'superadmin']}>
       <EventDetailContent />
     </RoleGuard>
   );
@@ -569,6 +570,9 @@ function EventDetailContent() {
                 {pendingPayment}
               </Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="stats">
+            <BarChart2 className="w-4 h-4 mr-2" /> Estadísticas
           </TabsTrigger>
           <TabsTrigger value="bar">
             <Beer className="w-4 h-4 mr-2" /> Bar
@@ -1113,12 +1117,6 @@ function EventDetailContent() {
                   <Button variant="outline" onClick={handleExportCsv}>
                     <Download className="w-4 h-4 mr-2" /> CSV
                   </Button>
-                  <EventTicketsPdfExport
-                    tickets={activeTickets}
-                    eventName={event.name}
-                    eventDate={event.date}
-                    eventLocation={event.location}
-                  />
                 </section>
               </section>
               <section className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -1315,6 +1313,10 @@ function EventDetailContent() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="stats">
+          <EventStatsTab eventId={event.id} getIdToken={getIdToken} />
         </TabsContent>
 
         <TabsContent value="bar">

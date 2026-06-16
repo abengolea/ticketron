@@ -1,7 +1,7 @@
 'use server';
 
 import { Timestamp, type Query } from 'firebase-admin/firestore';
-import { verifyIdTokenAndGetUser, requireRole } from '@/lib/auth-server';
+import { verifyIdTokenAndGetUser, requireManageEvents, requireRole } from '@/lib/auth-server';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
 import {
   createPaymentLinkSchema,
@@ -10,11 +10,12 @@ import {
   archivePaymentLinkSchema,
 } from '@/lib/validations';
 import { generateSecureToken } from '@/lib/tokens';
-import { createPreference } from '@/lib/mercadopago';
+import { createPreference, isProdToken } from '@/lib/mercadopago';
 import { serializePaymentLink } from '@/lib/serialize';
 import { ensureLinkNotExpired } from '@/lib/services/expire-links';
 import { PAYMENT_LINK_INDEFINITE_EXPIRES_AT } from '@/lib/payment-link-expiry';
 import { sumPendingPaymentReservations } from '@/lib/services/payment-link-reservations';
+import { requireEventAccess, getMercadoPagoTokenForEvent, getOwnedEventIds } from '@/lib/tenant';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type {
   EventReservationStats,
@@ -28,7 +29,7 @@ export async function createPaymentLink(
 ): Promise<ActionResult<{ checkoutUrl: string; link: SerializedPaymentLink }>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'seller', 'admin');
+    requireRole(user, 'seller', 'producer', 'superadmin');
 
     const { eventId, ticketQuantity, recipientLabel } = createPaymentLinkSchema.parse(input);
     const label = recipientLabel?.trim() || undefined;
@@ -98,13 +99,18 @@ export async function createPaymentLink(
       updatedAt: now,
     };
 
-    const preference = await createPreference({
-      title: `${event.name} (${ticketQuantity} entrada${ticketQuantity > 1 ? 's' : ''})`,
-      unitPrice: event.price,
-      quantity: ticketQuantity,
-      externalReference: ref.id,
-      checkoutToken: token,
-    });
+    const mpToken = await getMercadoPagoTokenForEvent(eventId);
+
+    const preference = await createPreference(
+      {
+        title: `${event.name} (${ticketQuantity} entrada${ticketQuantity > 1 ? 's' : ''})`,
+        unitPrice: event.price,
+        quantity: ticketQuantity,
+        externalReference: ref.id,
+        checkoutToken: token,
+      },
+      mpToken
+    );
 
     await ref.set({
       ...linkData,
@@ -245,19 +251,25 @@ export async function updateCheckoutBuyer(
     const event = eventSnap.data()!;
     const ticketQuantity = link.ticketQuantity ?? 1;
 
-    const preference = await createPreference({
-      title: `${event.name} (${ticketQuantity} entrada${ticketQuantity > 1 ? 's' : ''})`,
-      unitPrice: event.price,
-      quantity: ticketQuantity,
-      externalReference: doc.id,
-      payerEmail: buyerEmail,
-      checkoutToken: token,
-    });
+    const mpToken = await getMercadoPagoTokenForEvent(link.eventId);
+
+    const preference = await createPreference(
+      {
+        title: `${event.name} (${ticketQuantity} entrada${ticketQuantity > 1 ? 's' : ''})`,
+        unitPrice: event.price,
+        quantity: ticketQuantity,
+        externalReference: doc.id,
+        payerEmail: buyerEmail,
+        checkoutToken: token,
+      },
+      mpToken
+    );
 
     await doc.ref.update({ mercadoPagoPreferenceId: preference.id });
 
-    const isProd = process.env.MERCADO_PAGO_ACCESS_TOKEN?.startsWith('APP_USR');
-    const initPoint = isProd ? preference.init_point : (preference.sandbox_init_point ?? preference.init_point);
+    const initPoint = isProdToken(mpToken)
+      ? preference.init_point
+      : (preference.sandbox_init_point ?? preference.init_point);
 
     return ok({ preferenceInitPoint: initPoint });
   } catch (e) {
@@ -271,7 +283,7 @@ export async function cancelPaymentLink(
 ): Promise<ActionResult<void>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin', 'seller');
+    requireRole(user, 'producer', 'superadmin', 'seller');
 
     const { paymentLinkId } = cancelPaymentLinkSchema.parse(input);
     const ref = getAdminDb().collection(COLLECTIONS.paymentLinks).doc(paymentLinkId);
@@ -281,6 +293,9 @@ export async function cancelPaymentLink(
     const link = snap.data()!;
     if (user.role === 'seller' && link.sellerId !== user.uid) {
       return fail('No autorizado');
+    }
+    if (user.role === 'producer' || user.role === 'superadmin') {
+      await requireEventAccess(user, link.eventId as string);
     }
     if (link.status === 'PAID') return fail('No se puede cancelar un link ya pagado');
 
@@ -297,7 +312,7 @@ export async function archivePaymentLink(
 ): Promise<ActionResult<void>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireManageEvents(user);
 
     const { paymentLinkId } = archivePaymentLinkSchema.parse(input);
     const ref = getAdminDb().collection(COLLECTIONS.paymentLinks).doc(paymentLinkId);
@@ -305,6 +320,12 @@ export async function archivePaymentLink(
     if (!snap.exists) return fail('Link no encontrado');
 
     const link = snap.data()!;
+    if (user.role === 'seller' && link.sellerId !== user.uid) {
+      return fail('No autorizado');
+    }
+    if (user.role === 'producer' || user.role === 'superadmin') {
+      await requireEventAccess(user, link.eventId as string);
+    }
     if (link.archived) return ok(undefined);
 
     await ref.update({
@@ -324,7 +345,7 @@ export async function getEventReservationStats(
 ): Promise<ActionResult<EventReservationStats>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin', 'seller');
+    requireRole(user, 'producer', 'superadmin', 'seller');
 
     const db = getAdminDb();
     const eventSnap = await db.collection(COLLECTIONS.events).doc(eventId).get();
@@ -357,6 +378,8 @@ export async function getEventReservationStats(
       });
     }
 
+    await requireEventAccess(user, eventId);
+
     const pendingPayment = await sumPendingPaymentReservations(db, { eventId });
     const sold = event.sold ?? 0;
     const issued = sold + pendingPayment;
@@ -380,16 +403,18 @@ export async function listSalesAdmin(
 ): Promise<ActionResult<SerializedPaymentLink[]>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireManageEvents(user);
+
+    const ownedEventIds = new Set(await getOwnedEventIds(user));
 
     let query: Query = getAdminDb().collection(COLLECTIONS.paymentLinks);
     if (filters?.eventId) query = query.where('eventId', '==', filters.eventId);
     if (filters?.sellerId) query = query.where('sellerId', '==', filters.sellerId);
 
-    // Sin orderBy en Firestore: eventId + createdAt requiere índice compuesto que no está desplegado.
     const snap = await query.limit(500).get();
     let links = snap.docs
       .map((d) => serializePaymentLink({ id: d.id, ...d.data() } as PaymentLink))
+      .filter((l) => ownedEventIds.has(l.eventId))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     if (!filters?.includeArchived) {
       links = links.filter((l) => !l.archived);

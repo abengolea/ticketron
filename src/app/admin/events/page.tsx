@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { RoleGuard } from '@/components/role-guard';
 import { useIdToken } from '@/hooks/use-id-token';
 import { listEvents, createEvent, updateEvent } from '@/lib/actions/events';
+import { getProducerPlanSummary } from '@/lib/actions/producers';
 import type { SerializedEvent } from '@/lib/models';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,7 +32,7 @@ import { Loader2, Plus, Settings2 } from 'lucide-react';
 
 export default function AdminEventsPage() {
   return (
-    <RoleGuard allowedRoles={['admin']}>
+    <RoleGuard allowedRoles={['producer', 'superadmin']}>
       <AdminEventsContent />
     </RoleGuard>
   );
@@ -44,6 +45,13 @@ function AdminEventsContent() {
   const [events, setEvents] = useState<SerializedEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [planSummary, setPlanSummary] = useState<{
+    canCreate: boolean;
+    message?: string;
+    eventsUsed: number;
+    maxEvents: number;
+    quotaType: string;
+  } | null>(null);
   const [form, setForm] = useState({
     name: '',
     date: '',
@@ -56,8 +64,17 @@ function AdminEventsContent() {
   async function load() {
     const token = await getIdToken();
     if (!token) return;
-    const res = await listEvents(token);
-    if (res.success) setEvents(res.data);
+    const [res, plan] = await Promise.all([listEvents(token), getProducerPlanSummary(token)]);
+    if (res.success) {
+      setEvents(res.data);
+    } else {
+      toast({
+        variant: 'destructive',
+        title: 'No se pudieron cargar los eventos',
+        description: res.error,
+      });
+    }
+    if (plan.success && plan.data) setPlanSummary(plan.data);
     setLoading(false);
   }
 
@@ -107,10 +124,31 @@ function AdminEventsContent() {
             Venta digital: Mercado Pago, links de pago y entradas de cortesía.
           </p>
         </section>
-        <Button onClick={() => setShowForm(!showForm)}>
-          <Plus className="w-4 h-4 mr-2" /> Nuevo evento
-        </Button>
+        <section className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/admin/settings">
+              <Settings2 className="w-4 h-4 mr-2" />
+              Mercado Pago
+            </Link>
+          </Button>
+          <Button onClick={() => setShowForm(!showForm)} disabled={planSummary?.canCreate === false}>
+            <Plus className="w-4 h-4 mr-2" /> Nuevo evento
+          </Button>
+        </section>
       </section>
+
+      {planSummary && (
+        <Card>
+          <CardContent className="pt-6 text-sm text-muted-foreground">
+            Plan: {planSummary.eventsUsed} /{' '}
+            {planSummary.quotaType === 'unlimited' ? '∞' : planSummary.maxEvents} eventos
+            {planSummary.quotaType === 'monthly' ? ' (período de 30 días)' : ''}
+            {!planSummary.canCreate && planSummary.message ? (
+              <span className="block text-destructive mt-1">{planSummary.message}</span>
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
 
       {showForm && (
         <Card>
