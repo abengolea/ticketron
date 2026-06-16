@@ -43,10 +43,35 @@ export function requireRole(user: AppUser, ...roles: UserRole[]): void {
   }
 }
 
+export function isSuperAdmin(user: AppUser): boolean {
+  return user.role === 'superadmin';
+}
+
+export function isProducer(user: AppUser): boolean {
+  return user.role === 'producer';
+}
+
+export function canManageEvents(user: AppUser): boolean {
+  return isSuperAdmin(user) || isProducer(user);
+}
+
+/** @deprecated Usar canManageEvents */
 export function isAdmin(user: AppUser): boolean {
-  return user.role === 'admin';
+  return canManageEvents(user);
+}
+
+export function requireManageEvents(user: AppUser): void {
+  if (!canManageEvents(user)) {
+    throw new AuthError('No tenés permisos para esta acción', 'FORBIDDEN');
+  }
+}
+
+export function requireSuperAdmin(user: AppUser): void {
+  if (!isSuperAdmin(user)) {
+    throw new AuthError('Solo el super administrador puede realizar esta acción', 'FORBIDDEN');
+  }
 }
 
 export function canAccessGate(user: AppUser): boolean {
-  return user.role === 'admin' || user.role === 'gate';
+  return canManageEvents(user) || user.role === 'gate';
 }

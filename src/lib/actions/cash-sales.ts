@@ -25,7 +25,7 @@ export async function createCashSale(
 > {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'seller', 'admin');
+    requireRole(user, 'seller', 'producer', 'superadmin');
 
     const parsed = createCashSaleSchema.parse(input);
     const {

@@ -1,13 +1,14 @@
 'use server';
 
 import { Timestamp } from 'firebase-admin/firestore';
-import { verifyIdTokenAndGetUser, requireRole } from '@/lib/auth-server';
+import { verifyIdTokenAndGetUser, requireManageEvents } from '@/lib/auth-server';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
 import { createComplimentaryLinkSchema } from '@/lib/validations';
 import { generateSecureToken } from '@/lib/tokens';
 import { serializePaymentLink } from '@/lib/serialize';
 import { issueTicketsForLink } from '@/lib/services/issue-tickets';
 import { sendComplimentaryTicketEmail } from '@/lib/services/complimentary-ticket-email';
+import { requireEventAccess } from '@/lib/tenant';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type { PaymentLink, SerializedPaymentLink } from '@/lib/models';
 
@@ -24,7 +25,7 @@ export async function createComplimentaryLink(
 > {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireManageEvents(user);
 
     const parsed = createComplimentaryLinkSchema.parse(input);
     const {
@@ -34,6 +35,8 @@ export async function createComplimentaryLink(
       beneficiaryName,
       message,
     } = parsed;
+
+    await requireEventAccess(user, eventId);
 
     const db = getAdminDb();
     const eventSnap = await db.collection(COLLECTIONS.events).doc(eventId).get();

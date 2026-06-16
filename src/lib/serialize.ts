@@ -1,6 +1,7 @@
-import type { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp } from 'firebase-admin/firestore';
 import type {
   BarOrder,
+  BarOrderItem,
   BarProduct,
   PlatformEvent,
   PaymentLink,
@@ -17,6 +18,57 @@ function tsToIso(ts: Timestamp | undefined): string | undefined {
   return ts.toDate().toISOString();
 }
 
+/** Fecha embebida en IDs legacy tipo EVENTO-20251027-1034 */
+function parseLegacyEventIdDate(id: string): Date | null {
+  const match = id.match(/^EVENTO-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})$/);
+  if (!match) return null;
+  const [, y, m, d, hh, mm] = match;
+  return new Date(+y, +m - 1, +d, +hh, +mm);
+}
+
+function asTimestamp(value: unknown, fallback: Timestamp): Timestamp {
+  if (value instanceof Timestamp) return value;
+  if (
+    value &&
+    typeof value === 'object' &&
+    '_seconds' in value &&
+    typeof (value as { _seconds: unknown })._seconds === 'number'
+  ) {
+    const raw = value as { _seconds: number; _nanoseconds?: number };
+    return new Timestamp(raw._seconds, raw._nanoseconds ?? 0);
+  }
+  return fallback;
+}
+
+/** Normaliza documentos legacy y actuales de la colección events. */
+export function normalizeEventDoc(
+  id: string,
+  raw: FirebaseFirestore.DocumentData
+): PlatformEvent {
+  const now = Timestamp.now();
+  const createdAt = asTimestamp(raw.createdAt, now);
+  const legacyDate = parseLegacyEventIdDate(id);
+  const date = raw.date
+    ? asTimestamp(raw.date, createdAt)
+    : legacyDate
+      ? Timestamp.fromDate(legacyDate)
+      : createdAt;
+
+  return {
+    id,
+    name: String(raw.name ?? raw.eventName ?? id).trim(),
+    date,
+    location: (raw.location ?? raw.venue ?? undefined) as string | undefined,
+    active: raw.active !== false,
+    capacity: Number(raw.capacity ?? raw.ticketCount ?? 0),
+    sold: Number(raw.sold ?? 0),
+    price: Number(raw.price ?? 0),
+    ownerId: String(raw.ownerId ?? ''),
+    createdAt,
+    updatedAt: asTimestamp(raw.updatedAt, createdAt),
+  };
+}
+
 export function serializeEvent(e: PlatformEvent): SerializedEvent {
   return {
     id: e.id,
@@ -27,6 +79,7 @@ export function serializeEvent(e: PlatformEvent): SerializedEvent {
     capacity: e.capacity,
     sold: e.sold,
     price: e.price,
+    ownerId: e.ownerId,
   };
 }
 
@@ -54,6 +107,42 @@ export function serializePaymentLink(p: PaymentLink): SerializedPaymentLink {
   };
 }
 
+export function barOrderItems(
+  order: Pick<BarOrder, 'items' | 'productId' | 'productName' | 'unitPrice' | 'quantity'>
+): BarOrderItem[] {
+  if (order.items?.length) return order.items;
+  if (order.productId && order.productName) {
+    return [
+      {
+        productId: order.productId,
+        productName: order.productName,
+        unitPrice: order.unitPrice ?? 0,
+        quantity: order.quantity ?? 1,
+      },
+    ];
+  }
+  return [];
+}
+
+export function barOrderItemsLabel(items: BarOrderItem[]): string {
+  return items.map((i) => `${i.productName} x${i.quantity}`).join(', ');
+}
+
+export function barProductAvailable(p: BarProduct): boolean {
+  if (typeof p.stock === 'number') return p.stock > 0;
+  return true;
+}
+
+export function compareBarProducts(
+  a: SerializedBarProduct,
+  b: SerializedBarProduct
+): number {
+  const sa = a.sortOrder ?? 9999;
+  const sb = b.sortOrder ?? 9999;
+  if (sa !== sb) return sa - sb;
+  return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+}
+
 export function serializeBarProduct(p: BarProduct): SerializedBarProduct {
   return {
     id: p.id,
@@ -61,15 +150,20 @@ export function serializeBarProduct(p: BarProduct): SerializedBarProduct {
     name: p.name,
     price: p.price,
     active: p.active,
+    stock: typeof p.stock === 'number' ? p.stock : null,
+    sortOrder: p.sortOrder,
     createdAt: p.createdAt.toDate().toISOString(),
   };
 }
 
 export function serializeBarOrder(o: BarOrder): SerializedBarOrder {
+  const items = barOrderItems(o);
   return {
     id: o.id,
     token: o.token,
     eventId: o.eventId,
+    items,
+    itemsLabel: barOrderItemsLabel(items),
     productId: o.productId,
     productName: o.productName,
     unitPrice: o.unitPrice,

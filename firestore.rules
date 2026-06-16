@@ -3,12 +3,9 @@ rules_version = '2';
 /**
  * Ticketron — Reglas de seguridad Firestore
  *
- * IMPORTANTE: Las operaciones sensibles (crear tickets, payment links,
- * actualizar cupos, validar QR) se ejecutan SOLO vía Firebase Admin SDK
- * en server actions / API routes. El cliente NO debe escribir en colecciones críticas.
+ * Operaciones sensibles vía Firebase Admin SDK en server actions.
  *
- * Crear el primer admin manualmente en consola Firebase:
- *   users/{uid}: { email, displayName, role: "admin", active: true, createdAt, updatedAt }
+ * Primer superadmin: scripts/bootstrap-superadmin.ts
  */
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -29,8 +26,16 @@ service cloud.firestore {
       return isActiveUser() && userDoc().data.role == role;
     }
 
-    function isAdmin() {
-      return hasRole('admin');
+    function isSuperAdmin() {
+      return hasRole('superadmin');
+    }
+
+    function isProducer() {
+      return hasRole('producer');
+    }
+
+    function canManageEvents() {
+      return isSuperAdmin() || isProducer();
     }
 
     function isSeller() {
@@ -38,52 +43,45 @@ service cloud.firestore {
     }
 
     function isGate() {
-      return hasRole('gate') || isAdmin();
+      return hasRole('gate') || canManageEvents();
     }
 
     function isBuyer() {
       return hasRole('buyer');
     }
 
-    // Perfil de usuario — lectura propia; escritura solo admin vía consola/Admin SDK
     match /users/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
-      allow read: if isAdmin();
+      allow read: if canManageEvents() || isSuperAdmin();
       allow write: if false;
     }
 
-    // Eventos — lectura para usuarios autenticados activos; escritura bloqueada (Admin SDK)
     match /events/{eventId} {
       allow read: if isActiveUser();
       allow write: if false;
     }
 
-    // Acceso vendedor-evento
     match /sellerEventAccess/{accessId} {
-      allow read: if isAdmin();
+      allow read: if canManageEvents();
       allow read: if isSeller() && resource.data.sellerId == request.auth.uid;
       allow write: if false;
     }
 
-    // Links de pago — vendedor lee los suyos; escritura bloqueada
     match /paymentLinks/{linkId} {
-      allow read: if isAdmin();
+      allow read: if canManageEvents();
       allow read: if isSeller() && resource.data.sellerId == request.auth.uid;
       allow write: if false;
     }
 
-    // Tickets — admin y gate leen; escritura bloqueada (validación vía servidor)
     match /tickets/{ticketId} {
-      allow read: if isAdmin() || isGate();
+      allow read: if canManageEvents() || isGate();
       allow write: if false;
     }
 
-    // Tokens de activación comprador — solo Admin SDK
     match /buyerActivationTokens/{tokenId} {
       allow read, write: if false;
     }
 
-    // Bar: productos y órdenes — solo Admin SDK (server actions)
     match /barProducts/{productId} {
       allow read, write: if false;
     }

@@ -42,9 +42,36 @@ export const createSellerAccessSchema = z.object({
 
 export const updateUserSchema = z.object({
   uid: z.string().min(1),
-  role: z.enum(['admin', 'seller', 'gate']).optional(),
+  role: z.enum(['producer', 'seller', 'gate']).optional(),
   active: z.boolean().optional(),
   displayName: z.string().min(1).optional(),
+});
+
+export const createProducerSchema = z.object({
+  email: z.string().email('Email inválido'),
+  password: z.string().min(6, 'Mínimo 6 caracteres'),
+  displayName: z.string().min(2, 'Nombre requerido'),
+  maxEvents: z.coerce.number().int().nonnegative(),
+  quotaType: z.enum(['monthly', 'lifetime', 'unlimited']),
+  pricePerEvent: z.coerce.number().nonnegative(),
+  planNotes: z.string().max(500).optional().or(z.literal('')),
+  mercadoPagoAccessToken: z.string().min(10).optional().or(z.literal('')),
+});
+
+export const updateProducerSchema = z.object({
+  uid: z.string().min(1),
+  active: z.boolean().optional(),
+  displayName: z.string().min(2).optional(),
+  maxEvents: z.coerce.number().int().nonnegative().optional(),
+  quotaType: z.enum(['monthly', 'lifetime', 'unlimited']).optional(),
+  pricePerEvent: z.coerce.number().nonnegative().optional(),
+  planActive: z.boolean().optional(),
+  planNotes: z.string().max(500).optional().or(z.literal('')),
+  mercadoPagoAccessToken: z.string().min(10).optional().or(z.literal('')),
+});
+
+export const updateProducerSettingsSchema = z.object({
+  mercadoPagoAccessToken: z.string().min(10, 'Token de acceso inválido'),
 });
 
 export const createPaymentLinkSchema = z.object({
@@ -85,6 +112,7 @@ export const createBarProductSchema = z.object({
   eventId: z.string().min(1),
   name: z.string().trim().min(2, 'Nombre del producto requerido').max(60, 'Máximo 60 caracteres'),
   price: z.coerce.number().positive('Precio debe ser mayor a 0'),
+  stock: z.coerce.number().int().nonnegative().nullable().optional(),
 });
 
 export const updateBarProductSchema = z.object({
@@ -92,13 +120,34 @@ export const updateBarProductSchema = z.object({
   name: z.string().trim().min(2, 'Nombre del producto requerido').max(60).optional(),
   price: z.coerce.number().positive('Precio debe ser mayor a 0').optional(),
   active: z.boolean().optional(),
+  stock: z.coerce.number().int().nonnegative().nullable().optional(),
 });
 
 export const createBarOrderSchema = z.object({
   eventId: z.string().min(1),
+  items: z
+    .array(
+      z.object({
+        productId: z.string().min(1),
+        quantity: z.coerce.number().int().min(1).max(20),
+      })
+    )
+    .min(1),
+  buyerName: z.string().trim().min(2, 'Nombre requerido').max(60, 'Máximo 60 caracteres'),
+});
+
+export const setBarProductActiveSchema = z.object({
   productId: z.string().min(1),
-  quantity: z.coerce.number().int().min(1).max(20),
-  buyerName: z.string().trim().max(60, 'Máximo 60 caracteres').optional().or(z.literal('')),
+  active: z.boolean(),
+});
+
+export const redeemBarOrderSchema = z.object({
+  orderId: z.string().min(1),
+});
+
+export const reorderBarProductsSchema = z.object({
+  eventId: z.string().min(1),
+  productIds: z.array(z.string().min(1)).min(1),
 });
 
 export const barValidateSchema = z.object({

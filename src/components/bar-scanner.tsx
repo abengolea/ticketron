@@ -187,11 +187,11 @@ export function BarScanner({ eventId }: BarScannerProps) {
           <Icon className="h-5 w-5" />
           <AlertTitle className="text-lg">{title}</AlertTitle>
           <AlertDescription className="text-base space-y-2">
-            {lastResult.productName && (
+            {lastResult.items?.length ? (
               <p className="text-xl font-bold text-foreground">
-                {lastResult.productName} x{lastResult.quantity ?? 1}
+                {lastResult.items.map((i) => `${i.productName} x${i.quantity}`).join(', ')}
               </p>
-            )}
+            ) : null}
             <p>{lastResult.message}</p>
             {lastResult.buyerName && (
               <p className="font-semibold text-foreground">{lastResult.buyerName}</p>

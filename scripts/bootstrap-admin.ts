@@ -43,7 +43,7 @@ async function main() {
     email: authUser.email ?? email,
     displayName:
       authUser.displayName ?? authUser.email?.split('@')[0] ?? 'Admin',
-    role: 'admin' as const,
+    role: 'producer' as const,
     active: true,
     updatedAt: now,
     ...(existing.exists ? {} : { createdAt: now }),
@@ -54,7 +54,7 @@ async function main() {
   console.log('Usuario admin configurado:');
   console.log(`  uid:   ${authUser.uid}`);
   console.log(`  email: ${data.email}`);
-  console.log(`  role:  admin`);
+  console.log(`  role:  producer`);
   console.log('\nPodés volver a iniciar sesión en /login');
 }
 

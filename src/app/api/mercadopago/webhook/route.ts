@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPayment } from '@/lib/mercadopago';
 import {
   findPaymentLinkForPayment,
   fulfillPaymentLink,
@@ -10,9 +9,10 @@ import {
   parseBarOrderExternalReference,
 } from '@/lib/services/bar-fulfillment';
 import { sendPurchaseConfirmationEmail } from '@/lib/services/purchase-confirmation-email';
+import { resolveMercadoPagoPayment } from '@/lib/services/mercadopago-resolve';
 
 /**
- * Webhook Mercado Pago — configurar en panel MP:
+ * Webhook Mercado Pago — configurar en panel MP de cada productor:
  *   {NEXT_PUBLIC_APP_URL}/api/mercadopago/webhook
  * Eventos: payment
  */
@@ -33,13 +33,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing payment id' }, { status: 400 });
     }
 
-    const payment = await getPayment(paymentId);
+    const resolved = await resolveMercadoPagoPayment(paymentId);
+    if (!resolved) {
+      console.error('No se pudo resolver el pago MP con ningún token de productor', paymentId);
+      return NextResponse.json({ error: 'Payment not found' }, { status: 404 });
+    }
+
+    const { payment } = resolved;
 
     if (payment.status !== 'approved') {
       return NextResponse.json({ received: true, status: payment.status });
     }
 
-    // Órdenes de bar usan external_reference con prefijo "bar:"
     if (parseBarOrderExternalReference(payment.external_reference)) {
       const barOrder = await findBarOrderForPayment(
         payment.preference_id,
@@ -65,7 +70,6 @@ export async function POST(request: NextRequest) {
     );
 
     if (!paymentLink) {
-      // Fallback: pago de bar reportado sin external_reference
       const barOrder = await findBarOrderForPayment(payment.preference_id, undefined);
       if (barOrder) {
         const barResult = await fulfillBarOrder(barOrder.id, paymentId);

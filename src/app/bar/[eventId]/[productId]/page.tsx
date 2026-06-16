@@ -48,9 +48,8 @@ export default function BarProductPage() {
     setError(null);
     const res = await createBarOrder({
       eventId,
-      productId,
-      quantity,
-      buyerName: buyerName.trim() || undefined,
+      items: [{ productId, quantity }],
+      buyerName: buyerName.trim(),
     });
     if (res.success) {
       window.location.href = res.data.initPoint;
@@ -97,7 +96,7 @@ export default function BarProductPage() {
             <QuantityStepper id="barQuantity" max={20} value={quantity} onChange={setQuantity} />
           </section>
           <section className="space-y-2">
-            <Label htmlFor="barBuyerName">Tu nombre (opcional)</Label>
+            <Label htmlFor="barBuyerName">Tu nombre y apellido (obligatorio)</Label>
             <Input
               id="barBuyerName"
               placeholder="Para identificarte al retirar"
@@ -118,7 +117,12 @@ export default function BarProductPage() {
             </Alert>
           )}
 
-          <Button onClick={handlePay} disabled={paying} className="w-full" size="lg">
+          <Button
+            onClick={handlePay}
+            disabled={paying || buyerName.trim().length < 2}
+            className="w-full"
+            size="lg"
+          >
             {paying && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
             Pagar con Mercado Pago
           </Button>

@@ -1,12 +1,13 @@
 'use server';
 
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { verifyIdTokenAndGetUser, requireRole } from '@/lib/auth-server';
+import { verifyIdTokenAndGetUser, requireManageEvents } from '@/lib/auth-server';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
 import { cancelTicketSchema, archiveTicketSchema } from '@/lib/validations';
 import { serializeTicket } from '@/lib/serialize';
 import { getTicketPaymentDisplay } from '@/lib/payment-display';
 import { loadSerializedPaymentLinksByIds } from '@/lib/services/payment-links-batch';
+import { requireEventAccess, getOwnedEventIds } from '@/lib/tenant';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type {
   SerializedTicket,
@@ -122,7 +123,8 @@ export async function listTicketsForEvent(
 ): Promise<ActionResult<ListTicketsForEventResult>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireManageEvents(user);
+    await requireEventAccess(user, eventId);
 
     const db = getAdminDb();
     const pageSize = options?.limit ?? DEFAULT_TICKETS_PAGE_SIZE;
@@ -186,7 +188,7 @@ export async function archiveTicket(
 ): Promise<ActionResult<void>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireManageEvents(user);
 
     const { ticketId } = archiveTicketSchema.parse(input);
     const ref = getAdminDb().collection(COLLECTIONS.tickets).doc(ticketId);
@@ -194,6 +196,7 @@ export async function archiveTicket(
     if (!snap.exists) return fail('Entrada no encontrada');
 
     const ticket = snap.data()!;
+    await requireEventAccess(user, ticket.eventId as string);
     if (ticket.archived) return ok(undefined);
 
     await ref.update({
@@ -212,12 +215,15 @@ export async function cancelTicket(
 ): Promise<ActionResult<void>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireManageEvents(user);
 
     const { ticketId } = cancelTicketSchema.parse(input);
     const ref = getAdminDb().collection(COLLECTIONS.tickets).doc(ticketId);
     const snap = await ref.get();
     if (!snap.exists) return fail('Ticket no encontrado');
+
+    const ticket = snap.data()!;
+    await requireEventAccess(user, ticket.eventId as string);
 
     await ref.update({ status: 'CANCELLED' });
     return ok(undefined);
@@ -232,13 +238,21 @@ export async function exportTicketsCsv(
 ): Promise<ActionResult<string>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireManageEvents(user);
 
     let query = getAdminDb().collection(COLLECTIONS.tickets) as FirebaseFirestore.Query;
-    if (eventId) query = query.where('eventId', '==', eventId);
+    if (eventId) {
+      await requireEventAccess(user, eventId);
+      query = query.where('eventId', '==', eventId);
+    }
 
     const snap = await query.get();
-    const linkIds = snap.docs.map((d) => d.data().paymentLinkId as string);
+    const ownedEventIds = new Set(await getOwnedEventIds(user));
+    const docs = eventId
+      ? snap.docs
+      : snap.docs.filter((d) => ownedEventIds.has(d.data().eventId as string));
+
+    const linkIds = docs.map((d) => d.data().paymentLinkId as string);
     const linkById = await loadSerializedPaymentLinksByIds(linkIds);
 
     let unitPrice: number | undefined;
@@ -249,7 +263,7 @@ export async function exportTicketsCsv(
 
     const header =
       'ticketCode,buyerName,buyerEmail,buyerPhone,paymentMethod,paymentAmount,status,eventId,sellerId,createdAt\n';
-    const rows = snap.docs.map((d) => {
+    const rows = docs.map((d) => {
       const t = d.data();
       const payment = getTicketPaymentDisplay(linkById.get(t.paymentLinkId), {
         unitPrice,

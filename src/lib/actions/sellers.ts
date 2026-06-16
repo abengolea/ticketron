@@ -6,10 +6,11 @@ import {
   type Query,
   type QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
-import { verifyIdTokenAndGetUser, requireRole } from '@/lib/auth-server';
+import { verifyIdTokenAndGetUser, requireManageEvents, requireRole } from '@/lib/auth-server';
 import { getAdminAuth, getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
 import { createSellerAccessSchema, createSellerSchema, updateUserSchema } from '@/lib/validations';
 import { sumPendingPaymentReservations } from '@/lib/services/payment-link-reservations';
+import { requireEventAccess, getOwnedEventIds } from '@/lib/tenant';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type { SerializedSellerAccess, UserRole } from '@/lib/models';
 
@@ -24,8 +25,9 @@ export interface UserListItem {
 export async function listUsers(idToken: string): Promise<ActionResult<UserListItem[]>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireManageEvents(user);
 
+    const ownedEventIds = new Set(await getOwnedEventIds(user));
     const snap = await getAdminDb().collection(COLLECTIONS.users).get();
     const users = snap.docs.map((d) => {
       const data = d.data();
@@ -37,6 +39,16 @@ export async function listUsers(idToken: string): Promise<ActionResult<UserListI
         active: data.active as boolean,
       };
     });
+    // Productores solo ven vendedores con acceso a sus eventos
+    if (user.role === 'producer') {
+      const accessSnap = await getAdminDb().collection(COLLECTIONS.sellerEventAccess).get();
+      const sellerIds = new Set(
+        accessSnap.docs
+          .filter((d) => ownedEventIds.has(d.data().eventId as string))
+          .map((d) => d.data().sellerId as string)
+      );
+      return ok(users.filter((u) => u.role === 'seller' && sellerIds.has(u.uid)));
+    }
     return ok(users);
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error');
@@ -48,8 +60,8 @@ export async function createSeller(
   input: unknown
 ): Promise<ActionResult<{ uid: string }>> {
   try {
-    const admin = await verifyIdTokenAndGetUser(idToken);
-    requireRole(admin, 'admin');
+    const manager = await verifyIdTokenAndGetUser(idToken);
+    requireManageEvents(manager);
 
     const parsed = createSellerSchema.parse(input);
     const auth = getAdminAuth();
@@ -85,8 +97,8 @@ export async function updateUser(
   input: unknown
 ): Promise<ActionResult<UserListItem>> {
   try {
-    const admin = await verifyIdTokenAndGetUser(idToken);
-    requireRole(admin, 'admin');
+    const manager = await verifyIdTokenAndGetUser(idToken);
+    requireManageEvents(manager);
 
     const parsed = updateUserSchema.parse(input);
     const ref = getAdminDb().collection(COLLECTIONS.users).doc(parsed.uid);
@@ -119,10 +131,12 @@ export async function assignSellerAccess(
 ): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireManageEvents(user);
 
     const parsed = createSellerAccessSchema.parse(input);
     const db = getAdminDb();
+
+    await requireEventAccess(user, parsed.eventId);
 
     const seller = await db.collection(COLLECTIONS.users).doc(parsed.sellerId).get();
     if (!seller.exists || seller.data()?.role !== 'seller') {
@@ -166,14 +180,16 @@ export async function listSellerAccessAdmin(
 ): Promise<ActionResult<SerializedSellerAccess[]>> {
   try {
     const user = await verifyIdTokenAndGetUser(idToken);
-    requireRole(user, 'admin');
+    requireManageEvents(user);
 
+    const ownedEventIds = new Set(await getOwnedEventIds(user));
     let query: Query = getAdminDb().collection(COLLECTIONS.sellerEventAccess);
     if (filters?.sellerId) query = query.where('sellerId', '==', filters.sellerId);
     if (filters?.eventId) query = query.where('eventId', '==', filters.eventId);
 
     const snap = await query.get();
-    const result = await buildSellerAccessList(snap.docs);
+    const filtered = snap.docs.filter((d) => ownedEventIds.has(d.data().eventId as string));
+    const result = await buildSellerAccessList(filtered);
     return ok(result);
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error');

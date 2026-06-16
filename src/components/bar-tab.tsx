@@ -154,7 +154,14 @@ export function BarTab({ eventId, eventName, getIdToken }: BarTabProps) {
   const soldByProduct = useMemo(() => {
     const map = new Map<string, number>();
     for (const o of paidOrders) {
-      map.set(o.productId, (map.get(o.productId) ?? 0) + o.quantity);
+      const lineItems = o.items?.length
+        ? o.items
+        : o.productId
+          ? [{ productId: o.productId, quantity: o.quantity ?? 1 }]
+          : [];
+      for (const item of lineItems) {
+        map.set(item.productId, (map.get(item.productId) ?? 0) + item.quantity);
+      }
     }
     return map;
   }, [paidOrders]);
