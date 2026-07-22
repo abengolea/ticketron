@@ -484,6 +484,7 @@ function EventDetailContent() {
   }
 
   async function copyGateLink() {
+    if (!event) return;
     const copied = await copyTextSafe(gateValidatorUrl(event.id));
     toast({
       title: copied ? 'Link del validador copiado' : 'No se pudo copiar',
@@ -494,6 +495,7 @@ function EventDetailContent() {
   }
 
   function shareGateWhatsApp() {
+    if (!event) return;
     const url = gateValidatorUrl(event.id);
     const text = `Validador de entradas — ${event.name}: ${url}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
