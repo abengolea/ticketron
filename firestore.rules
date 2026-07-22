@@ -34,8 +34,16 @@ service cloud.firestore {
       return hasRole('producer');
     }
 
+    function isDirigente() {
+      return hasRole('dirigente');
+    }
+
     function canManageEvents() {
       return isSuperAdmin() || isProducer();
+    }
+
+    function canManageAccess() {
+      return isSuperAdmin() || isDirigente();
     }
 
     function isSeller() {
@@ -43,7 +51,7 @@ service cloud.firestore {
     }
 
     function isGate() {
-      return hasRole('gate') || canManageEvents();
+      return hasRole('gate') || canManageEvents() || canManageAccess();
     }
 
     function isBuyer() {
@@ -52,7 +60,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
-      allow read: if canManageEvents() || isSuperAdmin();
+      allow read: if canManageEvents() || canManageAccess() || isSuperAdmin();
       allow write: if false;
     }
 
@@ -87,6 +95,38 @@ service cloud.firestore {
     }
 
     match /barOrders/{orderId} {
+      allow read, write: if false;
+    }
+
+    match /accessDays/{docId} {
+      allow read, write: if false;
+    }
+
+    match /accessEvents/{docId} {
+      allow read, write: if false;
+    }
+
+    match /visitorInviteLinks/{docId} {
+      allow read, write: if false;
+    }
+
+    match /accessPasses/{docId} {
+      allow read, write: if false;
+    }
+
+    match /accessScans/{docId} {
+      allow read, write: if false;
+    }
+
+    match /visitorClubs/{docId} {
+      allow read, write: if false;
+    }
+
+    match /platformConfig/{docId} {
+      allow read, write: if false;
+    }
+
+    match /eventFeeCharges/{docId} {
       allow read, write: if false;
     }
   }

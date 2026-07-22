@@ -22,22 +22,39 @@ import { useToast } from '@/hooks/use-toast';
 import type { UserRole } from '@/lib/models';
 import { cn } from '@/lib/utils';
 
-const validatorNavItems = [
-  { href: '/gate', label: 'Validador digital', icon: QrCode, emphasized: true },
-];
+const validatorNavItemsByRole: Partial<
+  Record<UserRole, { href: string; label: string; icon: typeof Ticket; emphasized?: boolean }[]>
+> = {
+  superadmin: [
+    { href: '/gate', label: 'Validador digital', icon: QrCode, emphasized: true },
+    { href: '/access/scan', label: 'Escáner visitantes', icon: DoorOpen, emphasized: true },
+  ],
+  producer: [
+    { href: '/gate', label: 'Validador digital', icon: QrCode, emphasized: true },
+  ],
+  dirigente: [
+    { href: '/access/scan', label: 'Escáner visitantes', icon: DoorOpen, emphasized: true },
+  ],
+  gate: [
+    { href: '/gate', label: 'Validador digital', icon: QrCode, emphasized: true },
+    { href: '/access/scan', label: 'Escáner visitantes', icon: DoorOpen, emphasized: true },
+  ],
+};
 
 const navByRole: Record<UserRole, { href: string; label: string; icon: typeof Ticket }[]> = {
   superadmin: [
     { href: '/superadmin', label: 'Super Admin', icon: Shield },
     { href: '/admin/events', label: 'Mis eventos', icon: Ticket },
+    { href: '/admin/access', label: 'Visitantes', icon: DoorOpen },
     { href: '/admin/sellers', label: 'Vendedores', icon: Store },
-    { href: '/admin/settings', label: 'Mercado Pago', icon: Settings2 },
+    { href: '/admin/settings', label: 'Ajustes', icon: Settings2 },
   ],
   producer: [
     { href: '/admin/events', label: 'Eventos', icon: Ticket },
     { href: '/admin/sellers', label: 'Vendedores', icon: Store },
-    { href: '/admin/settings', label: 'Mercado Pago', icon: Settings2 },
+    { href: '/admin/settings', label: 'Ajustes', icon: Settings2 },
   ],
+  dirigente: [{ href: '/admin/access', label: 'Control de visitantes', icon: DoorOpen }],
   seller: [{ href: '/seller', label: 'Mis ventas', icon: Store }],
   gate: [],
   buyer: [{ href: '/my-tickets', label: 'Mis entradas', icon: Ticket }],
@@ -54,7 +71,8 @@ type NavItem = {
 function isNavItemActive(pathname: string, href: string): boolean {
   if (pathname === href) return true;
   if (href === '/gate' && pathname.startsWith('/gate')) return true;
-  if (href !== '/gate' && pathname.startsWith(href)) return true;
+  if (href === '/access/scan' && pathname.startsWith('/access/scan')) return true;
+  if (href !== '/gate' && href !== '/access/scan' && pathname.startsWith(href)) return true;
   return false;
 }
 
@@ -115,7 +133,9 @@ export function Header() {
     pathname.startsWith('/checkout') ||
     pathname.startsWith('/ticket') ||
     pathname.startsWith('/activate') ||
-    pathname.startsWith('/a/');
+    pathname.startsWith('/a/') ||
+    pathname.startsWith('/access/invite') ||
+    pathname.startsWith('/access/pass');
 
   useEffect(() => {
     async function loadSession() {
@@ -143,22 +163,30 @@ export function Header() {
   };
 
   const platformNav = session ? navByRole[session.role] ?? [] : [];
+  const validatorNavItems = session ? validatorNavItemsByRole[session.role] ?? [] : [];
   const showPlatformNav =
     !!session && session.role !== 'buyer' && platformNav.length > 0;
-  const showValidators =
-    !!user &&
-    (!session ||
-      session.role === 'producer' ||
+  const showValidators = validatorNavItems.length > 0;
+  const showGateShortcut =
+    !!session &&
+    (session.role === 'producer' ||
       session.role === 'superadmin' ||
-      session.role === 'gate');
-  const showGateShortcut = showValidators;
+      session.role === 'gate' ||
+      session.role === 'dirigente');
   const showNavSection = showValidators || showPlatformNav;
+  const showProducerCta =
+    !session &&
+    !user &&
+    pathname !== '/register' &&
+    pathname !== '/login';
 
   const homeHref =
     session?.role === 'superadmin'
       ? '/superadmin'
       : session?.role === 'producer'
         ? '/admin/events'
+        : session?.role === 'dirigente'
+          ? '/admin/access'
         : session?.role === 'gate'
           ? '/gate'
           : session?.role === 'seller'
@@ -167,7 +195,7 @@ export function Header() {
               ? '/my-tickets'
               : user
                 ? '/gate'
-                : '/login';
+                : '/';
 
   return (
     <header className="bg-card/95 backdrop-blur-sm border-b sticky top-0 z-50">
@@ -185,12 +213,30 @@ export function Header() {
               <Button
                 asChild
                 size="sm"
-                variant={pathname.startsWith('/gate') ? 'default' : 'outline'}
+                variant={
+                  session?.role === 'dirigente'
+                    ? pathname.startsWith('/access/scan')
+                      ? 'default'
+                      : 'outline'
+                    : pathname.startsWith('/gate')
+                      ? 'default'
+                      : 'outline'
+                }
                 className="shrink-0"
               >
-                <Link href="/gate" aria-label="Validador en puerta" title="Validador digital">
+                <Link
+                  href={session?.role === 'dirigente' ? '/access/scan' : '/gate'}
+                  aria-label={
+                    session?.role === 'dirigente' ? 'Escáner visitantes' : 'Validador en puerta'
+                  }
+                  title={
+                    session?.role === 'dirigente' ? 'Escáner visitantes' : 'Validador digital'
+                  }
+                >
                   <DoorOpen className="h-4 w-4" />
-                  <span className="sr-only">Validador digital</span>
+                  <span className="sr-only">
+                    {session?.role === 'dirigente' ? 'Escáner visitantes' : 'Validador digital'}
+                  </span>
                 </Link>
               </Button>
             )}
@@ -205,14 +251,23 @@ export function Header() {
                   <LogOut className="h-4 w-4" />
                 </Button>
               </>
-            ) : pathname !== '/login' ? (
-              <Button asChild variant="outline" size="sm">
-                <Link href="/login">
-                  <User className="mr-2 h-4 w-4" />
-                  Ingresar
-                </Link>
-              </Button>
-            ) : null}
+            ) : (
+              <>
+                {showProducerCta && (
+                  <Button asChild variant="ghost" size="sm">
+                    <Link href="/register">Ser productor</Link>
+                  </Button>
+                )}
+                {pathname !== '/login' && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link href="/login">
+                      <User className="mr-2 h-4 w-4" />
+                      Ingresar
+                    </Link>
+                  </Button>
+                )}
+              </>
+            )}
           </section>
         </section>
 
@@ -226,7 +281,9 @@ export function Header() {
                 label={
                   session!.role === 'producer' || session!.role === 'superadmin'
                     ? 'Venta digital'
-                    : 'Panel'
+                    : session!.role === 'dirigente'
+                      ? 'Control de club'
+                      : 'Panel'
                 }
                 items={platformNav}
                 pathname={pathname}

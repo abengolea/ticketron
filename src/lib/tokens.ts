@@ -14,3 +14,8 @@ export function generateTicketCode(): string {
 export function generateActivationCode(): string {
   return randomBytes(6).toString('base64url').slice(0, 8);
 }
+
+/** Código público de credencial de acceso visitante */
+export function generateAccessCode(): string {
+  return `ACC-${randomBytes(6).toString('base64url').toUpperCase().slice(0, 10)}`;
+}

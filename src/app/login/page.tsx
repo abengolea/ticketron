@@ -43,6 +43,8 @@ function roleHome(role: UserRole): string {
       return '/superadmin';
     case 'producer':
       return '/admin/events';
+    case 'dirigente':
+      return '/admin/access';
     case 'seller':
       return '/seller';
     case 'gate':
@@ -101,7 +103,7 @@ export default function LoginPage() {
     void redirectIfLoggedIn();
   }, [user, userLoading, router, auth]);
 
-  const TEAM_ROLES: UserRole[] = ['superadmin', 'producer', 'seller', 'gate'];
+  const TEAM_ROLES: UserRole[] = ['superadmin', 'producer', 'dirigente', 'seller', 'gate'];
 
   async function handleTeamSignIn(e: React.FormEvent) {
     e.preventDefault();

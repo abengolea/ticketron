@@ -10,8 +10,9 @@ export function normalizeProducerPlan(raw: ProducerPlan): ProducerPlan {
     eventsUsed: raw.eventsUsed ?? 0,
     quotaPeriodStart: raw.quotaPeriodStart,
     pricePerEvent: raw.pricePerEvent ?? 0,
+    pricePerTicket: raw.pricePerTicket ?? 0,
     planActive: raw.planActive ?? true,
-    planNotes: raw.planNotes,
+    ...(raw.planNotes ? { planNotes: raw.planNotes } : {}),
     createdBy: raw.createdBy,
   };
 }
@@ -63,17 +64,21 @@ export function defaultProducerPlan(
     maxEvents: number;
     quotaType: QuotaType;
     pricePerEvent: number;
+    pricePerTicket?: number;
     planNotes?: string;
+    planActive?: boolean;
   }
 ): ProducerPlan {
+  const notes = opts.planNotes?.trim();
   return {
     maxEvents: opts.maxEvents,
     quotaType: opts.quotaType,
     eventsUsed: 0,
     quotaPeriodStart: Timestamp.now(),
     pricePerEvent: opts.pricePerEvent,
-    planActive: true,
-    planNotes: opts.planNotes,
+    pricePerTicket: opts.pricePerTicket ?? 0,
+    planActive: opts.planActive ?? true,
+    ...(notes ? { planNotes: notes } : {}),
     createdBy,
   };
 }

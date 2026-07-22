@@ -2,6 +2,7 @@ import type {Metadata} from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 import { Header } from '@/components/header';
+import { AppMain } from '@/components/app-main';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 import { Inter, Belleza } from 'next/font/google';
 
@@ -20,7 +21,8 @@ const belleza = Belleza({
 
 export const metadata: Metadata = {
   title: 'Ticketron',
-  description: 'Plataforma privada de venta de entradas digitales para eventos',
+  description:
+    'Vendé entradas digitales, cobrá con Mercado Pago y validá en puerta. Para productores de eventos.',
 };
 
 export default function RootLayout({
@@ -33,9 +35,7 @@ export default function RootLayout({
       <body className="font-body antialiased min-h-screen flex flex-col">
         <FirebaseClientProvider>
           <Header />
-          <main className="flex-grow container mx-auto px-4 py-8">
-            {children}
-          </main>
+          <AppMain>{children}</AppMain>
           <Toaster />
         </FirebaseClientProvider>
       </body>

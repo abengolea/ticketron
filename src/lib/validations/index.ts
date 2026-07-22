@@ -42,7 +42,7 @@ export const createSellerAccessSchema = z.object({
 
 export const updateUserSchema = z.object({
   uid: z.string().min(1),
-  role: z.enum(['producer', 'seller', 'gate']).optional(),
+  role: z.enum(['producer', 'dirigente', 'seller', 'gate']).optional(),
   active: z.boolean().optional(),
   displayName: z.string().min(1).optional(),
 });
@@ -54,8 +54,39 @@ export const createProducerSchema = z.object({
   maxEvents: z.coerce.number().int().nonnegative(),
   quotaType: z.enum(['monthly', 'lifetime', 'unlimited']),
   pricePerEvent: z.coerce.number().nonnegative(),
+  pricePerTicket: z.coerce.number().nonnegative().default(0),
   planNotes: z.string().max(500).optional().or(z.literal('')),
   mercadoPagoAccessToken: z.string().min(10).optional().or(z.literal('')),
+});
+
+export const registerProducerSchema = z.object({
+  email: z.string().email('Email inválido'),
+  password: z.string().min(6, 'Mínimo 6 caracteres'),
+  displayName: z.string().min(2, 'Nombre requerido').max(80),
+  organizationName: z.string().min(2, 'Nombre de productora requerido').max(100),
+  phone: z.string().min(8, 'Teléfono inválido').max(30),
+  registrationNotes: z.string().max(500).optional().or(z.literal('')),
+  acceptTerms: z.literal(true, {
+    errorMap: () => ({ message: 'Debés aceptar las Bases y Condiciones' }),
+  }),
+});
+
+export const approveProducerSchema = z.object({
+  uid: z.string().min(1),
+  maxEvents: z.coerce.number().int().nonnegative(),
+  quotaType: z.enum(['monthly', 'lifetime', 'unlimited']),
+  pricePerEvent: z.coerce.number().nonnegative(),
+  pricePerTicket: z.coerce.number().nonnegative(),
+  planNotes: z.string().max(500).optional().or(z.literal('')),
+});
+
+export const rejectProducerSchema = z.object({
+  uid: z.string().min(1),
+});
+
+export const updatePlatformBillingSchema = z.object({
+  pricePerEvent: z.coerce.number().nonnegative(),
+  pricePerTicket: z.coerce.number().nonnegative(),
 });
 
 export const updateProducerSchema = z.object({
@@ -65,6 +96,7 @@ export const updateProducerSchema = z.object({
   maxEvents: z.coerce.number().int().nonnegative().optional(),
   quotaType: z.enum(['monthly', 'lifetime', 'unlimited']).optional(),
   pricePerEvent: z.coerce.number().nonnegative().optional(),
+  pricePerTicket: z.coerce.number().nonnegative().optional(),
   planActive: z.boolean().optional(),
   planNotes: z.string().max(500).optional().or(z.literal('')),
   mercadoPagoAccessToken: z.string().min(10).optional().or(z.literal('')),
@@ -72,6 +104,35 @@ export const updateProducerSchema = z.object({
 
 export const updateProducerSettingsSchema = z.object({
   mercadoPagoAccessToken: z.string().min(10, 'Token de acceso inválido'),
+});
+
+export const updateProducerBillingProfileSchema = z.object({
+  ivaCondicion: z.enum(['responsable_inscripto', 'monotributo', 'consumidor_final']),
+  cuit: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(''))
+    .refine(
+      (v) => !v || v.replace(/\D/g, '').length === 11,
+      'CUIT inválido (11 dígitos)'
+    ),
+  razonSocial: z.string().trim().min(2).max(120).optional().or(z.literal('')),
+  domicilio: z.string().trim().max(200).optional().or(z.literal('')),
+});
+
+export const createDirigenteSchema = z.object({
+  email: z.string().email('Email inválido'),
+  password: z.string().min(6, 'Mínimo 6 caracteres'),
+  displayName: z.string().min(2, 'Nombre requerido'),
+  clubName: z.string().trim().min(2, 'Nombre del club requerido').max(80),
+});
+
+export const updateDirigenteSchema = z.object({
+  uid: z.string().min(1),
+  active: z.boolean().optional(),
+  displayName: z.string().min(2).optional(),
+  clubName: z.string().trim().min(2).max(80).optional(),
 });
 
 export const createPaymentLinkSchema = z.object({
@@ -184,6 +245,75 @@ export const completeBuyerActivationSchema = z.object({
 export const buyerSignInSchema = z.object({
   email: z.string().trim().email('Email inválido'),
   password: z.string().min(1, 'Contraseña requerida'),
+});
+
+export const setMyClubNameSchema = z.object({
+  clubName: z.string().trim().min(2, 'Nombre del club requerido').max(80),
+});
+
+export const createAccessDaySchema = z.object({
+  clubName: z.string().trim().min(2, 'Nombre del club requerido').max(80).optional(),
+  date: z.string().datetime({ message: 'Fecha inválida' }),
+  location: z.string().trim().max(120).optional().or(z.literal('')),
+  toleranceMinutes: z.coerce.number().int().min(0).max(180).default(30),
+});
+
+export const updateAccessDaySchema = createAccessDaySchema.partial().extend({
+  accessDayId: z.string().min(1),
+  active: z.boolean().optional(),
+});
+
+export const createAccessEventSchema = z.object({
+  accessDayId: z.string().min(1),
+  name: z.string().trim().min(2, 'Nombre requerido').max(80),
+  discipline: z.string().trim().max(40).optional().or(z.literal('')),
+  visitingClubName: z.string().trim().min(2, 'Club visitante requerido').max(80),
+  scheduledStart: z.string().datetime({ message: 'Inicio inválido' }),
+  scheduledEnd: z.string().datetime({ message: 'Fin inválido' }),
+  entryWindowStart: z.string().datetime({ message: 'Ventana de ingreso inválida' }),
+  entryWindowEnd: z.string().datetime({ message: 'Ventana de ingreso inválida' }),
+  maxVisitors: z.coerce.number().int().positive().nullable().optional(),
+});
+
+export const updateAccessEventSchema = createAccessEventSchema
+  .partial()
+  .extend({
+    accessEventId: z.string().min(1),
+    active: z.boolean().optional(),
+  })
+  .omit({ accessDayId: true });
+
+export const createVisitorInviteLinkSchema = z.object({
+  accessDayId: z.string().min(1),
+  accessEventId: z.string().min(1).optional(),
+  visitingClubLabel: z.string().trim().max(80).optional().or(z.literal('')),
+  maxRegistrations: z.coerce.number().int().positive().nullable().optional(),
+  maxPartySize: z.coerce.number().int().min(1).max(50).optional(),
+  expiresAt: z.string().datetime({ message: 'Vencimiento inválido' }).optional(),
+});
+
+export const registerAccessPassSchema = z.object({
+  token: z.string().min(10),
+  accessEventId: z.string().min(1),
+  firstName: z.string().trim().min(2, 'Nombre requerido'),
+  lastName: z.string().trim().min(2, 'Apellido requerido'),
+  dni: z.string().trim().min(6, 'DNI inválido').max(15),
+  email: z.string().trim().email('Email inválido'),
+  visitingClub: z.string().trim().min(2, 'Club visitante requerido'),
+  partySize: z.coerce.number().int().min(1).max(50),
+  companionDnis: z.array(z.string().trim().min(6).max(15)).max(49).optional(),
+  mode: z.enum(['group', 'individual']).default('group'),
+});
+
+export const accessGateValidateSchema = z.object({
+  accessDayId: z.string().min(1),
+  accessEventId: z.string().min(1),
+  scanType: z.enum(['entry', 'exit']),
+  qrPayload: z.string().min(10),
+});
+
+export const cancelAccessPassSchema = z.object({
+  passId: z.string().min(1),
 });
 
 export type BuyerCheckoutInput = z.infer<typeof buyerCheckoutSchema>;

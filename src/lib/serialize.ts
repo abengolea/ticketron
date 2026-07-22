@@ -11,6 +11,16 @@ import type {
   SerializedEvent,
   SerializedPaymentLink,
   SerializedTicket,
+  AccessDay,
+  AccessEvent,
+  VisitorInviteLink,
+  AccessPass,
+  AccessScan,
+  SerializedAccessDay,
+  SerializedAccessEvent,
+  SerializedVisitorInviteLink,
+  SerializedAccessPass,
+  SerializedAccessScan,
 } from '@/lib/models';
 
 function tsToIso(ts: Timestamp | undefined): string | undefined {
@@ -194,5 +204,98 @@ export function serializeTicket(t: PlatformTicket): SerializedTicket {
     usedAt: tsToIso(t.usedAt),
     archived: t.archived === true,
     createdAt: t.createdAt.toDate().toISOString(),
+  };
+}
+
+export function serializeAccessDay(d: AccessDay): SerializedAccessDay {
+  return {
+    id: d.id,
+    ownerId: d.ownerId,
+    clubName: d.clubName,
+    date: d.date.toDate().toISOString(),
+    location: d.location,
+    toleranceMinutes: d.toleranceMinutes,
+    active: d.active,
+    createdAt: d.createdAt.toDate().toISOString(),
+  };
+}
+
+export function serializeAccessEvent(e: AccessEvent): SerializedAccessEvent {
+  return {
+    id: e.id,
+    accessDayId: e.accessDayId,
+    name: e.name,
+    discipline: e.discipline,
+    visitingClubName: e.visitingClubName ?? '',
+    scheduledStart: e.scheduledStart.toDate().toISOString(),
+    scheduledEnd: e.scheduledEnd.toDate().toISOString(),
+    entryWindowStart: e.entryWindowStart.toDate().toISOString(),
+    entryWindowEnd: e.entryWindowEnd.toDate().toISOString(),
+    maxVisitors: e.maxVisitors ?? null,
+    active: e.active,
+    createdAt: e.createdAt.toDate().toISOString(),
+  };
+}
+
+export function serializeVisitorInviteLink(l: VisitorInviteLink): SerializedVisitorInviteLink {
+  return {
+    id: l.id,
+    token: l.token,
+    accessDayId: l.accessDayId,
+    visitingClubLabel: l.visitingClubLabel,
+    maxRegistrations: l.maxRegistrations ?? null,
+    maxPartySize: l.maxPartySize ?? 10,
+    registrationsUsed: l.registrationsUsed,
+    expiresAt: l.expiresAt.toDate().toISOString(),
+    active: l.active,
+    createdAt: l.createdAt.toDate().toISOString(),
+  };
+}
+
+export function serializeAccessPass(
+  p: AccessPass,
+  extras?: { accessEventName?: string }
+): SerializedAccessPass {
+  return {
+    id: p.id,
+    accessCode: p.accessCode,
+    qrPayload: p.qrPayload,
+    accessDayId: p.accessDayId,
+    accessEventId: p.accessEventId,
+    accessEventName: extras?.accessEventName,
+    inviteLinkId: p.inviteLinkId,
+    groupId: p.groupId,
+    personLabel: p.personLabel,
+    responsible: p.responsible,
+    partySize: p.partySize,
+    companionDnis: p.companionDnis,
+    mode: p.mode,
+    status: p.status,
+    enteredAt: tsToIso(p.enteredAt),
+    exitedAt: tsToIso(p.exitedAt),
+    maxStayUntil: p.maxStayUntil.toDate().toISOString(),
+    exitOnTime: p.exitOnTime,
+    stayDurationMinutes: p.stayDurationMinutes,
+    createdAt: p.createdAt.toDate().toISOString(),
+  };
+}
+
+export function serializeAccessScan(
+  s: AccessScan,
+  extras?: { accessEventName?: string }
+): SerializedAccessScan {
+  return {
+    id: s.id,
+    passId: s.passId,
+    accessDayId: s.accessDayId,
+    accessEventId: s.accessEventId,
+    accessEventName: extras?.accessEventName,
+    scanType: s.scanType,
+    scannedAt: s.scannedAt.toDate().toISOString(),
+    onTime: s.onTime,
+    partySizeAtScan: s.partySizeAtScan,
+    responsibleName: s.responsibleName,
+    visitingClub: s.visitingClub,
+    accessCode: s.accessCode,
   };
 }

@@ -52,4 +52,16 @@ export const COLLECTIONS = {
   buyerActivationTokens: 'buyerActivationTokens',
   barProducts: 'barProducts',
   barOrders: 'barOrders',
+  accessDays: 'accessDays',
+  accessEvents: 'accessEvents',
+  visitorInviteLinks: 'visitorInviteLinks',
+  accessPasses: 'accessPasses',
+  accessScans: 'accessScans',
+  visitorClubs: 'visitorClubs',
+  platformConfig: 'platformConfig',
+  eventFeeCharges: 'eventFeeCharges',
+} as const;
+
+export const PLATFORM_CONFIG_DOCS = {
+  billing: 'billing',
 } as const;

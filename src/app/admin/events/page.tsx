@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Plus, Settings2 } from 'lucide-react';
+import { PendingEventFeesBanner } from '@/components/pending-event-fees-banner';
 
 export default function AdminEventsPage() {
   return (
@@ -128,7 +129,7 @@ function AdminEventsContent() {
           <Button variant="outline" asChild>
             <Link href="/admin/settings">
               <Settings2 className="w-4 h-4 mr-2" />
-              Mercado Pago
+              Ajustes
             </Link>
           </Button>
           <Button onClick={() => setShowForm(!showForm)} disabled={planSummary?.canCreate === false}>
@@ -149,6 +150,8 @@ function AdminEventsContent() {
           </CardContent>
         </Card>
       )}
+
+      <PendingEventFeesBanner />
 
       {showForm && (
         <Card>

@@ -12,8 +12,17 @@ import {
   createProducerSchema,
   updateProducerSchema,
   updateProducerSettingsSchema,
+  registerProducerSchema,
+  approveProducerSchema,
+  rejectProducerSchema,
+  updatePlatformBillingSchema,
 } from '@/lib/validations';
 import { defaultProducerPlan } from '@/lib/producer-plan';
+import {
+  getPlatformBilling,
+  setPlatformBilling,
+} from '@/lib/platform-billing';
+import { sendProducerWelcomeEmail } from '@/lib/services/producer-welcome-email';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type { SerializedProducer } from '@/lib/models';
 
@@ -27,6 +36,10 @@ function serializeProducer(
     email: data.email as string,
     displayName: data.displayName as string,
     active: data.active as boolean,
+    approvalStatus: data.approvalStatus,
+    organizationName: data.organizationName as string | undefined,
+    phone: data.phone as string | undefined,
+    registrationNotes: data.registrationNotes as string | undefined,
     producerPlan: plan
       ? {
           maxEvents: plan.maxEvents,
@@ -34,6 +47,7 @@ function serializeProducer(
           eventsUsed: plan.eventsUsed ?? 0,
           quotaPeriodStart: plan.quotaPeriodStart.toDate().toISOString(),
           pricePerEvent: plan.pricePerEvent,
+          pricePerTicket: plan.pricePerTicket ?? 0,
           planActive: plan.planActive ?? true,
           planNotes: plan.planNotes,
           createdBy: plan.createdBy,
@@ -42,6 +56,103 @@ function serializeProducer(
     hasMercadoPago: !!(data.mercadoPagoAccessToken as string | undefined)?.trim(),
     createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
   };
+}
+
+export async function getPublicPlatformFees(): Promise<
+  ActionResult<{ pricePerEvent: number; pricePerTicket: number }>
+> {
+  try {
+    const fees = await getPlatformBilling();
+    return ok(fees);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error');
+  }
+}
+
+export async function getPlatformFees(
+  idToken: string
+): Promise<ActionResult<{ pricePerEvent: number; pricePerTicket: number }>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    requireSuperAdmin(user);
+    const fees = await getPlatformBilling();
+    return ok(fees);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error');
+  }
+}
+
+export async function updatePlatformFees(
+  idToken: string,
+  input: unknown
+): Promise<ActionResult<{ pricePerEvent: number; pricePerTicket: number }>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    requireSuperAdmin(user);
+    const parsed = updatePlatformBillingSchema.parse(input);
+    const fees = await setPlatformBilling(parsed, user.uid);
+    return ok(fees);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error');
+  }
+}
+
+/** Registro público de productor — queda pendiente hasta aprobación. */
+export async function registerProducer(
+  input: unknown
+): Promise<ActionResult<{ message: string }>> {
+  try {
+    const parsed = registerProducerSchema.parse(input);
+    const auth = getAdminAuth();
+    const email = parsed.email.trim().toLowerCase();
+
+    const existing = await getAdminDb()
+      .collection(COLLECTIONS.users)
+      .where('email', '==', email)
+      .limit(1)
+      .get();
+
+    if (!existing.empty) {
+      return fail('Ya existe una cuenta con ese email');
+    }
+
+    const userRecord = await auth.createUser({
+      email,
+      password: parsed.password,
+      displayName: parsed.displayName.trim(),
+      disabled: false,
+    });
+
+    const now = Timestamp.now();
+    await getAdminDb()
+      .collection(COLLECTIONS.users)
+      .doc(userRecord.uid)
+      .set({
+        email,
+        displayName: parsed.displayName.trim(),
+        role: 'producer',
+        active: false,
+        approvalStatus: 'pending',
+        organizationName: parsed.organizationName.trim(),
+        phone: parsed.phone.trim(),
+        ...(parsed.registrationNotes?.trim()
+          ? { registrationNotes: parsed.registrationNotes.trim() }
+          : {}),
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    return ok({
+      message:
+        'Recibimos tu solicitud. Te avisamos por email cuando el equipo de Ticketron la apruebe.',
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Error';
+    if (msg.includes('email-already-exists')) {
+      return fail('Ya existe un usuario con ese email');
+    }
+    return fail(msg);
+  }
 }
 
 export async function listProducers(
@@ -58,7 +169,12 @@ export async function listProducers(
 
     const producers = snap.docs
       .map((d) => serializeProducer(d.id, d.data()))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+      .sort((a, b) => {
+        const pendingA = a.approvalStatus === 'pending' ? 0 : 1;
+        const pendingB = b.approvalStatus === 'pending' ? 0 : 1;
+        if (pendingA !== pendingB) return pendingA - pendingB;
+        return a.displayName.localeCompare(b.displayName);
+      });
 
     return ok(producers);
   } catch (e) {
@@ -89,6 +205,7 @@ export async function createProducer(
       maxEvents: parsed.maxEvents,
       quotaType: parsed.quotaType,
       pricePerEvent: parsed.pricePerEvent,
+      pricePerTicket: parsed.pricePerTicket ?? 0,
       planNotes: parsed.planNotes?.trim() || undefined,
     });
 
@@ -100,7 +217,10 @@ export async function createProducer(
         displayName: parsed.displayName,
         role: 'producer',
         active: true,
+        approvalStatus: 'approved',
         producerPlan,
+        approvedAt: now,
+        approvedBy: superAdmin.uid,
         ...(mpToken ? { mercadoPagoAccessToken: mpToken } : {}),
         createdAt: now,
         updatedAt: now,
@@ -113,6 +233,102 @@ export async function createProducer(
       return fail('Ya existe un usuario con ese email');
     }
     return fail(msg);
+  }
+}
+
+export async function approveProducer(
+  idToken: string,
+  input: unknown
+): Promise<ActionResult<SerializedProducer>> {
+  try {
+    const superAdmin = await verifyIdTokenAndGetUser(idToken);
+    requireSuperAdmin(superAdmin);
+
+    const parsed = approveProducerSchema.parse(input);
+    const ref = getAdminDb().collection(COLLECTIONS.users).doc(parsed.uid);
+    const snap = await ref.get();
+    if (!snap.exists) return fail('Productor no encontrado');
+
+    const data = snap.data()!;
+    if (data.role !== 'producer') return fail('El usuario no es productor');
+    if (data.approvalStatus === 'approved' && data.active) {
+      return fail('Este productor ya está aprobado');
+    }
+
+    const now = Timestamp.now();
+    const producerPlan = defaultProducerPlan(superAdmin.uid, {
+      maxEvents: parsed.maxEvents,
+      quotaType: parsed.quotaType,
+      pricePerEvent: parsed.pricePerEvent,
+      pricePerTicket: parsed.pricePerTicket,
+      planNotes: parsed.planNotes?.trim() || undefined,
+      planActive: true,
+    });
+
+    await ref.update({
+      active: true,
+      approvalStatus: 'approved',
+      producerPlan,
+      approvedAt: now,
+      approvedBy: superAdmin.uid,
+      rejectedAt: FieldValue.delete(),
+      rejectedBy: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    try {
+      await sendProducerWelcomeEmail({
+        to: data.email as string,
+        displayName: data.displayName as string,
+        organizationName: data.organizationName as string | undefined,
+        pricePerEvent: parsed.pricePerEvent,
+        pricePerTicket: parsed.pricePerTicket,
+      });
+    } catch (emailErr) {
+      console.error('Welcome email failed:', emailErr);
+    }
+
+    const updated = await ref.get();
+    return ok(serializeProducer(parsed.uid, updated.data()!));
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error');
+  }
+}
+
+export async function rejectProducer(
+  idToken: string,
+  input: unknown
+): Promise<ActionResult<SerializedProducer>> {
+  try {
+    const superAdmin = await verifyIdTokenAndGetUser(idToken);
+    requireSuperAdmin(superAdmin);
+
+    const parsed = rejectProducerSchema.parse(input);
+    const ref = getAdminDb().collection(COLLECTIONS.users).doc(parsed.uid);
+    const snap = await ref.get();
+    if (!snap.exists) return fail('Productor no encontrado');
+
+    const data = snap.data()!;
+    if (data.role !== 'producer') return fail('El usuario no es productor');
+
+    await ref.update({
+      active: false,
+      approvalStatus: 'rejected',
+      rejectedAt: Timestamp.now(),
+      rejectedBy: superAdmin.uid,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    try {
+      await getAdminAuth().updateUser(parsed.uid, { disabled: true });
+    } catch {
+      /* ignore */
+    }
+
+    const updated = await ref.get();
+    return ok(serializeProducer(parsed.uid, updated.data()!));
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error');
   }
 }
 
@@ -155,6 +371,10 @@ export async function updateProducer(
       }
       if (parsed.pricePerEvent !== undefined) {
         planUpdate.pricePerEvent = parsed.pricePerEvent;
+        planChanged = true;
+      }
+      if (parsed.pricePerTicket !== undefined) {
+        planUpdate.pricePerTicket = parsed.pricePerTicket;
         planChanged = true;
       }
       if (parsed.planActive !== undefined) {
@@ -227,6 +447,7 @@ export async function getProducerPlanSummary(
     eventsUsed: number;
     quotaType: string;
     pricePerEvent: number;
+    pricePerTicket: number;
     canCreate: boolean;
     message?: string;
   } | null>
@@ -253,6 +474,7 @@ export async function getProducerPlanSummary(
       eventsUsed: normalized.eventsUsed,
       quotaType: normalized.quotaType,
       pricePerEvent: normalized.pricePerEvent,
+      pricePerTicket: normalized.pricePerTicket,
       canCreate: check.ok,
       message: check.ok ? undefined : check.reason,
     });

@@ -1,18 +1,93 @@
 import type { Timestamp } from 'firebase-admin/firestore';
 
-export type UserRole = 'superadmin' | 'producer' | 'seller' | 'gate' | 'buyer';
+export type UserRole = 'superadmin' | 'producer' | 'dirigente' | 'seller' | 'gate' | 'buyer';
 
 export type QuotaType = 'monthly' | 'lifetime' | 'unlimited';
+
+export type ProducerApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+/** Condición IVA del productor para factura de fees de plataforma */
+export type ProducerIvaCondicion =
+  | 'responsable_inscripto'
+  | 'monotributo'
+  | 'consumidor_final';
+
+export interface ProducerBillingProfile {
+  ivaCondicion: ProducerIvaCondicion;
+  cuit?: string;
+  razonSocial?: string;
+  domicilio?: string;
+}
+
+export type EventFeeChargeStatus =
+  | 'pending'
+  | 'awaiting_payment'
+  | 'paid'
+  | 'waived';
+
+export interface EventFeeCharge {
+  id: string;
+  eventId: string;
+  ownerId: string;
+  eventName: string;
+  eventDate: Timestamp;
+  ticketsIssued: number;
+  pricePerTicket: number;
+  pricePerEvent: number;
+  amount: number;
+  status: EventFeeChargeStatus;
+  mercadoPagoPreferenceId?: string;
+  mercadoPagoInitPoint?: string;
+  mercadoPagoPaymentId?: string;
+  billingHub?: {
+    status: 'issued' | 'pending' | 'failed';
+    facturaId?: string | null;
+    cae?: string | null;
+    tipoComprobante?: string | null;
+    error?: string | null;
+    updatedAt?: Timestamp;
+  };
+  paidAt?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface SerializedEventFeeCharge {
+  id: string;
+  eventId: string;
+  eventName: string;
+  eventDate: string;
+  ticketsIssued: number;
+  pricePerTicket: number;
+  pricePerEvent: number;
+  amount: number;
+  status: EventFeeChargeStatus;
+  mercadoPagoInitPoint?: string;
+  paidAt?: string;
+  billingHubStatus?: string;
+  facturaId?: string;
+}
 
 export interface ProducerPlan {
   maxEvents: number;
   quotaType: QuotaType;
   eventsUsed: number;
   quotaPeriodStart: Timestamp;
+  /** Fee de plataforma por evento (ARS) */
   pricePerEvent: number;
+  /** Fee de plataforma por entrada emitida (ARS) */
+  pricePerTicket: number;
   planActive: boolean;
   planNotes?: string;
   createdBy: string;
+}
+
+/** Defaults de fees editables desde Super Admin */
+export interface PlatformBillingConfig {
+  pricePerEvent: number;
+  pricePerTicket: number;
+  updatedAt?: Timestamp;
+  updatedBy?: string;
 }
 
 export type PaymentLinkStatus =
@@ -40,8 +115,21 @@ export interface AppUser {
   active: boolean;
   /** Solo productores: plan de cupo y facturación */
   producerPlan?: ProducerPlan;
+  /** Productores self-service: pendiente hasta que Super Admin apruebe */
+  approvalStatus?: ProducerApprovalStatus;
+  organizationName?: string;
+  phone?: string;
+  registrationNotes?: string;
+  approvedAt?: Timestamp;
+  approvedBy?: string;
+  rejectedAt?: Timestamp;
+  rejectedBy?: string;
   /** Token de acceso MP del productor (solo server-side vía Admin SDK) */
   mercadoPagoAccessToken?: string;
+  /** Datos fiscales para factura de fees Ticketron (Notificas SRL) */
+  billingProfile?: ProducerBillingProfile;
+  /** Solo dirigentes: nombre del club que representan */
+  clubName?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -134,17 +222,31 @@ export interface SerializedProducer {
   email: string;
   displayName: string;
   active: boolean;
+  approvalStatus?: ProducerApprovalStatus;
+  organizationName?: string;
+  phone?: string;
+  registrationNotes?: string;
   producerPlan?: {
     maxEvents: number;
     quotaType: QuotaType;
     eventsUsed: number;
     quotaPeriodStart: string;
     pricePerEvent: number;
+    pricePerTicket: number;
     planActive: boolean;
     planNotes?: string;
     createdBy: string;
   };
   hasMercadoPago: boolean;
+  createdAt: string;
+}
+
+export interface SerializedDirigente {
+  uid: string;
+  email: string;
+  displayName: string;
+  active: boolean;
+  clubName?: string;
   createdAt: string;
 }
 
@@ -358,4 +460,231 @@ export interface EventPostStats {
     vouchersRedeemed: number;
     vouchersPending: number;
   };
+  access?: {
+    passesTotal: number;
+    insideNow: number;
+    overtime: number;
+    exitedOnTime: number;
+    exitedLate: number;
+  };
+}
+
+// ---------- Ticketron Access (control de visitantes) ----------
+
+export type AccessPassMode = 'group' | 'individual';
+export type AccessPassStatus =
+  | 'generado'
+  | 'ingresado'
+  | 'egresado'
+  | 'vencido'
+  | 'excedido'
+  | 'anulado';
+
+export type AccessScanType = 'entry' | 'exit';
+
+export type AccessGateValidationResult =
+  | 'VALID_ENTRY'
+  | 'VALID_EXIT'
+  | 'ALREADY_INSIDE'
+  | 'ALREADY_EXITED'
+  | 'INVALID'
+  | 'CANCELLED'
+  | 'WRONG_EVENT'
+  | 'ENTRY_WINDOW_CLOSED'
+  | 'NOT_INSIDE'
+  | 'EXPIRED';
+
+export interface AccessResponsible {
+  firstName: string;
+  lastName: string;
+  dni: string;
+  email: string;
+  visitingClub: string;
+}
+
+export interface AccessDay {
+  id: string;
+  ownerId: string;
+  clubName: string;
+  date: Timestamp;
+  location?: string;
+  toleranceMinutes: number;
+  active: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface AccessEvent {
+  id: string;
+  accessDayId: string;
+  name: string;
+  discipline?: string;
+  visitingClubName: string;
+  scheduledStart: Timestamp;
+  scheduledEnd: Timestamp;
+  entryWindowStart: Timestamp;
+  entryWindowEnd: Timestamp;
+  maxVisitors?: number | null;
+  active: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface VisitorInviteLink {
+  id: string;
+  token: string;
+  accessDayId: string;
+  accessEventId?: string;
+  visitingClubLabel?: string;
+  maxRegistrations?: number | null;
+  /** Máximo de personas por registro (define el dirigente) */
+  maxPartySize: number;
+  registrationsUsed: number;
+  expiresAt: Timestamp;
+  active: boolean;
+  createdBy: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface AccessPass {
+  id: string;
+  accessCode: string;
+  qrPayload: string;
+  accessDayId: string;
+  accessEventId: string;
+  inviteLinkId?: string;
+  groupId?: string;
+  personLabel?: string;
+  responsible: AccessResponsible;
+  partySize: number;
+  companionDnis?: string[];
+  mode: AccessPassMode;
+  status: AccessPassStatus;
+  enteredAt?: Timestamp;
+  exitedAt?: Timestamp;
+  enteredBy?: string;
+  exitedBy?: string;
+  maxStayUntil: Timestamp;
+  exitOnTime?: boolean;
+  stayDurationMinutes?: number;
+  confirmationEmailSentAt?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface AccessScan {
+  id: string;
+  passId: string;
+  accessDayId: string;
+  accessEventId: string;
+  scanType: AccessScanType;
+  scannedAt: Timestamp;
+  scannedBy: string;
+  onTime: boolean;
+  partySizeAtScan: number;
+  responsibleName: string;
+  visitingClub: string;
+  accessCode: string;
+}
+
+export interface SerializedAccessDay {
+  id: string;
+  ownerId: string;
+  clubName: string;
+  date: string;
+  location?: string;
+  toleranceMinutes: number;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface SerializedAccessEvent {
+  id: string;
+  accessDayId: string;
+  name: string;
+  discipline?: string;
+  visitingClubName: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+  entryWindowStart: string;
+  entryWindowEnd: string;
+  maxVisitors: number | null;
+  active: boolean;
+  createdAt: string;
+  /** Máximo permitido al registrar (según link + cupo del partido) */
+  partySizeMax?: number;
+}
+
+export interface SerializedVisitorInviteLink {
+  id: string;
+  token: string;
+  accessDayId: string;
+  visitingClubLabel?: string;
+  maxRegistrations: number | null;
+  maxPartySize: number;
+  registrationsUsed: number;
+  expiresAt: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface SerializedAccessPass {
+  id: string;
+  accessCode: string;
+  qrPayload: string;
+  accessDayId: string;
+  accessEventId: string;
+  accessEventName?: string;
+  inviteLinkId?: string;
+  groupId?: string;
+  personLabel?: string;
+  responsible: AccessResponsible;
+  partySize: number;
+  companionDnis?: string[];
+  mode: AccessPassMode;
+  status: AccessPassStatus;
+  enteredAt?: string;
+  exitedAt?: string;
+  maxStayUntil: string;
+  exitOnTime?: boolean;
+  stayDurationMinutes?: number;
+  createdAt: string;
+}
+
+export interface SerializedAccessScan {
+  id: string;
+  passId: string;
+  accessDayId: string;
+  accessEventId: string;
+  accessEventName?: string;
+  scanType: AccessScanType;
+  scannedAt: string;
+  onTime: boolean;
+  partySizeAtScan: number;
+  responsibleName: string;
+  visitingClub: string;
+  accessCode: string;
+}
+
+export interface AccessDashboardStats {
+  passesTotal: number;
+  byStatus: Record<AccessPassStatus, number>;
+  insideNow: number;
+  overtime: number;
+  eventsEndedWithPeopleInside: number;
+  exitedOnTime: number;
+  exitedLate: number;
+  totalVisitorsEntered: number;
+}
+
+export interface SavedVisitorClub {
+  id: string;
+  ownerId: string;
+  name: string;
+  normalizedName: string;
+  useCount: number;
+  lastUsedAt: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }

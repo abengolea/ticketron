@@ -69,6 +69,8 @@ export interface MercadoPagoPreferenceInput {
   checkoutToken?: string;
   /** Path relativo para URLs de retorno (ej. /bar/order/[token]). Tiene prioridad sobre checkoutToken. */
   returnPath?: string;
+  /** Metadata para Hub / facturación */
+  metadata?: Record<string, string>;
 }
 
 export interface MercadoPagoPreference {
@@ -142,6 +144,10 @@ export async function createPreference(
 
   if (input.payerEmail) {
     body.payer = { email: input.payerEmail };
+  }
+
+  if (input.metadata && Object.keys(input.metadata).length > 0) {
+    body.metadata = input.metadata;
   }
 
   // auto_return solo con HTTPS público; en local MP rechaza la preferencia

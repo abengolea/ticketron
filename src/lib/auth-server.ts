@@ -31,6 +31,18 @@ export async function verifyIdTokenAndGetUser(
 
   const user = userDoc.data() as AppUser;
   if (!user.active) {
+    if (user.role === 'producer' && user.approvalStatus === 'pending') {
+      throw new AuthError(
+        'Tu cuenta de productor está pendiente de aprobación. Te avisamos por email cuando esté lista.',
+        'INACTIVE'
+      );
+    }
+    if (user.role === 'producer' && user.approvalStatus === 'rejected') {
+      throw new AuthError(
+        'Tu solicitud de productor no fue aprobada. Contactanos si creés que es un error.',
+        'INACTIVE'
+      );
+    }
     throw new AuthError('Tu cuenta está deshabilitada', 'INACTIVE');
   }
 
@@ -51,8 +63,16 @@ export function isProducer(user: AppUser): boolean {
   return user.role === 'producer';
 }
 
+export function isDirigente(user: AppUser): boolean {
+  return user.role === 'dirigente';
+}
+
 export function canManageEvents(user: AppUser): boolean {
   return isSuperAdmin(user) || isProducer(user);
+}
+
+export function canManageAccess(user: AppUser): boolean {
+  return isSuperAdmin(user) || isDirigente(user);
 }
 
 /** @deprecated Usar canManageEvents */
@@ -66,6 +86,12 @@ export function requireManageEvents(user: AppUser): void {
   }
 }
 
+export function requireManageAccess(user: AppUser): void {
+  if (!canManageAccess(user)) {
+    throw new AuthError('No tenés permisos para control de visitantes', 'FORBIDDEN');
+  }
+}
+
 export function requireSuperAdmin(user: AppUser): void {
   if (!isSuperAdmin(user)) {
     throw new AuthError('Solo el super administrador puede realizar esta acción', 'FORBIDDEN');
@@ -73,5 +99,5 @@ export function requireSuperAdmin(user: AppUser): void {
 }
 
 export function canAccessGate(user: AppUser): boolean {
-  return canManageEvents(user) || user.role === 'gate';
+  return canManageEvents(user) || canManageAccess(user) || user.role === 'gate';
 }
