@@ -23,7 +23,6 @@ import { EventStatsTab } from '@/components/event-stats-tab';
 import { CreatePaymentLinkDialog } from '@/components/create-payment-link-dialog';
 import { CreateComplimentaryLinkDialog } from '@/components/create-complimentary-link-dialog';
 import { CreateCashSaleDialog } from '@/components/create-cash-sale-dialog';
-import { CopyGateLinkButton } from '@/components/copy-gate-link-button';
 import type {
   EventReservationStats,
   SerializedEvent,
@@ -70,15 +69,18 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { downloadFile } from '@/lib/utils';
+import { copyTextSafe, downloadFile, gateValidatorUrl } from '@/lib/utils';
 import {
   Archive,
   ArrowLeft,
   BarChart2,
   Beer,
+  ChevronDown,
   Copy,
   DoorOpen,
   Download,
@@ -88,6 +90,7 @@ import {
   MoreVertical,
   QrCode,
   Settings2,
+  Ticket,
   Users,
   XCircle,
 } from 'lucide-react';
@@ -480,121 +483,132 @@ function EventDetailContent() {
     setBuyerSearch('');
   }
 
+  async function copyGateLink() {
+    const copied = await copyTextSafe(gateValidatorUrl(event.id));
+    toast({
+      title: copied ? 'Link del validador copiado' : 'No se pudo copiar',
+      description: copied
+        ? 'Pasáselo al personal de entrada; no necesitan iniciar sesión.'
+        : undefined,
+    });
+  }
+
+  function shareGateWhatsApp() {
+    const url = gateValidatorUrl(event.id);
+    const text = `Validador de entradas — ${event.name}: ${url}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  }
+
+  const tabTriggerClass =
+    'rounded-none border-b-2 border-transparent bg-transparent px-3 py-2.5 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none';
+
   return (
     <section className="space-y-6">
-      <section className="flex flex-wrap items-center gap-3">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/admin/events">
-            <ArrowLeft className="w-4 h-4 mr-2" /> Eventos
-          </Link>
-        </Button>
-      </section>
+      <Button variant="ghost" size="sm" className="-ml-2 w-fit" asChild>
+        <Link href="/admin/events">
+          <ArrowLeft className="w-4 h-4 mr-2" /> Eventos
+        </Link>
+      </Button>
 
-      <section className="flex flex-wrap justify-between items-start gap-4">
-        <section className="min-w-0 flex-1 space-y-2">
-          <section className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-headline font-bold">{event.name}</h1>
-            <Badge variant={event.active ? 'default' : 'secondary'}>
-              {event.active ? 'Activo' : 'Inactivo'}
-            </Badge>
+      <header className="space-y-4 border-b pb-5">
+        <section className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <section className="min-w-0 flex-1 space-y-2">
+            <section className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-headline font-bold tracking-tight">{event.name}</h1>
+              <Badge variant={event.active ? 'default' : 'secondary'}>
+                {event.active ? 'Activo' : 'Inactivo'}
+              </Badge>
+            </section>
+            <p className="text-sm text-muted-foreground">
+              {new Date(event.date).toLocaleString('es-AR')}
+              {event.location ? ` · ${event.location}` : ''}
+              {' · '}${event.price.toLocaleString('es-AR')} por entrada
+            </p>
           </section>
-          <p className="text-muted-foreground">
-            {new Date(event.date).toLocaleString('es-AR')}
-            {event.location ? ` · ${event.location}` : ''}
-            {' · '}${event.price.toLocaleString('es-AR')} por entrada
-          </p>
-          <label className="flex items-center gap-2 cursor-pointer w-fit">
+
+          <label className="flex items-center gap-2 cursor-pointer shrink-0 rounded-md border px-3 py-2">
             <Switch checked={event.active} onCheckedChange={toggleActive} />
-            <span className="text-sm text-muted-foreground">Visible para venta</span>
+            <span className="text-sm">Visible para venta</span>
           </label>
         </section>
-        <section className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
-          <section className="flex w-full flex-col gap-2 sm:w-auto">
-            <Button asChild variant="outline" className="w-full sm:w-auto">
-              <Link href={`/gate/${event.id}`}>
-                <DoorOpen className="w-4 h-4 mr-2" /> Validador digital
-              </Link>
-            </Button>
-            <CopyGateLinkButton
-              eventId={event.id}
-              eventName={event.name}
-              showWhatsApp
-              className="w-full sm:w-auto"
-            />
-          </section>
+
+        <section className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="w-full sm:w-auto">
+                <DoorOpen className="w-4 h-4 mr-2" />
+                Validador
+                <ChevronDown className="w-4 h-4 ml-2 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel>Control de acceso</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href={`/gate/${event.id}`}>
+                  <DoorOpen className="w-4 h-4 mr-2" />
+                  Abrir validador
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={copyGateLink}>
+                <Copy className="w-4 h-4 mr-2" />
+                Copiar link
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={shareGateWhatsApp}>
+                <MessageCircle className="w-4 h-4 mr-2" />
+                Enviar por WhatsApp
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {maxLinkTickets > 0 && (
             <>
-              <CreatePaymentLinkDialog
-                eventId={event.id}
-                eventName={event.name}
-                unitPrice={event.price}
-                maxTickets={maxLinkTickets}
-                getIdToken={getIdToken}
-                onCreated={load}
-                triggerLabel="Generar link de pago"
-              />
-              <CreateComplimentaryLinkDialog
-                eventId={event.id}
-                eventName={event.name}
-                maxTickets={maxLinkTickets}
-                getIdToken={getIdToken}
-                onCreated={load}
-              />
-              <CreateCashSaleDialog
-                eventId={event.id}
-                eventName={event.name}
-                unitPrice={event.price}
-                maxTickets={maxLinkTickets}
-                getIdToken={getIdToken}
-                onCreated={load}
-              />
+              <span className="hidden h-6 w-px bg-border sm:block" aria-hidden />
+              <section className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
+                <CreatePaymentLinkDialog
+                  eventId={event.id}
+                  eventName={event.name}
+                  unitPrice={event.price}
+                  maxTickets={maxLinkTickets}
+                  getIdToken={getIdToken}
+                  onCreated={load}
+                  triggerLabel="Link de pago"
+                />
+                <CreateComplimentaryLinkDialog
+                  eventId={event.id}
+                  eventName={event.name}
+                  maxTickets={maxLinkTickets}
+                  getIdToken={getIdToken}
+                  onCreated={load}
+                />
+                <CreateCashSaleDialog
+                  eventId={event.id}
+                  eventName={event.name}
+                  unitPrice={event.price}
+                  maxTickets={maxLinkTickets}
+                  getIdToken={getIdToken}
+                  onCreated={load}
+                />
+              </section>
             </>
           )}
         </section>
-      </section>
-
-      <Tabs defaultValue="tickets" className="space-y-4">
-        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1">
-          <TabsTrigger value="management">
-            <Settings2 className="w-4 h-4 mr-2" /> Gestión
-          </TabsTrigger>
-          <TabsTrigger value="sellers">
-            <Users className="w-4 h-4 mr-2" /> Vendedores
-          </TabsTrigger>
-          <TabsTrigger value="tickets">Entradas vendidas</TabsTrigger>
-          <TabsTrigger value="payment-links">
-            <Link2 className="w-4 h-4 mr-2" />
-            Links de pago
-            {pendingPayment > 0 && (
-              <Badge variant="secondary" className="ml-2">
-                {pendingPayment}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="stats">
-            <BarChart2 className="w-4 h-4 mr-2" /> Estadísticas
-          </TabsTrigger>
-          <TabsTrigger value="bar">
-            <Beer className="w-4 h-4 mr-2" /> Bar
-          </TabsTrigger>
-        </TabsList>
+      </header>
 
       <section className="space-y-3">
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Resumen
         </h2>
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-primary/40 bg-primary/5 sm:col-span-2 lg:col-span-1">
-            <CardHeader className="pb-2">
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="border-primary/40 bg-primary/5">
+            <CardHeader className="p-4 pb-3">
               <CardDescription>Recaudado (confirmado)</CardDescription>
-              <CardTitle className="text-3xl">{formatArs(collectedRevenue)}</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                MP y efectivo; sin cortesía
-              </p>
+              <CardTitle className="text-2xl">{formatArs(collectedRevenue)}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">MP y efectivo; sin cortesía</p>
             </CardHeader>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="p-4 pb-3">
               <CardDescription>Por cobrar</CardDescription>
               <CardTitle className="text-2xl">{formatArs(pendingRevenue)}</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
@@ -605,7 +619,7 @@ function EventDetailContent() {
             </CardHeader>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="p-4 pb-3">
               <CardDescription>Proyección</CardDescription>
               <CardTitle className="text-2xl">{formatArs(projectedRevenue)}</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
@@ -614,7 +628,7 @@ function EventDetailContent() {
             </CardHeader>
           </Card>
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="p-4 pb-3">
               <CardDescription>Emitidas / capacidad</CardDescription>
               <CardTitle className="text-2xl">
                 {issuedCount} / {event.capacity}
@@ -622,7 +636,7 @@ function EventDetailContent() {
               <p className="text-xs text-muted-foreground mt-1">
                 {soldCount} pagadas
                 {pendingPayment > 0 ? ` · ${pendingPayment} en links` : ''}
-                {remainingForLinks > 0 ? ` · ${remainingForLinks} disponibles para links` : ''}
+                {remainingForLinks > 0 ? ` · ${remainingForLinks} disponibles` : ''}
               </p>
             </CardHeader>
           </Card>
@@ -631,25 +645,25 @@ function EventDetailContent() {
         <Accordion type="single" collapsible className="rounded-lg border px-4">
           <AccordionItem value="cupos" className="border-0">
             <AccordionTrigger className="py-3 text-sm font-medium hover:no-underline">
-              Cupos, links e vendedores
+              Cupos, links y vendedores
             </AccordionTrigger>
             <AccordionContent className="space-y-4 pb-2">
-              <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Card>
-                  <CardHeader className="pb-2">
+                  <CardHeader className="p-4 pb-3">
                     <CardDescription>Vendidas (pagadas)</CardDescription>
                     <CardTitle className="text-xl">{soldCount}</CardTitle>
                   </CardHeader>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2">
+                  <CardHeader className="p-4 pb-3">
                     <CardDescription>Links sin pagar</CardDescription>
                     <CardTitle className="text-xl">{pendingPayment}</CardTitle>
                     <p className="text-xs text-muted-foreground mt-1">Reservan cupo hasta pagar</p>
                   </CardHeader>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2">
+                  <CardHeader className="p-4 pb-3">
                     <CardDescription>Disponibles para links</CardDescription>
                     <CardTitle className="text-xl">{remainingForLinks}</CardTitle>
                     <p className="text-xs text-muted-foreground mt-1">
@@ -658,11 +672,13 @@ function EventDetailContent() {
                   </CardHeader>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2">
+                  <CardHeader className="p-4 pb-3">
                     <CardDescription>Cargadas en pantalla</CardDescription>
                     <CardTitle className="text-xl">{tickets.length}</CardTitle>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {ticketsHasMore ? 'Últimas entradas · podés cargar más' : 'Listado completo cargado'}
+                      {ticketsHasMore
+                        ? 'Últimas entradas · podés cargar más'
+                        : 'Listado completo cargado'}
                     </p>
                   </CardHeader>
                 </Card>
@@ -671,9 +687,9 @@ function EventDetailContent() {
                 <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Vendedores
                 </h3>
-                <section className="grid gap-4 sm:grid-cols-3">
+                <section className="grid gap-3 sm:grid-cols-3">
                   <Card>
-                    <CardHeader className="pb-2">
+                    <CardHeader className="p-4 pb-3">
                       <CardDescription>Cupo asignado</CardDescription>
                       <CardTitle className="text-xl">{sellerQuota.assignedQuota}</CardTitle>
                       <p className="text-xs text-muted-foreground mt-1">
@@ -684,14 +700,14 @@ function EventDetailContent() {
                     </CardHeader>
                   </Card>
                   <Card>
-                    <CardHeader className="pb-2">
+                    <CardHeader className="p-4 pb-3">
                       <CardDescription>En manos de vendedores</CardDescription>
                       <CardTitle className="text-xl">{sellerQuota.remainingWithSellers}</CardTitle>
                       <p className="text-xs text-muted-foreground mt-1">Cupo sin usar aún</p>
                     </CardHeader>
                   </Card>
                   <Card>
-                    <CardHeader className="pb-2">
+                    <CardHeader className="p-4 pb-3">
                       <CardDescription>Sin asignar</CardDescription>
                       <CardTitle className="text-xl">{sellerQuota.unassignedQuota}</CardTitle>
                       {sellerQuota.overAssigned > 0 ? (
@@ -699,7 +715,9 @@ function EventDetailContent() {
                           Cupos exceden capacidad en {sellerQuota.overAssigned}
                         </p>
                       ) : (
-                        <p className="text-xs text-muted-foreground mt-1">No reservado en vendedores</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          No reservado en vendedores
+                        </p>
                       )}
                     </CardHeader>
                   </Card>
@@ -710,7 +728,40 @@ function EventDetailContent() {
         </Accordion>
       </section>
 
-        <TabsContent value="management" className="space-y-4">
+      <Tabs defaultValue="tickets" className="space-y-4">
+        <TabsList className="h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b bg-transparent p-0">
+          <TabsTrigger value="management" className={tabTriggerClass}>
+            <Settings2 className="w-4 h-4 mr-2 shrink-0" />
+            Gestión
+          </TabsTrigger>
+          <TabsTrigger value="tickets" className={tabTriggerClass}>
+            <Ticket className="w-4 h-4 mr-2 shrink-0" />
+            Entradas
+          </TabsTrigger>
+          <TabsTrigger value="payment-links" className={tabTriggerClass}>
+            <Link2 className="w-4 h-4 mr-2 shrink-0" />
+            Links
+            {pendingPayment > 0 && (
+              <Badge variant="secondary" className="ml-2">
+                {pendingPayment}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="sellers" className={tabTriggerClass}>
+            <Users className="w-4 h-4 mr-2 shrink-0" />
+            Vendedores
+          </TabsTrigger>
+          <TabsTrigger value="stats" className={tabTriggerClass}>
+            <BarChart2 className="w-4 h-4 mr-2 shrink-0" />
+            Estadísticas
+          </TabsTrigger>
+          <TabsTrigger value="bar" className={tabTriggerClass}>
+            <Beer className="w-4 h-4 mr-2 shrink-0" />
+            Bar
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="management" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
               <CardTitle>Datos del evento</CardTitle>
@@ -804,8 +855,8 @@ function EventDetailContent() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="sellers">
-          <Card className="mb-4">
+        <TabsContent value="sellers" className="mt-4 space-y-4">
+          <Card>
             <CardHeader>
               <CardTitle>Asignar vendedor</CardTitle>
               <CardDescription>Define el cupo de ventas para este evento</CardDescription>
@@ -919,7 +970,7 @@ function EventDetailContent() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="payment-links" className="space-y-4">
+        <TabsContent value="payment-links" className="mt-4 space-y-4">
           <Card>
             <CardHeader className="flex flex-col gap-3">
               <section>
@@ -1099,12 +1150,12 @@ function EventDetailContent() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="tickets" className="space-y-4">
+        <TabsContent value="tickets" className="mt-4 space-y-4">
           <Card>
             <CardHeader className="flex flex-col gap-3">
               <section className="flex flex-row flex-wrap items-start justify-between gap-2">
                 <section>
-                  <CardTitle>Entradas emitidas</CardTitle>
+                  <CardTitle>Entradas vendidas</CardTitle>
                   <CardDescription>
                     {soldCount} vendidas
                     {tickets.length < soldCount ? ` · mostrando últimas ${tickets.length}` : ''}
@@ -1315,11 +1366,11 @@ function EventDetailContent() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="stats">
+        <TabsContent value="stats" className="mt-4">
           <EventStatsTab eventId={event.id} getIdToken={getIdToken} />
         </TabsContent>
 
-        <TabsContent value="bar">
+        <TabsContent value="bar" className="mt-4">
           <BarTab eventId={event.id} eventName={event.name} getIdToken={getIdToken} />
         </TabsContent>
       </Tabs>
