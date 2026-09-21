@@ -15,6 +15,7 @@ import { serializePaymentLink } from '@/lib/serialize';
 import { ensureLinkNotExpired } from '@/lib/services/expire-links';
 import { PAYMENT_LINK_INDEFINITE_EXPIRES_AT } from '@/lib/payment-link-expiry';
 import { sumPendingPaymentReservations } from '@/lib/services/payment-link-reservations';
+import { remainingEventCapacity, sumInvitationHolds } from '@/lib/services/invitation-rsvp';
 import { requireEventAccess, getMercadoPagoTokenForEvent, getOwnedEventIds } from '@/lib/tenant';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type {
@@ -40,9 +41,13 @@ export async function createPaymentLink(
     const event = eventSnap.data()!;
     if (!event.active) return fail('Evento inactivo');
 
+    const remainingCapacity = await remainingEventCapacity(
+      db,
+      eventId,
+      event.sold ?? 0,
+      event.capacity
+    );
     const pendingEvent = await sumPendingPaymentReservations(db, { eventId });
-    const issuedEvent = (event.sold ?? 0) + pendingEvent;
-    const remainingCapacity = event.capacity - issuedEvent;
     if (ticketQuantity > remainingCapacity) {
       if (remainingCapacity <= 0) {
         return fail('Cupo de entradas emitidas agotado. No se pueden crear más links de pago.');
@@ -381,8 +386,9 @@ export async function getEventReservationStats(
     await requireEventAccess(user, eventId);
 
     const pendingPayment = await sumPendingPaymentReservations(db, { eventId });
+    const invitationHolds = await sumInvitationHolds(db, eventId);
     const sold = event.sold ?? 0;
-    const issued = sold + pendingPayment;
+    const issued = sold + pendingPayment + invitationHolds;
     const remainingForLinks = Math.max(0, event.capacity - issued);
 
     return ok({

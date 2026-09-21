@@ -8,6 +8,7 @@ import { generateSecureToken } from '@/lib/tokens';
 import { serializePaymentLink } from '@/lib/serialize';
 import { issueTicketsForLink } from '@/lib/services/issue-tickets';
 import { sumPendingPaymentReservations } from '@/lib/services/payment-link-reservations';
+import { remainingEventCapacity } from '@/lib/services/invitation-rsvp';
 import { sendPurchaseConfirmationEmail } from '@/lib/services/purchase-confirmation-email';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type { PaymentLink, SerializedPaymentLink } from '@/lib/models';
@@ -44,9 +45,13 @@ export async function createCashSale(
     const event = eventSnap.data()!;
     if (!event.active) return fail('Evento inactivo');
 
+    const remainingCapacity = await remainingEventCapacity(
+      db,
+      eventId,
+      event.sold ?? 0,
+      event.capacity
+    );
     const pendingEvent = await sumPendingPaymentReservations(db, { eventId });
-    const issuedEvent = (event.sold ?? 0) + pendingEvent;
-    const remainingCapacity = event.capacity - issuedEvent;
     if (ticketQuantity > remainingCapacity) {
       if (remainingCapacity <= 0) {
         return fail('Cupo de entradas emitidas agotado.');

@@ -70,9 +70,9 @@ function InvitationCampaignsContent() {
   const [showForm, setShowForm] = useState(Boolean(preselectedEventId));
   const [eventId, setEventId] = useState(preselectedEventId);
   const [subject, setSubject] = useState('');
-  const [headline, setHeadline] = useState('Estás invitado');
+  const [headline, setHeadline] = useState('Hola!');
   const [message, setMessage] = useState('');
-  const [maxTicketsPerInvite, setMaxTicketsPerInvite] = useState(4);
+  const [maxTicketsPerInvite, setMaxTicketsPerInvite] = useState(6);
   const [extraEmails, setExtraEmails] = useState('');
   const [includeStaff, setIncludeStaff] = useState(false);
   const [audience, setAudience] = useState<InvitationAudiencePreview | null>(null);
@@ -162,7 +162,6 @@ function InvitationCampaignsContent() {
       headline,
       message,
       maxTicketsPerInvite,
-      appUrl: window.location.origin,
     });
     setPreviewSending(false);
     if (res.success) {
@@ -244,10 +243,10 @@ function InvitationCampaignsContent() {
             Se envía desde <span className="font-medium text-foreground">{emailConfig.from}</span>
           </p>
           <p>
-            La prueba abre este entorno{origin ? ` (${origin})` : ''}. Las campañas reales usan
-            links a <span className="font-medium text-foreground">{emailConfig.appUrl}</span>
+            La prueba y las campañas usan links de{' '}
+            <span className="font-medium text-foreground">{emailConfig.appUrl}</span>
             {origin && emailConfig.appUrl !== origin
-              ? ' — si esa web todavía no tiene esta versión, los invitados van a ver 404 hasta que despliegues.'
+              ? ` (este entorno es ${origin}).`
               : '.'}
           </p>
         </section>
@@ -259,7 +258,7 @@ function InvitationCampaignsContent() {
             <CardTitle>Nueva invitación</CardTitle>
             <CardDescription>
               Cada persona recibe un link único para decir cuántas entradas quiere. Al confirmar,
-              bloqueamos ese cupo y le enviamos los QR.
+              bloqueamos ese cupo. No hace falta cuenta ni login.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -318,10 +317,14 @@ function InvitationCampaignsContent() {
                   id="invite-message"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  rows={6}
-                  maxLength={2000}
+                  rows={18}
+                  maxLength={4000}
                   required
                 />
+                <p className="text-xs text-muted-foreground">
+                  Poné <code>{'{{link}}'}</code> donde quieras el botón de reserva. Queda en el
+                  medio del texto, como en el modelo.
+                </p>
               </section>
 
               <section className="grid gap-4 sm:grid-cols-2">
@@ -331,7 +334,7 @@ function InvitationCampaignsContent() {
                     id="invite-max"
                     type="number"
                     min={1}
-                    max={10}
+                    max={6}
                     value={maxTicketsPerInvite}
                     onChange={(e) => setMaxTicketsPerInvite(Number(e.target.value) || 1)}
                   />

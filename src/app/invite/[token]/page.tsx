@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
   declinePublicInvitation,
@@ -15,21 +14,17 @@ import { Label } from '@/components/ui/label';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, PartyPopper, Ticket } from 'lucide-react';
+import { Loader2, PartyPopper } from 'lucide-react';
 
 type InviteData = {
   eventName: string;
   eventDate: string;
   eventLocation?: string;
-  headline: string;
-  message: string;
   maxTicketsPerInvite: number;
   remainingCapacity: number;
   status: InvitationRecipientStatus;
   invitedEmail: string;
-  guestName?: string;
   ticketQuantity?: number;
-  ticketsUrl?: string;
 };
 
 export default function PublicInvitePage() {
@@ -37,12 +32,11 @@ export default function PublicInvitePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [invite, setInvite] = useState<InviteData | null>(null);
-  const [guestName, setGuestName] = useState('');
-  const [guestPhone, setGuestPhone] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [declining, setDeclining] = useState(false);
-  const [done, setDone] = useState<{ ticketsUrl: string; ticketQuantity: number } | null>(null);
+  const [done, setDone] = useState<{ email: string; ticketQuantity: number } | null>(null);
   const [declined, setDeclined] = useState(false);
 
   async function load() {
@@ -53,11 +47,11 @@ export default function PublicInvitePage() {
       return;
     }
     setInvite(res.data);
-    setGuestName(res.data.guestName ?? '');
-    setQuantity(1);
-    if (res.data.status === 'rsvped' && res.data.ticketsUrl) {
+    setGuestEmail(res.data.invitedEmail ?? '');
+    setQuantity(Math.min(res.data.ticketQuantity ?? 1, 6));
+    if (res.data.status === 'rsvped') {
       setDone({
-        ticketsUrl: res.data.ticketsUrl,
+        email: res.data.invitedEmail,
         ticketQuantity: res.data.ticketQuantity ?? 1,
       });
     }
@@ -74,7 +68,8 @@ export default function PublicInvitePage() {
 
   const maxTickets = useMemo(() => {
     if (!invite) return 1;
-    return Math.max(1, Math.min(invite.maxTicketsPerInvite, invite.remainingCapacity || invite.maxTicketsPerInvite));
+    const cap = Math.min(invite.maxTicketsPerInvite, 6);
+    return Math.max(1, Math.min(cap, invite.remainingCapacity || cap));
   }, [invite]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -83,8 +78,7 @@ export default function PublicInvitePage() {
     setError(null);
     const res = await submitPublicInvitationRsvp({
       token,
-      guestName,
-      guestPhone,
+      guestEmail,
       ticketQuantity: quantity,
     });
     setSubmitting(false);
@@ -93,7 +87,7 @@ export default function PublicInvitePage() {
       return;
     }
     setDone({
-      ticketsUrl: res.data.ticketsUrl,
+      email: guestEmail,
       ticketQuantity: res.data.ticketQuantity,
     });
   }
@@ -137,8 +131,10 @@ export default function PublicInvitePage() {
       />
       <section className="relative mx-auto w-full max-w-lg space-y-6">
         <section className="text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Ticketron</p>
-          <h1 className="mt-2 font-headline text-3xl tracking-wide sm:text-4xl">{invite.headline}</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+            Música & Amigos
+          </p>
+          <h1 className="mt-2 font-headline text-3xl tracking-wide sm:text-4xl">Reservá tus entradas</h1>
         </section>
 
         <Card className="border-primary/20 bg-card/90 shadow-lg shadow-primary/10">
@@ -150,10 +146,6 @@ export default function PublicInvitePage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-              {invite.message}
-            </p>
-
             {error && (
               <Alert variant="destructive">
                 <AlertTitle>No se pudo completar</AlertTitle>
@@ -169,21 +161,16 @@ export default function PublicInvitePage() {
                 </p>
               </section>
             ) : done ? (
-              <section className="space-y-4 text-center">
+              <section className="space-y-3 text-center">
                 <PartyPopper className="mx-auto h-10 w-10 text-primary" />
                 <p className="text-lg font-medium">
                   Reservamos {done.ticketQuantity}{' '}
                   {done.ticketQuantity === 1 ? 'entrada' : 'entradas'}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Te enviamos los códigos QR a {invite.invitedEmail}.
+                  Quedó a nombre de {done.email}. Hasta el domingo 27 de septiembre podés
+                  completar el pago al valor actual.
                 </p>
-                <Button asChild>
-                  <Link href={done.ticketsUrl}>
-                    <Ticket className="mr-2 h-4 w-4" />
-                    Ver mis entradas
-                  </Link>
-                </Button>
               </section>
             ) : invite.remainingCapacity <= 0 ? (
               <Alert>
@@ -195,21 +182,14 @@ export default function PublicInvitePage() {
             ) : (
               <form className="space-y-5" onSubmit={handleSubmit}>
                 <section className="space-y-2">
-                  <Label htmlFor="guest-name">Tu nombre</Label>
+                  <Label htmlFor="guest-email">Tu email</Label>
                   <Input
-                    id="guest-name"
-                    value={guestName}
-                    onChange={(e) => setGuestName(e.target.value)}
-                    minLength={2}
+                    id="guest-email"
+                    type="email"
+                    value={guestEmail}
+                    onChange={(e) => setGuestEmail(e.target.value)}
+                    autoComplete="email"
                     required
-                  />
-                </section>
-                <section className="space-y-2">
-                  <Label htmlFor="guest-phone">Teléfono (opcional)</Label>
-                  <Input
-                    id="guest-phone"
-                    value={guestPhone}
-                    onChange={(e) => setGuestPhone(e.target.value)}
                   />
                 </section>
                 <section className="space-y-2">
@@ -222,13 +202,9 @@ export default function PublicInvitePage() {
                     onChange={setQuantity}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Máximo {invite.maxTicketsPerInvite} por invitación. Reservamos ese cupo para
-                    vos.
+                    Máximo {invite.maxTicketsPerInvite} por persona. Reservamos ese cupo para vos.
                   </p>
                 </section>
-                <p className="text-xs text-muted-foreground">
-                  Invitación para {invite.invitedEmail}
-                </p>
                 <section className="flex flex-col gap-2">
                   <Button type="submit" disabled={submitting}>
                     {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

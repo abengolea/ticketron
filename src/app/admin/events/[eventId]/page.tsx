@@ -657,25 +657,71 @@ function EventDetailContent() {
           </Card>
         </section>
 
-        {invitationStats && invitationStats.campaigns > 0 && (
-          <Card>
-            <CardHeader className="p-4 pb-3">
-              <CardDescription>Invitaciones</CardDescription>
-              <CardTitle className="text-xl">
-                {invitationStats.rsvpCount} reservas · {invitationStats.reservedTickets} entradas
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                {invitationStats.sent} mails enviados
-                {invitationStats.declinedCount > 0
-                  ? ` · ${invitationStats.declinedCount} no asisten`
-                  : ''}
-                {' · '}
-                <Link href={`/admin/invites?eventId=${event.id}`} className="text-primary hover:underline">
-                  Ver campañas
-                </Link>
-              </p>
-            </CardHeader>
-          </Card>
+        {invitationStats && (
+          <>
+            <Card>
+              <CardHeader className="p-4 pb-3">
+                <CardDescription>Reservas por invitación</CardDescription>
+                <CardTitle className="text-xl">
+                  {invitationStats.reservedTickets}{' '}
+                  {invitationStats.reservedTickets === 1 ? 'entrada' : 'entradas'}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {invitationStats.rsvpCount}{' '}
+                  {invitationStats.rsvpCount === 1 ? 'persona confirmó' : 'personas confirmaron'}
+                  {invitationStats.declinedCount > 0
+                    ? ` · ${invitationStats.declinedCount} no asisten`
+                    : ''}
+                  {' · '}
+                  <Link
+                    href={`/admin/invites?eventId=${event.id}`}
+                    className="text-primary hover:underline"
+                  >
+                    Invitar
+                  </Link>
+                </p>
+              </CardHeader>
+            </Card>
+
+            {invitationStats.reservations.length > 0 && (
+              <Card>
+                <CardHeader className="p-4 pb-3">
+                  <CardTitle className="text-base">Quién reservó</CardTitle>
+                  <CardDescription>
+                    Cada reserva bloquea esas entradas del cupo del evento.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Email</TableHead>
+                        <TableHead className="text-right">Entradas</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {invitationStats.reservations.map((reservation, index) => (
+                        <TableRow key={`${reservation.email}-${index}`}>
+                          <TableCell>{reservation.email}</TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {reservation.ticketQuantity}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow>
+                        <TableCell className="font-medium">
+                          Total reservado
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">
+                          {invitationStats.reservedTickets}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
+          </>
         )}
 
         <Accordion type="single" collapsible className="rounded-lg border px-4">

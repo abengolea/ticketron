@@ -9,6 +9,7 @@ import { serializePaymentLink } from '@/lib/serialize';
 import { issueTicketsForLink } from '@/lib/services/issue-tickets';
 import { sendComplimentaryTicketEmail } from '@/lib/services/complimentary-ticket-email';
 import { requireEventAccess } from '@/lib/tenant';
+import { remainingEventCapacity } from '@/lib/services/invitation-rsvp';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type { PaymentLink, SerializedPaymentLink } from '@/lib/models';
 
@@ -44,7 +45,12 @@ export async function createComplimentaryLink(
     const event = eventSnap.data()!;
     if (!event.active) return fail('Evento inactivo');
 
-    const remainingCapacity = event.capacity - event.sold;
+    const remainingCapacity = await remainingEventCapacity(
+      db,
+      eventId,
+      event.sold ?? 0,
+      event.capacity
+    );
     if (ticketQuantity > remainingCapacity) {
       return fail(`Solo quedan ${remainingCapacity} entradas disponibles`);
     }

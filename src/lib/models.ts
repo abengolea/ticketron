@@ -803,10 +803,18 @@ export interface InvitationAudiencePreview {
   }>;
 }
 
+export interface EventInvitationReservation {
+  email: string;
+  guestName?: string;
+  ticketQuantity: number;
+  rsvpedAt?: string;
+}
+
 export interface EventInvitationStats {
   campaigns: number;
   sent: number;
   rsvpCount: number;
   declinedCount: number;
   reservedTickets: number;
+  reservations: EventInvitationReservation[];
 }

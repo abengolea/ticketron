@@ -1,22 +1,48 @@
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
-import { generateSecureToken } from '@/lib/tokens';
-import { issueTicketsForLink } from '@/lib/services/issue-tickets';
-import { sendComplimentaryTicketEmail } from '@/lib/services/complimentary-ticket-email';
 import { sumPendingPaymentReservations } from '@/lib/services/payment-link-reservations';
-import { PAYMENT_LINK_INDEFINITE_EXPIRES_AT } from '@/lib/payment-link-expiry';
 import { normalizeEventDoc } from '@/lib/serialize';
-import type {
-  InvitationCampaign,
-  InvitationRecipient,
-  PaymentLink,
-} from '@/lib/models';
+import type { InvitationCampaign, InvitationRecipient } from '@/lib/models';
 
-function getAppUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:9002').replace(
-    /\/$/,
-    ''
-  );
+/** Reservas de invitación que todavía no emitieron entradas (no están en sold). */
+export async function sumInvitationHolds(
+  db: Firestore,
+  eventId: string
+): Promise<number> {
+  let docs;
+  try {
+    const snap = await db
+      .collection(COLLECTIONS.invitationRecipients)
+      .where('eventId', '==', eventId)
+      .where('status', '==', 'rsvped')
+      .get();
+    docs = snap.docs;
+  } catch {
+    const snap = await db
+      .collection(COLLECTIONS.invitationRecipients)
+      .where('eventId', '==', eventId)
+      .get();
+    docs = snap.docs.filter((doc) => doc.data().status === 'rsvped');
+  }
+
+  return docs.reduce((sum, doc) => {
+    const data = doc.data() as InvitationRecipient;
+    if (data.paymentLinkId) return sum;
+    return sum + (data.ticketQuantity ?? 1);
+  }, 0);
+}
+
+export async function remainingEventCapacity(
+  db: Firestore,
+  eventId: string,
+  sold: number,
+  capacity: number
+): Promise<number> {
+  const [pendingPayment, invitationHolds] = await Promise.all([
+    sumPendingPaymentReservations(db, { eventId }),
+    sumInvitationHolds(db, eventId),
+  ]);
+  return Math.max(0, capacity - sold - pendingPayment - invitationHolds);
 }
 
 export async function getInvitationRecipientByToken(
@@ -30,15 +56,9 @@ export async function getInvitationRecipientByToken(
 
 export async function submitInvitationRsvp(params: {
   token: string;
-  guestName: string;
-  guestPhone?: string;
+  guestEmail: string;
   ticketQuantity: number;
-}): Promise<{
-  ticketsUrl: string;
-  ticketQuantity: number;
-  emailSent: boolean;
-  emailError?: string;
-}> {
+}): Promise<{ ticketQuantity: number }> {
   const db = getAdminDb();
   const recipientRef = db.collection(COLLECTIONS.invitationRecipients).doc(params.token);
   const recipientSnap = await recipientRef.get();
@@ -52,20 +72,12 @@ export async function submitInvitationRsvp(params: {
   } as InvitationRecipient;
 
   if (recipient.status === 'rsvped') {
-    if (recipient.ticketsUrl) {
-      return {
-        ticketsUrl: recipient.ticketsUrl,
-        ticketQuantity: recipient.ticketQuantity ?? params.ticketQuantity,
-        emailSent: true,
-      };
-    }
-    throw new Error('Esta invitación ya fue confirmada');
+    return {
+      ticketQuantity: recipient.ticketQuantity ?? params.ticketQuantity,
+    };
   }
   if (recipient.status === 'declined') {
     throw new Error('Esta invitación ya fue rechazada');
-  }
-  if (recipient.status === 'rsvping') {
-    throw new Error('Estamos procesando tu reserva. Recargá en unos segundos.');
   }
 
   const campaignSnap = await db
@@ -84,9 +96,10 @@ export async function submitInvitationRsvp(params: {
     throw new Error('Esta invitación ya no está activa');
   }
 
-  if (params.ticketQuantity > campaign.maxTicketsPerInvite) {
+  const maxAllowed = Math.min(campaign.maxTicketsPerInvite || 6, 6);
+  if (params.ticketQuantity > maxAllowed) {
     throw new Error(
-      `Podés reservar como máximo ${campaign.maxTicketsPerInvite} entrada${campaign.maxTicketsPerInvite === 1 ? '' : 's'}`
+      `Podés reservar como máximo ${maxAllowed} entrada${maxAllowed === 1 ? '' : 's'}`
     );
   }
 
@@ -99,10 +112,12 @@ export async function submitInvitationRsvp(params: {
     throw new Error('El evento ya no acepta reservas');
   }
 
-  const pendingPayment = await sumPendingPaymentReservations(db, {
-    eventId: event.id,
-  });
-  const remaining = event.capacity - event.sold - pendingPayment;
+  const remaining = await remainingEventCapacity(
+    db,
+    event.id,
+    event.sold,
+    event.capacity
+  );
   if (params.ticketQuantity > remaining) {
     if (remaining <= 0) {
       throw new Error('Se agotaron las entradas para este evento');
@@ -110,8 +125,7 @@ export async function submitInvitationRsvp(params: {
     throw new Error(`Solo quedan ${remaining} entradas disponibles`);
   }
 
-  const guestName = params.guestName.trim();
-  const guestPhone = params.guestPhone?.trim();
+  const guestEmail = params.guestEmail.trim().toLowerCase();
 
   const claimed = await db.runTransaction(async (tx) => {
     const fresh = await tx.get(recipientRef);
@@ -119,12 +133,16 @@ export async function submitInvitationRsvp(params: {
     const status = fresh.data()?.status as InvitationRecipient['status'];
     if (status === 'rsvped') return 'already';
     if (status === 'declined') return 'declined';
-    if (status === 'rsvping') return 'in_progress';
     tx.update(recipientRef, {
-      status: 'rsvping',
-      guestName,
+      status: 'rsvped',
+      email: guestEmail,
       ticketQuantity: params.ticketQuantity,
-      ...(guestPhone ? { guestPhone } : {}),
+      rsvpedAt: Timestamp.now(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.update(db.collection(COLLECTIONS.invitationCampaigns).doc(campaign.id), {
+      rsvpCount: FieldValue.increment(1),
+      reservedTickets: FieldValue.increment(params.ticketQuantity),
       updatedAt: FieldValue.serverTimestamp(),
     });
     return 'ok';
@@ -133,93 +151,19 @@ export async function submitInvitationRsvp(params: {
   if (claimed === 'already') {
     const latest = await recipientRef.get();
     const data = latest.data() as InvitationRecipient;
-    if (data.ticketsUrl) {
-      return {
-        ticketsUrl: data.ticketsUrl,
-        ticketQuantity: data.ticketQuantity ?? params.ticketQuantity,
-        emailSent: true,
-      };
-    }
-    throw new Error('Esta invitación ya fue confirmada');
+    return {
+      ticketQuantity: data.ticketQuantity ?? params.ticketQuantity,
+    };
   }
   if (claimed === 'declined') {
     throw new Error('Esta invitación ya fue rechazada');
-  }
-  if (claimed === 'in_progress') {
-    throw new Error('Estamos procesando tu reserva. Recargá en unos segundos.');
   }
   if (claimed !== 'ok') {
     throw new Error('Invitación no encontrada');
   }
 
-  const token = generateSecureToken();
-  const linkRef = db.collection(COLLECTIONS.paymentLinks).doc();
-  const now = Timestamp.now();
-  const linkData: Omit<PaymentLink, 'id'> = {
-    token,
-    eventId: event.id,
-    sellerId: campaign.createdBy,
-    ticketQuantity: params.ticketQuantity,
-    linkType: 'complimentary',
-    recipientLabel: `Invitación ${recipient.email}`,
-    buyerEmail: recipient.email,
-    buyerName: guestName,
-    amount: 0,
-    status: 'PAID',
-    expiresAt: PAYMENT_LINK_INDEFINITE_EXPIRES_AT,
-    complimentaryMessage: campaign.headline,
-    createdAt: now,
-    updatedAt: now,
-    ...(guestPhone ? { buyerPhone: guestPhone } : {}),
-  };
-
-  try {
-    await linkRef.set(linkData);
-    await issueTicketsForLink(linkRef.id);
-  } catch (error) {
-    await recipientRef.update({
-      status: recipient.status === 'pending' ? 'pending' : 'sent',
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    throw error instanceof Error ? error : new Error('No se pudieron emitir las entradas');
-  }
-
-  const ticketsUrl = `${getAppUrl()}/ticket?token=${encodeURIComponent(token)}`;
-
-  await recipientRef.update({
-    status: 'rsvped',
-    ticketQuantity: params.ticketQuantity,
-    guestName,
-    paymentLinkId: linkRef.id,
-    ticketsUrl,
-    rsvpedAt: Timestamp.now(),
-    ...(guestPhone ? { guestPhone } : {}),
-    updatedAt: FieldValue.serverTimestamp(),
-  });
-
-  await db.collection(COLLECTIONS.invitationCampaigns).doc(campaign.id).update({
-    rsvpCount: FieldValue.increment(1),
-    reservedTickets: FieldValue.increment(params.ticketQuantity),
-    updatedAt: FieldValue.serverTimestamp(),
-  });
-
-  let emailSent = false;
-  let emailError: string | undefined;
-  try {
-    const emailResult = await sendComplimentaryTicketEmail(linkRef.id);
-    emailSent = emailResult.sent;
-    if (!emailResult.sent && emailResult.skipped) {
-      emailError = `No se envió el email (${emailResult.skipped})`;
-    }
-  } catch (error) {
-    emailError = error instanceof Error ? error.message : 'Error al enviar email';
-  }
-
   return {
-    ticketsUrl,
     ticketQuantity: params.ticketQuantity,
-    emailSent,
-    emailError,
   };
 }
 

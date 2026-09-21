@@ -29,9 +29,9 @@ import {
 import {
   declineInvitationRsvp,
   getInvitationRecipientByToken,
+  remainingEventCapacity,
   submitInvitationRsvp,
 } from '@/lib/services/invitation-rsvp';
-import { sumPendingPaymentReservations } from '@/lib/services/payment-link-reservations';
 import { formatEventDateForDisplay } from '@/lib/format-event-date';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
 import type {
@@ -163,7 +163,7 @@ export async function sendInvitationPreviewEmail(
     };
     await campaignRef.set(campaign, { merge: true });
 
-    const rsvpUrl = invitationRsvpUrl(token, parsed.appUrl);
+    const rsvpUrl = invitationRsvpUrl(token);
     await sendInvitationEmail({
       to: email,
       subject: parsed.subject,
@@ -398,10 +398,10 @@ export async function getEventInvitationStats(
     requireManageEvents(user);
     await requireEventAccess(user, eventId);
     const db = getAdminDb();
-    const snap = await db
-      .collection(COLLECTIONS.invitationCampaigns)
-      .where('eventId', '==', eventId)
-      .get();
+    const [campaignsSnap, recipientsSnap] = await Promise.all([
+      db.collection(COLLECTIONS.invitationCampaigns).where('eventId', '==', eventId).get(),
+      db.collection(COLLECTIONS.invitationRecipients).where('eventId', '==', eventId).get(),
+    ]);
 
     const stats: EventInvitationStats = {
       campaigns: 0,
@@ -409,16 +409,41 @@ export async function getEventInvitationStats(
       rsvpCount: 0,
       declinedCount: 0,
       reservedTickets: 0,
+      reservations: [],
     };
-    for (const doc of snap.docs) {
+
+    for (const doc of campaignsSnap.docs) {
       const data = doc.data() as InvitationCampaign;
       if (data.preview) continue;
       stats.campaigns += 1;
-      stats.sent += data.sentCount ?? 0;
-      stats.rsvpCount += data.rsvpCount ?? 0;
-      stats.declinedCount += data.declinedCount ?? 0;
-      stats.reservedTickets += data.reservedTickets ?? 0;
     }
+
+    for (const doc of recipientsSnap.docs) {
+      const data = { id: doc.id, ...doc.data() } as InvitationRecipient;
+      if (data.status === 'sent' || data.status === 'rsvped' || data.status === 'declined') {
+        stats.sent += 1;
+      }
+      if (data.status === 'declined') {
+        stats.declinedCount += 1;
+        continue;
+      }
+      if (data.status !== 'rsvped') continue;
+      const ticketQuantity = data.ticketQuantity ?? 1;
+      stats.rsvpCount += 1;
+      stats.reservedTickets += ticketQuantity;
+      stats.reservations.push({
+        email: data.email,
+        ticketQuantity,
+        rsvpedAt: data.rsvpedAt?.toDate().toISOString(),
+      });
+    }
+
+    stats.reservations.sort((a, b) => {
+      const at = a.rsvpedAt ? new Date(a.rsvpedAt).getTime() : 0;
+      const bt = b.rsvpedAt ? new Date(b.rsvpedAt).getTime() : 0;
+      return bt - at;
+    });
+
     return ok(stats);
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error');
@@ -430,15 +455,11 @@ export async function getPublicInvite(token: string): Promise<
     eventName: string;
     eventDate: string;
     eventLocation?: string;
-    headline: string;
-    message: string;
     maxTicketsPerInvite: number;
     remainingCapacity: number;
     status: InvitationRecipient['status'];
     invitedEmail: string;
-    guestName?: string;
     ticketQuantity?: number;
-    ticketsUrl?: string;
   }>
 > {
   try {
@@ -456,24 +477,22 @@ export async function getPublicInvite(token: string): Promise<
 
     const campaign = campaignSnap.data() as InvitationCampaign;
     const event = normalizeEventDoc(eventSnap.id, eventSnap.data()!);
-    const pendingPayment = await sumPendingPaymentReservations(db, {
-      eventId: event.id,
-    });
-    const remainingCapacity = Math.max(0, event.capacity - event.sold - pendingPayment);
+    const remainingCapacity = await remainingEventCapacity(
+      db,
+      event.id,
+      event.sold,
+      event.capacity
+    );
 
     return ok({
       eventName: event.name,
       eventDate: formatEventDateForDisplay(event.date.toDate()),
       eventLocation: event.location,
-      headline: campaign.headline,
-      message: campaign.message,
-      maxTicketsPerInvite: campaign.maxTicketsPerInvite,
+      maxTicketsPerInvite: Math.min(campaign.maxTicketsPerInvite || 6, 6),
       remainingCapacity,
       status: recipient.status,
       invitedEmail: recipient.email,
-      guestName: recipient.guestName,
       ticketQuantity: recipient.ticketQuantity,
-      ticketsUrl: recipient.ticketsUrl,
     });
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error al cargar la invitación');
@@ -482,20 +501,12 @@ export async function getPublicInvite(token: string): Promise<
 
 export async function submitPublicInvitationRsvp(
   input: unknown
-): Promise<
-  ActionResult<{
-    ticketsUrl: string;
-    ticketQuantity: number;
-    emailSent: boolean;
-    emailError?: string;
-  }>
-> {
+): Promise<ActionResult<{ ticketQuantity: number }>> {
   try {
     const parsed = submitInvitationRsvpSchema.parse(input);
     const result = await submitInvitationRsvp({
       token: parsed.token,
-      guestName: parsed.guestName,
-      guestPhone: parsed.guestPhone?.trim() || undefined,
+      guestEmail: parsed.guestEmail,
       ticketQuantity: parsed.ticketQuantity,
     });
     return ok(result);

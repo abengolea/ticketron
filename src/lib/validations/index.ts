@@ -320,8 +320,8 @@ export const createInvitationCampaignSchema = z.object({
   eventId: z.string().min(1, 'Elegí un evento'),
   subject: z.string().trim().min(5, 'Asunto demasiado corto').max(120),
   headline: z.string().trim().min(3, 'Título demasiado corto').max(80),
-  message: z.string().trim().min(10, 'Escribí un mensaje').max(2000),
-  maxTicketsPerInvite: z.coerce.number().int().min(1).max(10),
+  message: z.string().trim().min(10, 'Escribí un mensaje').max(4000),
+  maxTicketsPerInvite: z.coerce.number().int().min(1).max(6),
   extraEmails: z.string().max(40000).optional().or(z.literal('')),
   includeStaff: z.boolean().optional(),
 });
@@ -336,8 +336,8 @@ export const sendInvitationPreviewSchema = z.object({
   eventId: z.string().min(1),
   subject: z.string().trim().min(5).max(120),
   headline: z.string().trim().min(3).max(80),
-  message: z.string().trim().min(10).max(2000),
-  maxTicketsPerInvite: z.coerce.number().int().min(1).max(10),
+  message: z.string().trim().min(10).max(4000),
+  maxTicketsPerInvite: z.coerce.number().int().min(1).max(6),
   appUrl: z.string().url().optional(),
 });
 
@@ -348,15 +348,8 @@ export const sendInvitationBatchSchema = z.object({
 
 export const submitInvitationRsvpSchema = z.object({
   token: z.string().min(8),
-  guestName: z.string().trim().min(2, 'Nombre requerido (mín. 2 caracteres)').max(80),
-  guestPhone: z
-    .string()
-    .trim()
-    .min(8, 'Teléfono inválido')
-    .max(30)
-    .optional()
-    .or(z.literal('')),
-  ticketQuantity: z.coerce.number().int().min(1).max(10),
+  guestEmail: z.string().trim().email('Email inválido'),
+  ticketQuantity: z.coerce.number().int().min(1).max(6),
 });
 
 export const declineInvitationSchema = z.object({
