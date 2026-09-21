@@ -60,6 +60,8 @@ export const COLLECTIONS = {
   visitorClubs: 'visitorClubs',
   platformConfig: 'platformConfig',
   eventFeeCharges: 'eventFeeCharges',
+  invitationCampaigns: 'invitationCampaigns',
+  invitationRecipients: 'invitationRecipients',
 } as const;
 
 export const PLATFORM_CONFIG_DOCS = {

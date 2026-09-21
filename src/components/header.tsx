@@ -12,6 +12,7 @@ import {
   DoorOpen,
   Shield,
   Settings2,
+  Mail,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { useUser, useAuth } from '@/firebase';
@@ -45,12 +46,14 @@ const navByRole: Record<UserRole, { href: string; label: string; icon: typeof Ti
   superadmin: [
     { href: '/superadmin', label: 'Super Admin', icon: Shield },
     { href: '/admin/events', label: 'Mis eventos', icon: Ticket },
+    { href: '/admin/invites', label: 'Invitaciones', icon: Mail },
     { href: '/admin/access', label: 'Visitantes', icon: DoorOpen },
     { href: '/admin/sellers', label: 'Vendedores', icon: Store },
     { href: '/admin/settings', label: 'Ajustes', icon: Settings2 },
   ],
   producer: [
     { href: '/admin/events', label: 'Eventos', icon: Ticket },
+    { href: '/admin/invites', label: 'Invitaciones', icon: Mail },
     { href: '/admin/sellers', label: 'Vendedores', icon: Store },
     { href: '/admin/settings', label: 'Ajustes', icon: Settings2 },
   ],
@@ -121,6 +124,12 @@ function NavRow({
   );
 }
 
+const landingAnchors = [
+  { href: '#como-funciona', label: 'Cómo funciona' },
+  { href: '#precio', label: 'Precio' },
+  { href: '#faq', label: 'FAQ' },
+] as const;
+
 export function Header() {
   const pathname = usePathname();
   const { user, loading } = useUser();
@@ -128,6 +137,7 @@ export function Header() {
   const router = useRouter();
   const { toast } = useToast();
   const [session, setSession] = useState<SessionUser | null>(null);
+  const [scrolled, setScrolled] = useState(false);
 
   const isPublicCheckout =
     pathname.startsWith('/checkout') ||
@@ -135,7 +145,10 @@ export function Header() {
     pathname.startsWith('/activate') ||
     pathname.startsWith('/a/') ||
     pathname.startsWith('/access/invite') ||
-    pathname.startsWith('/access/pass');
+    pathname.startsWith('/access/pass') ||
+    pathname.startsWith('/invite');
+
+  const isLanding = pathname === '/';
 
   useEffect(() => {
     async function loadSession() {
@@ -149,6 +162,13 @@ export function Header() {
     }
     loadSession();
   }, [user]);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   if (isPublicCheckout) return null;
 
@@ -197,8 +217,17 @@ export function Header() {
                 ? '/gate'
                 : '/';
 
+  const showLandingNav = isLanding && !user && !session;
+
   return (
-    <header className="bg-card/95 backdrop-blur-sm border-b sticky top-0 z-50">
+    <header
+      className={cn(
+        'sticky top-0 z-50 w-full border-b transition-all duration-300',
+        scrolled
+          ? 'border-border/40 bg-background/80 backdrop-blur-md'
+          : 'border-border bg-card/95 backdrop-blur-sm'
+      )}
+    >
       <section className="container mx-auto px-4 py-3 space-y-3">
         <section className="flex justify-between items-center gap-4">
           <Link href={homeHref} className="flex items-center gap-3">
@@ -207,6 +236,23 @@ export function Header() {
             </section>
             <span className="text-xl font-headline font-bold">Ticketron</span>
           </Link>
+
+          {showLandingNav && (
+            <nav
+              aria-label="Secciones de la landing"
+              className="hidden items-center gap-1 lg:flex"
+            >
+              {landingAnchors.map((item) => (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  className="rounded-md px-3 py-2 font-body text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                >
+                  {item.label}
+                </a>
+              ))}
+            </nav>
+          )}
 
           <section className="flex items-center gap-2">
             {showGateShortcut && (
@@ -254,8 +300,10 @@ export function Header() {
             ) : (
               <>
                 {showProducerCta && (
-                  <Button asChild variant="ghost" size="sm">
-                    <Link href="/register">Ser productor</Link>
+                  <Button asChild variant={isLanding ? 'default' : 'ghost'} size="sm">
+                    <Link href="/register">
+                      {isLanding ? 'Registrarme gratis' : 'Ser productor'}
+                    </Link>
                   </Button>
                 )}
                 {pathname !== '/login' && (

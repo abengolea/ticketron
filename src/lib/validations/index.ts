@@ -316,6 +316,53 @@ export const cancelAccessPassSchema = z.object({
   passId: z.string().min(1),
 });
 
+export const createInvitationCampaignSchema = z.object({
+  eventId: z.string().min(1, 'Elegí un evento'),
+  subject: z.string().trim().min(5, 'Asunto demasiado corto').max(120),
+  headline: z.string().trim().min(3, 'Título demasiado corto').max(80),
+  message: z.string().trim().min(10, 'Escribí un mensaje').max(2000),
+  maxTicketsPerInvite: z.coerce.number().int().min(1).max(10),
+  extraEmails: z.string().max(40000).optional().or(z.literal('')),
+  includeStaff: z.boolean().optional(),
+});
+
+export const previewInvitationAudienceSchema = z.object({
+  eventId: z.string().min(1),
+  extraEmails: z.string().max(40000).optional().or(z.literal('')),
+  includeStaff: z.boolean().optional(),
+});
+
+export const sendInvitationPreviewSchema = z.object({
+  eventId: z.string().min(1),
+  subject: z.string().trim().min(5).max(120),
+  headline: z.string().trim().min(3).max(80),
+  message: z.string().trim().min(10).max(2000),
+  maxTicketsPerInvite: z.coerce.number().int().min(1).max(10),
+  appUrl: z.string().url().optional(),
+});
+
+export const sendInvitationBatchSchema = z.object({
+  campaignId: z.string().min(1),
+  limit: z.coerce.number().int().min(1).max(25).optional(),
+});
+
+export const submitInvitationRsvpSchema = z.object({
+  token: z.string().min(8),
+  guestName: z.string().trim().min(2, 'Nombre requerido (mín. 2 caracteres)').max(80),
+  guestPhone: z
+    .string()
+    .trim()
+    .min(8, 'Teléfono inválido')
+    .max(30)
+    .optional()
+    .or(z.literal('')),
+  ticketQuantity: z.coerce.number().int().min(1).max(10),
+});
+
+export const declineInvitationSchema = z.object({
+  token: z.string().min(8),
+});
+
 export type BuyerCheckoutInput = z.infer<typeof buyerCheckoutSchema>;
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
@@ -324,3 +371,5 @@ export type CreateSellerAccessInput = z.infer<typeof createSellerAccessSchema>;
 export type CreatePaymentLinkInput = z.infer<typeof createPaymentLinkSchema>;
 export type CreateComplimentaryLinkInput = z.infer<typeof createComplimentaryLinkSchema>;
 export type CreateCashSaleInput = z.infer<typeof createCashSaleSchema>;
+export type CreateInvitationCampaignInput = z.infer<typeof createInvitationCampaignSchema>;
+export type SubmitInvitationRsvpInput = z.infer<typeof submitInvitationRsvpSchema>;

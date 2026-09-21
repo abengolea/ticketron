@@ -21,6 +21,10 @@ import type {
   SerializedVisitorInviteLink,
   SerializedAccessPass,
   SerializedAccessScan,
+  InvitationCampaign,
+  InvitationRecipient,
+  SerializedInvitationCampaign,
+  SerializedInvitationRecipient,
 } from '@/lib/models';
 
 function tsToIso(ts: Timestamp | undefined): string | undefined {
@@ -297,5 +301,54 @@ export function serializeAccessScan(
     responsibleName: s.responsibleName,
     visitingClub: s.visitingClub,
     accessCode: s.accessCode,
+  };
+}
+
+export function serializeInvitationCampaign(
+  c: InvitationCampaign,
+  extras?: { eventName?: string; eventDate?: string }
+): SerializedInvitationCampaign {
+  return {
+    id: c.id,
+    eventId: c.eventId,
+    eventName: extras?.eventName ?? '',
+    eventDate: extras?.eventDate ?? '',
+    ownerId: c.ownerId,
+    subject: c.subject,
+    headline: c.headline,
+    message: c.message,
+    maxTicketsPerInvite: c.maxTicketsPerInvite,
+    status: c.status,
+    recipientCount: c.recipientCount,
+    sentCount: c.sentCount,
+    failedCount: c.failedCount,
+    rsvpCount: c.rsvpCount,
+    declinedCount: c.declinedCount,
+    reservedTickets: c.reservedTickets,
+    createdAt: c.createdAt.toDate().toISOString(),
+    updatedAt: c.updatedAt.toDate().toISOString(),
+  };
+}
+
+export function serializeInvitationRecipient(
+  r: InvitationRecipient
+): SerializedInvitationRecipient {
+  return {
+    id: r.id,
+    campaignId: r.campaignId,
+    eventId: r.eventId,
+    token: r.token,
+    email: r.email,
+    displayName: r.displayName,
+    source: r.source,
+    status: r.status,
+    ticketQuantity: r.ticketQuantity,
+    guestName: r.guestName,
+    guestPhone: r.guestPhone,
+    ticketsUrl: r.ticketsUrl,
+    error: r.error,
+    sentAt: tsToIso(r.sentAt),
+    rsvpedAt: tsToIso(r.rsvpedAt),
+    createdAt: r.createdAt.toDate().toISOString(),
   };
 }

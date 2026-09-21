@@ -49,6 +49,16 @@ En el checkout el comprador ingresa el email **dos veces** (confirmación). No s
 1. Crear cuenta en Resend y verificar dominio (o usar dominio de prueba en desarrollo).
 2. Completar `RESEND_API_KEY` y `EMAIL_FROM` en `.env.local` / App Hosting.
 
+## Invitaciones a un evento
+
+Desde `/admin/invites` (o **Invitar por email** en el evento) se arma una campaña con Resend:
+
+- Audiencia: emails únicos de la base (superadmin: toda Ticketron; productor: compradores de sus eventos) más emails extra.
+- Cada destinatario recibe un link personal `/invite/{token}` para decir cuántas entradas quiere.
+- Al confirmar se emiten entradas de cortesía, se bloquea el cupo y se mandan los QR.
+
+El remitente es `EMAIL_FROM` (tiene que estar verificado en Resend).
+
 ## Primer administrador
 
 Crear manualmente en Firestore Console:

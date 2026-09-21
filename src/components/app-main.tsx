@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 
 export function AppMain({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const fullBleed = pathname === '/';
+  const fullBleed = pathname === '/' || pathname.startsWith('/invite');
 
   return (
     <main

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { RoleGuard } from '@/components/role-guard';
 import { useIdToken } from '@/hooks/use-id-token';
 import { getEvent, updateEvent } from '@/lib/actions/events';
+import { getEventInvitationStats } from '@/lib/actions/invitations';
 import {
   listUsers,
   assignSellerAccess,
@@ -25,6 +26,7 @@ import { CreateComplimentaryLinkDialog } from '@/components/create-complimentary
 import { CreateCashSaleDialog } from '@/components/create-cash-sale-dialog';
 import type {
   EventReservationStats,
+  EventInvitationStats,
   SerializedEvent,
   SerializedPaymentLink,
   SerializedTicketWithPayment,
@@ -86,6 +88,7 @@ import {
   Download,
   Link2,
   Loader2,
+  Mail,
   MessageCircle,
   MoreVertical,
   QrCode,
@@ -244,18 +247,20 @@ function EventDetailContent() {
   const [paymentLinkSearch, setPaymentLinkSearch] = useState('');
   const [ticketsHasMore, setTicketsHasMore] = useState(false);
   const [loadingMoreTickets, setLoadingMoreTickets] = useState(false);
+  const [invitationStats, setInvitationStats] = useState<EventInvitationStats | null>(null);
 
   const load = useCallback(async () => {
     const token = await getIdToken();
     if (!token) return;
 
-    const [evRes, ticketsRes, accessRes, usersRes, linksRes, statsRes] = await Promise.all([
+    const [evRes, ticketsRes, accessRes, usersRes, linksRes, statsRes, inviteStatsRes] = await Promise.all([
       getEvent(token, eventId),
       listTicketsForEvent(token, eventId, { includeArchived: true, limit: TICKETS_PAGE_SIZE }),
       listSellerAccessAdmin(token, { eventId }),
       listUsers(token),
       listSalesAdmin(token, { eventId }),
       getEventReservationStats(token, eventId),
+      getEventInvitationStats(token, eventId),
     ]);
 
     if (evRes.success) {
@@ -284,6 +289,7 @@ function EventDetailContent() {
       });
     }
     if (statsRes.success) setReservationStats(statsRes.data);
+    if (inviteStatsRes.success) setInvitationStats(inviteStatsRes.data);
     setLoading(false);
   }, [eventId, getIdToken, router, toast]);
 
@@ -563,6 +569,13 @@ function EventDetailContent() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          <Button variant="outline" size="sm" className="w-full sm:w-auto" asChild>
+            <Link href={`/admin/invites?eventId=${event.id}`}>
+              <Mail className="w-4 h-4 mr-2" />
+              Invitar por email
+            </Link>
+          </Button>
+
           {maxLinkTickets > 0 && (
             <>
               <span className="hidden h-6 w-px bg-border sm:block" aria-hidden />
@@ -643,6 +656,27 @@ function EventDetailContent() {
             </CardHeader>
           </Card>
         </section>
+
+        {invitationStats && invitationStats.campaigns > 0 && (
+          <Card>
+            <CardHeader className="p-4 pb-3">
+              <CardDescription>Invitaciones</CardDescription>
+              <CardTitle className="text-xl">
+                {invitationStats.rsvpCount} reservas · {invitationStats.reservedTickets} entradas
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                {invitationStats.sent} mails enviados
+                {invitationStats.declinedCount > 0
+                  ? ` · ${invitationStats.declinedCount} no asisten`
+                  : ''}
+                {' · '}
+                <Link href={`/admin/invites?eventId=${event.id}`} className="text-primary hover:underline">
+                  Ver campañas
+                </Link>
+              </p>
+            </CardHeader>
+          </Card>
+        )}
 
         <Accordion type="single" collapsible className="rounded-lg border px-4">
           <AccordionItem value="cupos" className="border-0">

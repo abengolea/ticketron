@@ -129,5 +129,13 @@ service cloud.firestore {
     match /eventFeeCharges/{docId} {
       allow read, write: if false;
     }
+
+    match /invitationCampaigns/{docId} {
+      allow read, write: if false;
+    }
+
+    match /invitationRecipients/{docId} {
+      allow read, write: if false;
+    }
   }
 }

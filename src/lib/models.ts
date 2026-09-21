@@ -688,3 +688,125 @@ export interface SavedVisitorClub {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+
+// ---------- Invitaciones a eventos (RSVP) ----------
+
+export type InvitationCampaignStatus = 'draft' | 'sending' | 'sent' | 'cancelled';
+
+export type InvitationRecipientStatus =
+  | 'pending'
+  | 'sent'
+  | 'failed'
+  | 'rsvping'
+  | 'rsvped'
+  | 'declined';
+
+export type InvitationRecipientSource = 'user' | 'ticket' | 'paymentLink' | 'manual';
+
+export interface InvitationCampaign {
+  id: string;
+  eventId: string;
+  ownerId: string;
+  subject: string;
+  headline: string;
+  message: string;
+  maxTicketsPerInvite: number;
+  status: InvitationCampaignStatus;
+  recipientCount: number;
+  sentCount: number;
+  failedCount: number;
+  rsvpCount: number;
+  declinedCount: number;
+  reservedTickets: number;
+  /** Campaña de prueba (no cuenta en el listado ni en la audiencia). */
+  preview?: boolean;
+  createdBy: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface InvitationRecipient {
+  id: string;
+  campaignId: string;
+  eventId: string;
+  token: string;
+  email: string;
+  displayName?: string;
+  source: InvitationRecipientSource;
+  status: InvitationRecipientStatus;
+  ticketQuantity?: number;
+  guestName?: string;
+  guestPhone?: string;
+  paymentLinkId?: string;
+  ticketsUrl?: string;
+  /** Destinatario de un mail de prueba; no bloquea la audiencia real. */
+  preview?: boolean;
+  error?: string;
+  sentAt?: Timestamp;
+  rsvpedAt?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface SerializedInvitationCampaign {
+  id: string;
+  eventId: string;
+  eventName: string;
+  eventDate: string;
+  ownerId: string;
+  subject: string;
+  headline: string;
+  message: string;
+  maxTicketsPerInvite: number;
+  status: InvitationCampaignStatus;
+  recipientCount: number;
+  sentCount: number;
+  failedCount: number;
+  rsvpCount: number;
+  declinedCount: number;
+  reservedTickets: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SerializedInvitationRecipient {
+  id: string;
+  campaignId: string;
+  eventId: string;
+  token: string;
+  email: string;
+  displayName?: string;
+  source: InvitationRecipientSource;
+  status: InvitationRecipientStatus;
+  ticketQuantity?: number;
+  guestName?: string;
+  guestPhone?: string;
+  ticketsUrl?: string;
+  error?: string;
+  sentAt?: string;
+  rsvpedAt?: string;
+  createdAt: string;
+}
+
+export interface InvitationAudiencePreview {
+  total: number;
+  fromDatabase: number;
+  extra: number;
+  skippedAlreadyTicketed: number;
+  skippedAlreadyInvited: number;
+  skippedInvalid: number;
+  bySource: Record<InvitationRecipientSource, number>;
+  sample: Array<{
+    email: string;
+    displayName?: string;
+    source: InvitationRecipientSource;
+  }>;
+}
+
+export interface EventInvitationStats {
+  campaigns: number;
+  sent: number;
+  rsvpCount: number;
+  declinedCount: number;
+  reservedTickets: number;
+}
