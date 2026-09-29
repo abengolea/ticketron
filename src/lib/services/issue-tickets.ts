@@ -44,7 +44,7 @@ export async function issueTicketsForLink(
     const eventSnap = await tx.get(eventRef);
     if (!eventSnap.exists) throw new Error('Evento no encontrado');
     const event = eventSnap.data()!;
-    if (!event.active) throw new Error('Evento inactivo');
+    if (!event.active || event.cancelled) throw new Error('Evento inactivo');
 
     const toCreate = ticketQuantity - existingTickets.size;
     if (event.sold + toCreate > event.capacity) {

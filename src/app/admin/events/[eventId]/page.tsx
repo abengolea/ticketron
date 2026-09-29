@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { RoleGuard } from '@/components/role-guard';
 import { useIdToken } from '@/hooks/use-id-token';
 import { getEvent, updateEvent } from '@/lib/actions/events';
+import { CancelEventButton, EventRefundsCard } from '@/components/event-cancellation-panel';
 import { getEventInvitationStats } from '@/lib/actions/invitations';
 import {
   listUsers,
@@ -28,6 +29,7 @@ import type {
   EventReservationStats,
   EventInvitationStats,
   SerializedEvent,
+  SerializedEventRefundSummary,
   SerializedPaymentLink,
   SerializedTicketWithPayment,
 } from '@/lib/models';
@@ -248,6 +250,7 @@ function EventDetailContent() {
   const [ticketsHasMore, setTicketsHasMore] = useState(false);
   const [loadingMoreTickets, setLoadingMoreTickets] = useState(false);
   const [invitationStats, setInvitationStats] = useState<EventInvitationStats | null>(null);
+  const [refunds, setRefunds] = useState<SerializedEventRefundSummary | null>(null);
 
   const load = useCallback(async () => {
     const token = await getIdToken();
@@ -319,7 +322,7 @@ function EventDetailContent() {
   }
 
   async function toggleActive() {
-    if (!event) return;
+    if (!event || event.cancelled) return;
     const token = await getIdToken();
     if (!token) return;
     await updateEvent(token, { id: event.id, active: !event.active });
@@ -353,7 +356,7 @@ function EventDetailContent() {
       location: editForm.location.trim() || undefined,
       capacity: editForm.capacity,
       price: editForm.price,
-      active: editForm.active,
+      active: event.cancelled ? false : editForm.active,
     });
     setSavingEvent(false);
 
@@ -523,9 +526,13 @@ function EventDetailContent() {
           <section className="min-w-0 flex-1 space-y-2">
             <section className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-headline font-bold tracking-tight">{event.name}</h1>
-              <Badge variant={event.active ? 'default' : 'secondary'}>
-                {event.active ? 'Activo' : 'Inactivo'}
-              </Badge>
+              {event.cancelled ? (
+                <Badge variant="destructive">Cancelado</Badge>
+              ) : (
+                <Badge variant={event.active ? 'default' : 'secondary'}>
+                  {event.active ? 'Activo' : 'Inactivo'}
+                </Badge>
+              )}
             </section>
             <p className="text-sm text-muted-foreground">
               {new Date(event.date).toLocaleString('es-AR')}
@@ -534,10 +541,12 @@ function EventDetailContent() {
             </p>
           </section>
 
-          <label className="flex items-center gap-2 cursor-pointer shrink-0 rounded-md border px-3 py-2">
-            <Switch checked={event.active} onCheckedChange={toggleActive} />
-            <span className="text-sm">Visible para venta</span>
-          </label>
+          {!event.cancelled && (
+            <label className="flex items-center gap-2 cursor-pointer shrink-0 rounded-md border px-3 py-2">
+              <Switch checked={event.active} onCheckedChange={toggleActive} />
+              <span className="text-sm">Visible para venta</span>
+            </label>
+          )}
         </section>
 
         <section className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
@@ -607,8 +616,25 @@ function EventDetailContent() {
               </section>
             </>
           )}
+
+          {!event.cancelled && (
+            <CancelEventButton
+              event={event}
+              getIdToken={getIdToken}
+              onCancelled={(updated, nextRefunds) => {
+                setEvent(updated);
+                setEditForm(eventToEditForm(updated));
+                setRefunds(nextRefunds);
+                load();
+              }}
+            />
+          )}
         </section>
       </header>
+
+      {event.cancelled && (
+        <EventRefundsCard event={event} getIdToken={getIdToken} initialRefunds={refunds} />
+      )}
 
       <section className="space-y-3">
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -914,9 +940,14 @@ function EventDetailContent() {
                   <Switch
                     id="eventActive"
                     checked={editForm.active}
+                    disabled={event.cancelled}
                     onCheckedChange={(active) => setEditForm({ ...editForm, active })}
                   />
-                  <Label htmlFor="eventActive">Evento activo (visible para venta)</Label>
+                  <Label htmlFor="eventActive">
+                    {event.cancelled
+                      ? 'Evento cancelado (no se puede volver a publicar)'
+                      : 'Evento activo (visible para venta)'}
+                  </Label>
                 </section>
                 <section className="md:col-span-2 flex gap-2">
                   <Button type="submit" disabled={savingEvent}>

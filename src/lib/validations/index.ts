@@ -27,6 +27,16 @@ export const updateEventSchema = createEventSchema.partial().extend({
   id: z.string().min(1),
 });
 
+export const cancelEventSchema = z.object({
+  eventId: z.string().min(1),
+});
+
+export const markEventRefundTransferredSchema = z.object({
+  eventId: z.string().min(1),
+  refundKey: z.string().min(1),
+  transferred: z.boolean(),
+});
+
 export const createSellerSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(6, 'Mínimo 6 caracteres'),

@@ -134,12 +134,23 @@ export interface AppUser {
   updatedAt: Timestamp;
 }
 
+export interface EventRefundTransfer {
+  transferred: boolean;
+  transferredAt?: Timestamp;
+  transferredBy?: string;
+}
+
 export interface PlatformEvent {
   id: string;
   name: string;
   date: Timestamp;
   location?: string;
   active: boolean;
+  /** Evento cancelado: no se vende ni se valida; quedan reembolsos pendientes */
+  cancelled?: boolean;
+  cancelledAt?: Timestamp;
+  cancelledBy?: string;
+  refundTransfers?: Record<string, EventRefundTransfer>;
   capacity: number;
   sold: number;
   price: number;
@@ -211,10 +222,34 @@ export interface SerializedEvent {
   date: string;
   location?: string;
   active: boolean;
+  cancelled?: boolean;
+  cancelledAt?: string;
   capacity: number;
   sold: number;
   price: number;
   ownerId?: string;
+}
+
+export interface SerializedEventRefundRow {
+  key: string;
+  email?: string;
+  buyerNames: string[];
+  buyerPhone?: string;
+  ticketQuantity: number;
+  amount: number;
+  paymentMethods: Array<'mercadopago' | 'cash'>;
+  purchaseCount: number;
+  transferred: boolean;
+  transferredAt?: string;
+}
+
+export interface SerializedEventRefundSummary {
+  rows: SerializedEventRefundRow[];
+  totalAmount: number;
+  transferredAmount: number;
+  pendingAmount: number;
+  totalCount: number;
+  transferredCount: number;
 }
 
 export interface SerializedProducer {

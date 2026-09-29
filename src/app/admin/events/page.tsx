@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardContent,
@@ -102,6 +103,7 @@ function AdminEventsContent() {
   }
 
   async function toggleActive(event: SerializedEvent) {
+    if (event.cancelled) return;
     const token = await getIdToken();
     if (!token) return;
     await updateEvent(token, { id: event.id, active: !event.active });
@@ -254,10 +256,14 @@ function AdminEventsContent() {
                     </TableCell>
                     <TableCell>${ev.price}</TableCell>
                     <TableCell>
-                      <Switch
-                        checked={ev.active}
-                        onCheckedChange={() => toggleActive(ev)}
-                      />
+                      {ev.cancelled ? (
+                        <Badge variant="destructive">Cancelado</Badge>
+                      ) : (
+                        <Switch
+                          checked={ev.active}
+                          onCheckedChange={() => toggleActive(ev)}
+                        />
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button asChild variant="default" size="sm">

@@ -608,8 +608,10 @@ function SuperAdminContent() {
                     {new Date(e.date).toLocaleDateString('es-AR')}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={e.active ? 'default' : 'secondary'}>
-                      {e.active ? 'Activo' : 'Inactivo'}
+                    <Badge
+                      variant={e.cancelled ? 'destructive' : e.active ? 'default' : 'secondary'}
+                    >
+                      {e.cancelled ? 'Cancelado' : e.active ? 'Activo' : 'Inactivo'}
                     </Badge>
                   </TableCell>
                 </TableRow>

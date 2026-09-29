@@ -1,6 +1,6 @@
 'use server';
 
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import {
   verifyIdTokenAndGetUser,
   requireManageEvents,
@@ -8,15 +8,61 @@ import {
   canAccessGate,
 } from '@/lib/auth-server';
 import { getAdminDb, COLLECTIONS } from '@/lib/firebase-admin';
-import { createEventSchema, updateEventSchema } from '@/lib/validations';
-import { normalizeEventDoc, serializeEvent } from '@/lib/serialize';
+import {
+  cancelEventSchema,
+  createEventSchema,
+  markEventRefundTransferredSchema,
+  updateEventSchema,
+} from '@/lib/validations';
+import { normalizeEventDoc, serializeEvent, serializePaymentLink } from '@/lib/serialize';
 import {
   assertProducerCanCreateEvent,
   incrementProducerEventUsage,
   requireEventAccess,
 } from '@/lib/tenant';
+import {
+  buildEventRefundSummary,
+  encodeRefundStorageKey,
+} from '@/lib/event-refunds';
 import { ok, fail, type ActionResult } from '@/lib/actions/types';
-import type { PlatformEvent, SerializedEvent } from '@/lib/models';
+import type {
+  EventRefundTransfer,
+  PaymentLink,
+  PlatformEvent,
+  SerializedEvent,
+  SerializedEventRefundSummary,
+} from '@/lib/models';
+
+const WRITE_CHUNK = 400;
+
+async function commitUpdatesInChunks(
+  db: FirebaseFirestore.Firestore,
+  refs: FirebaseFirestore.DocumentReference[],
+  data: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData>
+) {
+  for (let i = 0; i < refs.length; i += WRITE_CHUNK) {
+    const batch = db.batch();
+    for (const ref of refs.slice(i, i + WRITE_CHUNK)) {
+      batch.update(ref, data);
+    }
+    await batch.commit();
+  }
+}
+
+async function loadEventRefundSummary(
+  eventId: string,
+  transfers: Record<string, EventRefundTransfer> = {}
+): Promise<SerializedEventRefundSummary> {
+  const snap = await getAdminDb()
+    .collection(COLLECTIONS.paymentLinks)
+    .where('eventId', '==', eventId)
+    .get();
+
+  const links = snap.docs.map((d) =>
+    serializePaymentLink({ id: d.id, ...d.data() } as PaymentLink)
+  );
+  return buildEventRefundSummary(links, transfers);
+}
 
 function eventsQueryForUser(user: { uid: string; role: string }) {
   return getAdminDb()
@@ -138,6 +184,9 @@ export async function updateEvent(
     if (!snap.exists) return fail('Evento no encontrado');
 
     const current = snap.data()!;
+    if (current.cancelled === true && rest.active === true) {
+      return fail('El evento está cancelado. No se puede volver a publicar.');
+    }
     if (rest.capacity !== undefined && rest.capacity < (current.sold ?? 0)) {
       return fail(
         `La capacidad no puede ser menor a las ${current.sold} entradas ya vendidas`
@@ -210,6 +259,138 @@ export async function getEvent(
     return ok(serializeEvent(event));
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Error');
+  }
+}
+
+export async function cancelEvent(
+  idToken: string,
+  input: unknown
+): Promise<ActionResult<{ event: SerializedEvent; refunds: SerializedEventRefundSummary }>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    requireManageEvents(user);
+    const { eventId } = cancelEventSchema.parse(input);
+    const event = await requireEventAccess(user, eventId);
+
+    const db = getAdminDb();
+    const eventRef = db.collection(COLLECTIONS.events).doc(eventId);
+    const now = Timestamp.now();
+
+    const [linksSnap, ticketsSnap] = await Promise.all([
+      db.collection(COLLECTIONS.paymentLinks).where('eventId', '==', eventId).get(),
+      db.collection(COLLECTIONS.tickets).where('eventId', '==', eventId).get(),
+    ]);
+
+    const pendingLinkRefs = linksSnap.docs
+      .filter((d) => d.data().status === 'PENDING_PAYMENT')
+      .map((d) => d.ref);
+    const validTicketRefs = ticketsSnap.docs
+      .filter((d) => d.data().status === 'VALID')
+      .map((d) => d.ref);
+
+    await eventRef.update({
+      cancelled: true,
+      cancelledAt: event.cancelledAt ?? now,
+      cancelledBy: event.cancelledBy ?? user.uid,
+      active: false,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    await commitUpdatesInChunks(db, pendingLinkRefs, {
+      status: 'CANCELLED',
+      updatedAt: now,
+    });
+    await commitUpdatesInChunks(db, validTicketRefs, {
+      status: 'CANCELLED',
+    });
+
+    const updated = await eventRef.get();
+    const normalized = normalizeEventDoc(eventId, updated.data()!);
+    const transfers = (updated.data()?.refundTransfers ?? {}) as Record<
+      string,
+      EventRefundTransfer
+    >;
+    const links = linksSnap.docs.map((d) =>
+      serializePaymentLink({ id: d.id, ...d.data() } as PaymentLink)
+    );
+    const refunds = buildEventRefundSummary(
+      links.map((link) =>
+        pendingLinkRefs.some((ref) => ref.id === link.id)
+          ? { ...link, status: 'CANCELLED' }
+          : link
+      ),
+      transfers
+    );
+
+    return ok({ event: serializeEvent(normalized), refunds });
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error al cancelar el evento');
+  }
+}
+
+export async function getEventRefunds(
+  idToken: string,
+  eventId: string
+): Promise<ActionResult<SerializedEventRefundSummary>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    requireManageEvents(user);
+    await requireEventAccess(user, eventId);
+
+    const snap = await getAdminDb().collection(COLLECTIONS.events).doc(eventId).get();
+    if (!snap.exists) return fail('Evento no encontrado');
+    const transfers = (snap.data()?.refundTransfers ?? {}) as Record<
+      string,
+      EventRefundTransfer
+    >;
+    return ok(await loadEventRefundSummary(eventId, transfers));
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error al listar reembolsos');
+  }
+}
+
+export async function markEventRefundTransferred(
+  idToken: string,
+  input: unknown
+): Promise<ActionResult<SerializedEventRefundSummary>> {
+  try {
+    const user = await verifyIdTokenAndGetUser(idToken);
+    requireManageEvents(user);
+    const { eventId, refundKey, transferred } = markEventRefundTransferredSchema.parse(input);
+    await requireEventAccess(user, eventId);
+
+    const db = getAdminDb();
+    const eventRef = db.collection(COLLECTIONS.events).doc(eventId);
+    const snap = await eventRef.get();
+    if (!snap.exists) return fail('Evento no encontrado');
+    if (snap.data()?.cancelled !== true) {
+      return fail('Cancelá el evento para registrar las transferencias');
+    }
+
+    const storageKey = encodeRefundStorageKey(refundKey);
+    const payload: EventRefundTransfer = transferred
+      ? {
+          transferred: true,
+          transferredAt: Timestamp.now(),
+          transferredBy: user.uid,
+        }
+      : { transferred: false };
+
+    await eventRef.update(
+      new FieldPath('refundTransfers', storageKey),
+      payload,
+      'updatedAt',
+      FieldValue.serverTimestamp()
+    );
+
+    const updated = await eventRef.get();
+    const transfers = (updated.data()?.refundTransfers ?? {}) as Record<
+      string,
+      EventRefundTransfer
+    >;
+    return ok(await loadEventRefundSummary(eventId, transfers));
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : 'Error al marcar la transferencia');
   }
 }
 

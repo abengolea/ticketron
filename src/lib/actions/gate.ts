@@ -106,6 +106,16 @@ async function validateTicketAtGateCore(
         };
       }
 
+      const eventSnap = await tx.get(db.collection(COLLECTIONS.events).doc(eventId));
+      if (eventSnap.data()?.cancelled === true) {
+        return {
+          kind: 'CANCELLED' as const,
+          message: 'El evento fue cancelado',
+          buyerName: ticket.buyerName as string | undefined,
+          ticketCode: ticket.ticketCode as string,
+        };
+      }
+
       tx.update(ticketRef, {
         status: 'USED',
         usedAt: Timestamp.now(),
